@@ -636,7 +636,7 @@ mod fixtures {
 
     #[test]
     fn comprehensive_parses_without_panic() {
-        let input = include_bytes!("../../../examples/comprehensive.udon");
+        let input = include_bytes!("../../examples/comprehensive.udon");
         let mut parser = Parser::new(input);
         let events = parser.parse();
         // For now, just verify it doesn't panic and produces some events
@@ -645,7 +645,7 @@ mod fixtures {
 
     #[test]
     fn minimal_parses_without_panic() {
-        let input = include_bytes!("../../../examples/minimal.udon");
+        let input = include_bytes!("../../examples/minimal.udon");
         let mut parser = Parser::new(input);
         let events = parser.parse();
         assert!(!events.is_empty(), "Should produce events");
