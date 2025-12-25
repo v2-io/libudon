@@ -1,0 +1,104 @@
+|parser udon
+
+|enum[NodeType]
+  |ROOT |BLANK |NORMAL
+
+|struct[Node]
+  |node_type     NodeType
+  |children      LIST
+  |source_line   Z+
+  |source_column Z+
+  |name          STRING
+  |id            STRING
+  |classes       LIST
+  |attributes    DICT
+
+|entry-point /node:child-shortcut
+
+#-------------+-----------+----------------------------------------+----------------
+|function[node:Node]  | inl=1 | ibase=COL | ipar=COL-1 | S.node_type=NORMAL
+  |state[:init]
+    |eof                  | S.node_type=BLANK                      |return S
+    |c[\n]    |.value1    | -> | S.node_type=BLANK                 |>> :child
+    |c[ \t]   |.value2    |                                        |>> :child.lead
+    |c[:]     |.attr      | ->                                     |>> :attribute
+    |c[<L>]   |.id        |                                        |>> :identity.id
+    |c[.]     |.class     |                                        |>> :identity.class
+    |c[(]     |.delim     | S.name=/label:delim                    |>> :identity
+    |c[<P>]   |.child     |                                        |>> :child2.node
+    |c[{]     |.embed     |err Embedded nodes are not yet supported
+    |default  |.name      | S.name=/label                          |>> :identity
+  |state[:identity]
+    |c[ \t]   |.lead      | ->                                     |>>
+    |c[<L>]   |.id        | S.id=/id                               |>>
+    |c[.]     |.class     | ->| S.classes << /label                |>>
+    |default  |.child     |                                        |>> :child
+  |state[:child-shortcut] | S.node_type=ROOT | inl = 0             |>> :child
+  |state[:child]
+    |c[ \t]   |.lead      | ->                                     |>>
+    |c[\n]    |.nl        |if[!inl] | C << /node |endif | inl=0    |>>
+    |c[#]     |.bcomment  | -> | /block_comment                    |>>
+    |default  |.text      |if[COL <= ipar]                         |return S
+                          |endif                                   |>> :child2
+  |state[:child2]
+    |c[<P>]   |.node      | -> | C << /node                        |>> :child
+    |c[:]     |.attribute | ->                                     |>> :attribute
+    |default  |.value     |if[inl] | C <<< /value                  |>> :child
+                          |else | C<<</data                        |>> :child
+  |state[:attribute]
+    |c[<P>]   |.grim      | -> | g=/node | S.attributes{g.name,g}  |>> :child
+    |c[<L>]   |.grim2     |    | g=/node | S.attributes{g.name,g}  |>> :child
+    |default  |.normal    | S.attributes{/label,/value}            |>> :child
+
+|function[data:STRING]    | MARK
+  |eof                    | TERM                                   |return S
+  |state[:main]           | [\n]-> | TERM                          |return S
+
+|function[value:STRING]   | MARK
+  |eof                    | TERM                                   |return S
+  |state[:main]
+    |c[ \t]   |.space     | TERM | ->                              |>> :disamb
+    |c[\n]    |.done1     | TERM                                   |return S
+    |c[#]     |.comment   | TERM | ->[\n]                          |return S
+    |default  |.collect   | ->                                     |>>
+  |state[:disamb]
+    |c[ \t]   |.space     | ->                                     |>>
+    |c[\n]    |.done1     | TERM                                   |return S
+    |c[#]     |.comment   | ->[\n]                                 |return S
+    |c[<P>.!:]|.done2     |                                        |return S
+    |default  |.nevermind |                                        |>> :main.collect
+
+#-------------+-----------+----------------------------------------+----------------
+|function[label:STRING]   | lvl=0 | MARK
+  |eof                    | TERM                                   |return S
+  |state[:init]
+    |c[(]     |.delim     |                                        |>> :delim.nest
+    |c[ \t\n<L><P>.!]|.done| TERM                                  |return S
+    |default  |.collect   | ->                                     |>>
+  |state[:delim]
+    |eof      |err Unexpected end of file - missing closing ')'
+    |c[(]     |.nest      | -> | lvl+=1                            |>>
+    |c[)]     |.unnest    | -> | lvl-=1
+      |if[lvl==0]         | TERM                                   |return S
+      |else                                                        |>>
+    |c[\n]    |.collect1  | ->                                     |>>
+    |default  |.collect2  | ->                                     |>>
+
+#-------------+-----------+----------------------------------------+----------------
+|function[id:STRING]      | lvl=0 | MARK
+  |eof        |err Unexpected end of file - missing closing ']'
+  |state[:delim]
+    |c[<L>]   |.nest      | -> | lvl += 1                          |>>
+    |c[<R>]   |.unnest    | -> | lvl -= 1
+      |if[lvl==0]         | TERM                                   |return S
+      |else                                                        |>>
+    |c[\n]    |.collectnl | ->                                     |>>
+    |default  |.collect   | ->                                     |>>
+
+#-------------+-----------+----------------------------------------+----------------
+|function[block_comment]  | ipar = COL - 1
+  |eof                    |                                        |return
+  |state[:main]           | [\n]->                                 |
+  |state[:next]           | ->[^ \t]
+    |if[COL <= ipar]                                               |return
+    |else                                                          |>> :main

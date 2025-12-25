@@ -1,0 +1,960 @@
+#!/usr/bin/env ruby
+# encoding: UTF-8
+
+# This is super-ghetto code being used to generate super-awesome-fast code,
+# which is what I really care about.
+# TODO:
+#   - get all dict stuff working correctly
+#   - don't preallocate local strings. may cause small memory leaks
+#
+#   (Extra credit)
+#   * have quickscan go to local eof when appropriate instead of always the
+#     function-scope eof action
+#   * support negative advance-to character classes (e.g.  ->[^ \t])
+#   * adjust TERM by some position (TERM(a,-1))
+#   * types automatically include a member field that indicates the function that
+#     generated it.
+#   * automatic 'defaults' with errors where none specified so there are no
+#     unexpected code paths (esp. after states get reorganized).
+#   * ..._free_parser implementation (for real)
+#   * Stablize types, structures, listability, member referencing, inheritance,
+#     strings and lists.
+#   * Preallocate big block of small structs (especially string references) as
+#     a pool-like resource that also gets freed appropriately.
+#   * Much better genmachine abstraction for addressing members of a parent
+#     struct.
+#   * Set source and column in result value when applicable in allocators
+#   * Sprinkle generated code with comments that are the original source
+#   * Make sure eof check always happens on initial state
+#   * Some way to get out of memory error messages to emit the real source
+#     (i.e., turn into a macro somehow)
+#   * Automatic errors on "... character expected" situations that include the
+#     rule + state.
+#
+
+INDENTS = 4
+COL_2 = 32
+
+def unprocessed(context, c, &src)
+  $stderr.print "Warning: unprocessed (#{context}): "
+  $stderr.puts c.inspect
+  c = yield
+  return c
+end
+
+def split_array(a, &block) # ghetto solution until Array::slice_before arrives
+  l = []; r = []
+  in_l = true
+  a.each do |e|
+    match = yield(e)
+    in_l = false if match
+    if in_l then l << e
+    else r << e end
+  end
+  return [l, r]
+end
+
+class String
+  def to_camel
+    self.gsub(/(?<=[a-z])(?=[A-Z])/,'_').downcase
+  end
+end
+
+class GMTypeMap
+  # At some point I'll probably want to consolidate the typing mechanisms
+  # scattered all over into this class.
+
+  # Used for:
+  #   - constructors/allocators
+  #   - function prototypes
+  #   - initializers
+  #   - member destructuring (pointer vs. dereferenced for members etc.)
+  #   - type checking / static analysis
+
+  # Types from:
+  #  - specified function return type
+  #    * becomes type for anything the function returns to
+  #    * becomes type for S (self_res)
+  #  - when right-hand-side of an assignment is a type (with .new ?)
+  #    * becomes type for left side
+  #  - when a variable is marked, it's a STRING
+  #  - when a variable is assigned an enum member it is that enum
+  #  - we know the types of most members based on struct/enum declarations
+  #  - when a number, COL, or LINE are assigned to something it is a Z+
+
+end
+
+
+class GM
+  attr_accessor :name, :body, :epoints, :allocators, :enums, :structs,
+    :used_types, :use_gmstring, :use_gmlist, :use_gmdict, :listy
+  def initialize
+    @used_types = {}
+    @name = ''
+    @body = [];   @epoints = []
+    @enums = [];  @structs = [];  @listy = ['LIST', 'STRING']
+    @enum_names = []
+    @checked_newline = false
+    @allocators = {}
+    @use_gmstring = @use_gmlist = @use_gmdict = false
+  end
+
+  def checked_newline?() return @checked_newline end
+  def checked_newline=(v) @checked_newline = v end
+
+  def parse(&src)
+    c = yield
+    loop do
+      if c[0] == 'parser'
+        @name = c[2].downcase
+        c = yield
+      elsif c[0] == 'entry-point'
+        f = GMFunction.new(self, "#{@name}_parse", 'int')
+        f.body << GMCommand.new(f, "int errval = setjmp(p->err_jmpbuf)")
+        f.body << GMCommand.new(f, "p->jmpbuf_set = 1")
+        f.body << GMCommand.new(f, "if(errval) return errval")
+        f.body << GMCommand.new(f, "p->_public.result = (void *)#{parse_location(c[2])[1]}")
+        f.body << GMCommand.new(f, "return 0")
+        f.public_prototype = true
+        @body << f
+        c = yield
+      elsif c[0] == 'function'
+        fname, ftype = c[1].split(':')
+        f = GMFunction.new(self, function_name(fname), ftype, true)
+        @body << f
+        c = f.parse(&src)
+      elsif c[0] == 'enum'
+        e = GMEnum.new(self, c[1])
+        @enums << e
+        @enum_names << c[1]
+        c = e.parse(&src)
+      elsif c[0] == 'struct'
+        s = GMStruct.new(self, c[1])
+        @structs << s
+        c = s.parse(&src)
+      else
+        c = unprocessed('toplevel', c, &src)
+      end
+    end
+  end
+
+  def parse_location(loc)
+    loc = loc.split(/(?=\/|:|\.)/)
+    loc = loc.reduce({}) do |res, part|
+      if part[0..0] == '/'
+        res[:function] = function_name(part[1..-1])
+        $goto_eofcheck = true
+      elsif part[0..0] == ':' then res[:state] = 's_' + part[1..-1].gsub(/-/,'_')
+      elsif part[0..0] == '.' then res[:substate] = part[1..-1]
+      else res[:state] = part.gsub(/-/,'_') end
+      res
+    end
+    @epoints << loc if loc[:function]
+    res = [loc[:function], loc[:state], loc[:substate]].compact
+    res = res.join('__')
+    res += '(p)' if loc[:function]
+    return [loc, res]
+  end
+
+  def allocator(for_type)
+    fname = '_new_' + type_map(for_type, false).to_camel
+    @allocators[for_type] = fname
+    return fname + '(p)'
+  end
+
+  def type_map(t, inc_pointer=true)
+    @used_types[t] = true
+    p = (inc_pointer && !@enum_names.include?(t)) ? ' *' : ''
+    cap = @name.capitalize
+    case
+    when t=='Z+';           'uint64_t'
+    when t=='LIST';         cap+'List'+p
+    when t=='STRING';       cap+'String'+p
+    when t=='DICT';         cap+'Dict'+p
+    when t=~/^[A-Z]+[a-z]/; cap+t+p
+    else t
+    end
+  end
+
+  def const_name(n)     @name.upcase+'_'         + n  end
+  def function_name(n)  '_' + @name.downcase+'_' + n  end
+  def real_fname(n)     n.split('_')[2..-1].join('_') end
+
+  def ensure_secondary
+    add_entrypoints
+    add_allocators
+    add_builtin_structs
+  end
+
+  def add_entrypoints
+    return if @ep_ensured
+    fnames = @body.select{|b| b.is_a? GMFunction}.reduce({}){|acc, b| acc[b.name] = b; acc}
+    @epoints.each do |expect|
+      if fnames[expect[:function]].nil?
+        $stderr.puts("Warning: missing functional group: #{real_fname(expect[:function])}")
+        f = GMFunction.new(self, expect[:function], "static inline void *")
+        f.body << GMCommand.new(f, "#{@name}_data_err(\"Parser for '#{real_fname(expect[:function])}' not yet implemented.\")")
+        f.body << GMCommand.new(f, "return NULL")
+        @body << f
+      elsif expect[:state]
+        f = fnames[expect[:function]]
+        @body << f.copy_from(expect[:state])
+      end
+    end
+    @ep_ensured = true
+  end
+
+  def add_allocators
+    return if @all_ensured
+    @allocators.each do |for_type, fname|
+      set_ltype = listy.include?(for_type)
+      ft = type_map(for_type)
+      f = GMFunction.new(self, fname, "static inline #{ft}")
+      f.register_local(ft,'res',"(#{ft})#{@name}_malloc(sizeof(#{type_map(for_type,false)}))")
+      f.body << GMCommand.new(f, "if(!res) #{@name}_memory_err(\"Memory allocation failed for #{for_type}.\")")
+      f.body << GMCommand.new(f, "memset(res, 0, sizeof(#{type_map(for_type,false)}))")
+      f.body << GMCommand.new(f, "res->ll{.}listable_type = #{name.upcase}_#{for_type.upcase}_TYPE") if set_ltype
+      str = @structs.select{|s| s.name == for_type}[0]
+      #end
+      f.body << GMCommand.new(f, "return res")
+      @body << f
+    end
+    @all_ensured = true
+  end
+
+  def add_builtin_structs
+    @used_types.keys.each do |t|
+      @use_gmstring = true if t == 'STRING'
+      @use_gmlist   = true if t == 'LIST'
+      @use_gmdict   = true if t == 'DICT'
+    end
+  end
+
+
+  def output_functions()
+    ensure_secondary
+    @body.map{|b| b.to_str}
+  end
+
+  def output_enums()     @enums.map  {|e| e.to_str} end
+  def output_structs()   @structs.map{|s| s.to_str} end
+
+  def output_private_prototypes()
+    ensure_secondary
+    @body.map{|b| b.to_proto_str if(b.is_a?(GMFunction) && !b.public_prototype)}.compact
+  end
+
+  def output_public_prototypes()
+    ensure_secondary
+    @body.map{|b| b.to_proto_str if(b.is_a?(GMFunction) && b.public_prototype)}.compact
+  end
+end
+
+class GMGenericChild
+  attr_accessor :parent, :name, :body
+  def initialize(parent, name)
+    @parent = parent
+    @name = name
+    @body = []
+  end
+
+  def check_basic_commands(c, &src)
+    matched = false
+    is_done = false
+    new_c = c
+    if c[0] == ''
+      @body << GMCommand.new(self, c[2])
+      new_c = yield
+      matched = true
+      is_done = false
+    elsif c[0] == '>>'
+      if c[2] == ''
+        @body << GMCommand.new(self, "goto #{gms.name}")
+      else
+        loc, lstr = gm.parse_location(c[2])
+        gmf.expected[lstr] = loc
+        if ($goto_eofcheck || loc[:substate])
+          @body << GMCommand.new(self, "goto #{lstr}")
+        else
+          @body << GMCommand.new(self, "goto _inner_#{lstr}")
+        end
+      end
+      new_c = yield
+      matched = true
+      is_done = true
+    elsif c[0] == 'err'
+      @body << GMCommand.new(self, "#{gm.name}_data_err(\"#{c[2].gsub('"','\\"')}\")")
+      new_c = yield
+      matched = true
+      is_done = true
+    elsif c[0] == 'return'
+      @body << GMCommand.new(self, "return #{c[2]}")
+      new_c = yield
+      matched = true
+      is_done = true
+    elsif c[0] == 'if'
+      cond = GMConditional.new(self, c[1])
+      @body << cond
+      new_c = cond.parse(&src)
+      matched = true
+      is_done = false
+    end
+
+    return [matched, new_c, is_done]
+  end
+
+  def gm
+    return self if self.is_a?(GM)
+    p = @parent
+    while !p.is_a?(GM); p = p.parent end
+    return p
+  end
+  def gmf
+    return self if self.is_a?(GMFunction)
+    p = @parent
+    while !p.is_a?(GMFunction); p = p.parent end
+    return p
+  end
+  def gms
+    return self if self.is_a?(GMState)
+    p = @parent
+    while !p.is_a?(GMState); p = p.parent end
+    return p
+  end
+  def parse(&src) raise "OVERRIDE ME" end
+  def dent(i) ' '*i*INDENTS end
+  def to_str(ind=0) return "#{dent(ind)}<unimplemented #{self.class.to_s}>\n" end
+end
+
+class GMEnum < GMGenericChild
+  def parse
+    c = yield
+    loop do
+      if ['struct','enum','function','parser','entry-point'].include?(c[0])
+        return c
+      else
+        @body << c[0].upcase
+        c = yield
+      end
+    end
+  end
+
+  def to_str(ind=0)
+    n = gm.type_map(@name, false)
+    r = dent(ind)+"enum #{n} {\n"
+    r += @body.map{|b| dent(ind+1)+gm.const_name(b)}.join(",\n")
+    r += "\n"+dent(ind)+"};\n"
+    i = COL_2 - (ind*INDENTS)
+    r += dent(ind)+"typedef enum #{n}".ljust(i,' ')+" #{n};\n"
+    return r
+  end
+end
+
+class GMStruct < GMGenericChild
+  def initialize(p, n)
+    super(p, n)
+    @name = @name.split('<').map{|p| p.strip}
+    @struct_parent = @name[1]
+    @name = @name[0]
+
+    # For now assume all structs are listy
+    gm.listy << @name #if gm.listy.include?(@struct_parent)
+  end
+
+  def parse
+    c = yield
+    loop do
+      if ['struct', 'enum', 'function', 'parser', 'entry-point'].include?(c[0])
+        return c
+      else
+        gmt = gm.type_map(c[2])
+        gmt = 'struct ' + gmt if c[2] == @name
+        @body << [c[0], gmt]
+        @body << ['_' + c[0] + '__tail', gmt] if (gm.listy.include?(c[2]) && (c[2] != 'STRING'))
+        c = yield
+      end
+    end
+  end
+
+  def to_str(ind=0)
+    n =  gm.type_map(@name, false)
+    r =  dent(ind)+"struct #{n} {\n"
+    i = COL_2 - ((ind+1)*INDENTS)
+    if @struct_parent
+      r += dent(ind+1)+gm.type_map(@struct_parent,false).ljust(i,' ') + " _base;\n\n"
+    else
+      r += dent(ind+1)+gm.type_map('LIST',false).ljust(i,' ') + " ll;\n\n"
+    end
+
+    r += @body.map{|b| dent(ind+1)+b[1].ljust(i,' ') + ' ' + b[0]}.join(";\n")
+    r += ";\n"+dent(ind)+"};\n"
+    r += dent(ind)+"typedef struct #{n}".ljust(i+INDENTS,' ')+" #{n};\n"
+    return r
+  end
+end
+
+
+class GMCommand < GMGenericChild
+  attr_accessor :ignore, :statement
+  def initialize(parent, cmd, statement=false, register=true)
+    cmd       = cmd.strip
+    super(parent, cmd)
+    @register = register
+    @statement= statement
+    @ignore   = false
+    @cmd      = nil
+    @operator = nil
+    @lside    = nil
+    @rside    = nil
+    @fullcmd  = nil
+    if cmd.start_with? '/'; @cmd = gm.parse_location(cmd)[1]
+    elsif cmd =~ /^\s*(\[(?<adv_past>[^\]]+)\])?\s*->\s*(\[(?<adv_to>[^\]]+)\])?\s*$/
+      @operator = :advance
+      @lside = $~[:adv_past]
+      @rside = $~[:adv_to]
+      $goto_eofcheck = !(@lside || @rside)
+      @lside = GMCase.new(self, @lside) if @lside
+      @rside = GMCase.new(self, @rside) if @rside
+      $goto_eofcheck = !(@lside || @rside)
+    elsif cmd =~ /(?<dict>[^\{]+)\{(?<dkey>[^,]+),(?<dval>[^\}]+)\}/
+      @cmd = [gm.name, '_dict_add_or_update(',
+              outv(parse_side($~[:dict])), ',',
+              outv(parse_side($~[:dkey])), ',',
+              outv(parse_side($~[:dval])), ')'].join('')
+    elsif cmd =~ /[^\(]((!|=|<|(?<!-)>|\+|-(?!>))+)/
+      @operator = $1
+      lside, rside = cmd.split(@operator)
+      @lside = parse_side(lside)
+      @rside = parse_side(rside)
+      if @operator.include? '='
+        # Assignment: might need to make sure local variable exists etc.
+        if @lside[1] !~ /\.|->/
+          if @rside[0] == :number
+            ltype = gm.type_map('Z+')
+          elsif @rside[0] == :type
+            ltype = gm.type_map(@rside[1])
+            @rside[1] = gm.allocator(@rside[1])
+          elsif @rside[0] == :location
+            ltype = @rside
+          end
+
+          if @register
+            if @parent.is_a?(GMFunction)
+              @parent.register_local(ltype, @lside[1], outv(@rside))
+              @ignore = true
+            else
+              gmf.register_local(ltype, @lside[1])
+              @ignore = false
+            end
+          end
+        end
+      elsif @operator.include?('<<')
+        lsmain, lsmember = outv(@lside).split('->')
+        tail = "#{lsmain}->_#{lsmember}__tail"
+        ltype = gm.type_map('LIST')
+        stype = gm.type_map('STRING')
+        r = outv(@rside)
+        ei = ''
+        @fullcmd = ['{',
+                    "    #{ltype} _item  = (#{ltype})(#{r});"]
+        if @operator == '<<<'
+          sitm = "((#{stype})_item)"
+          @fullcmd << "    if(_item && #{sitm}->start) {"
+          @fullcmd << "        if(!#{sitm}->length) #{sitm}->length = p->curr - #{sitm}->start;"
+          ei = '    '
+        end
+        @fullcmd += [
+            ei+"    #{ltype} *_acc_head = (#{ltype}*) &(#{outv(@lside)});",
+            ei+"    #{ltype} *_acc_tail = (#{ltype}*) &(#{tail});",
+            ei+"    if(*_acc_tail == NULL) {",
+            ei+"        *_acc_head = *_acc_tail = _item;",
+            ei+"    } else {",
+            ei+"        (*_acc_tail)->next = _item;",
+            ei+"        *_acc_tail = _item;",
+            ei+"    }"]
+        if @operator == '<<<'
+          @fullcmd << "        #{r} = NULL;" unless r.include?('(')
+          @fullcmd << "    }"
+        end
+        @fullcmd << '}'
+      end
+    else
+      @cmd = parse_side(cmd)
+      if @cmd[0] == :acc
+        gmf.register_local(gm.type_map('STRING'), @cmd[1][1], gm.allocator('STRING'))
+        @operator = '='
+        v = @cmd[1][1]
+        if @cmd[1][0] == 'mark' && @parent.is_a?(GMFunction)
+          @lside = @cmd[1][1]+'->start'
+          @rside = 'p->curr'
+        elsif @cmd[1][0] == 'mark'
+          @fullcmd = ["if(!#{v})  #{v} = #{gm.allocator('STRING')};", "#{v}->start = p->curr;"]
+        else
+          @lside = @cmd[1][1]+'->length'
+          @rside = 'p->curr - '+@cmd[1][1]+'->start'
+        end
+        @cmd = nil
+      end
+    end
+  end
+
+  def to_str(ind=1)
+    return '' if @ignore
+    if @fullcmd
+      return @fullcmd.map{|line| dent(ind)+line}.join("\n")+"\n"
+    elsif @statement
+      if @cmd then return outv(@cmd)
+      elsif @operator == '=' then return '('+outv(@lside)+@operator+outv(@rside)+')'
+      else return (outv(@lside) || '')+(@operator || '')+(outv(@rside) || '') end
+    else
+      if @cmd then return dent(ind)+outv(@cmd)+";\n"
+      elsif @operator == :advance
+        if @lside or @rside
+          chars = @lside.nil? ? @rside.chars : @lside.chars
+          mac = "_#{gm.name.upcase}_QSCAN_#{@lside.nil? ? "TO" : "PAST"}#{chars.size}"
+          mac += '_NL' if chars.include?('\\n') && @rside.nil?
+          args = chars.map{|c| "'#{c}'"}.join(',')
+          gm.checked_newline = (chars == ['\\n'])
+          return dent(ind)+mac+'('+args+");\n"
+        elsif gm.checked_newline?
+          gm.checked_newline = false
+          return dent(ind)+'_'+gm.name.upcase+"_ADVANCE_LINE();\n"
+        else
+          return(dent(ind)+'_'+gm.name.upcase+"_ADVANCE_COL();\n")
+        end
+      elsif @operator
+        subind = (@operator.length == 1 ? COL_2 : COL_2-1) - (ind*INDENTS)
+        return dent(ind)+outv(@lside).ljust(subind,' ')+" #{@operator} #{outv(@rside)};\n"
+      else
+        raise "Can't handle this command: '#{@name}'"
+      end
+    end
+  end
+
+  def outv(statement)
+    stype, sval = statement
+    if [:general, :number, :location].include?(stype); return sval
+    elsif stype == :const; return gm.const_name(sval)
+    elsif stype == :type;  return gm.type_map(sval)
+    else return statement end
+  end
+
+  def parse_side(cmd)
+    return nil if cmd.nil?
+    cmd = specials_map(cmd)
+    if cmd =~ /(?<=^|[^a-zA-Z0-9_])(MARK|TERM)\s*(?:\(([^\)]*)\))?(?=$|[^a-zA-Z0-9_])/u
+                                             return [:acc,      [$1.downcase, $2 || 'self_res']]
+    elsif cmd.start_with?('/')             ; return [:location, gm.parse_location(cmd)[1]]
+    elsif cmd =~ /^[A-Z]+[a-z]+[a-zA-Z]*$/ ; return [:type,     cmd]
+    elsif cmd =~ /^[A-Z]+$/                ; return [:const,    cmd]
+    elsif cmd =~ /^[0-9.]+$/               ; return [:number,   cmd]
+    elsif cmd =~ /^p->(line|col)/          ; return [:number,   cmd]
+    else                                     return [:general,  cmd] end
+  end
+
+  def specials_map(cmd)
+    map = [['S',  'self_res'],           ['LINE', 'p->line'],
+           ['COL','p->column'],          ['CURR', '*(p->curr)'],
+           ['C',  'self_res->children'], ['α',   'greek_alpha'],
+           ['β', 'greek_beta']]
+    cmd = cmd.strip.gsub(/{\.}/,'<DOT>')
+    cmd = cmd.gsub(/\.(?!"|result)/,'->').gsub('<DOT>','.')
+    map.reduce(cmd) do |val, mapping|
+      from, to = mapping
+      val.gsub(/(?<=^|[^a-zA-Z0-9_])#{from}(?=$|[^a-zA-Z0-9_])/u, to)
+    end
+  end
+end
+
+class GMFunction < GMGenericChild
+  attr_accessor :ftype, :expected, :implemented, :eof_handler,
+    :needs_generic_eof, :warnings, :public_prototype
+  def initialize(parent, name, return_type, inner=false)
+    if return_type.nil?
+      return_type = "static inline void"
+      inner = false
+    end
+    super(parent, name)
+    @expected          = {}  # states and substates that will be jumped to
+    @implemented       = {}
+    @locals            = {}
+    @eof_handler       = nil
+    @has_states        = false
+    @needs_generic_eof = false
+    @warnings          = true
+    @ftype             = inner ? register_return_type(return_type) : return_type
+    @public_prototype  = false
+  end
+
+  def register_return_type(rt)
+    return if rt.nil?
+    base_type = gm.type_map(rt)
+    register_local(base_type, 'self_res', gm.allocator(rt))
+    return "static inline #{base_type}"
+  end
+
+  def register_local(ltype, lname, linitval=nil)
+    return if @locals[lname]
+    @locals[lname] = [ltype, linitval]
+  end
+
+  def copy_from(start_state)
+    f = self.dup
+    f.name = @name + '__' + start_state
+    f.warnings = false
+
+    initial, rest = split_array(@body){|b| b.is_a?(GMState)}
+    pre_start, rest = split_array(rest){|b| b.name == start_state}
+    f.body = initial + rest + pre_start
+    f.body.map!{|b| b = b.dup; b.parent = f; b}
+    return f
+  end
+
+  def parse(&src)
+    $goto_eofcheck = true
+    c = yield
+    loop do
+      if ['enum', 'struct', 'function'].include?(c[0])
+        return c
+      elsif c[0] == 'eof'
+        @eof_handler = GMEOF.new(self, nil)
+        c = @eof_handler.parse(&src)
+      elsif c[0] == 'state'
+        statename = 's_' + c[1].gsub(/-/,'_').gsub(':','')
+        st = GMState.new(self, statename, !@has_states)
+        @has_states = true
+        @body << st
+        @implemented[statename] = true
+        c = st.parse(&src)
+      elsif c[0] == ''
+        # TODO: real commands loop
+        @body << GMCommand.new(self, c[2])
+        c = yield
+      else
+        c = unprocessed('function', c, &src)
+      end
+    end
+  end
+
+  def to_proto_str(ind=0)
+    res = dent(ind)+"#{@ftype.ljust(COL_2-INDENTS,' ')} #{@name}(_#{gm.name.capitalize}ParseState *p);"
+  end
+
+  def get_location_type(ltype)
+    ltype = ltype[1][0..-4]
+    gm.body.each do |b|
+      if b.is_a?(GMFunction)
+        if b.name == ltype
+          return b.ftype.gsub(/\bstatic\b/,'').gsub(/\binline\b/,'')
+        end
+      end
+    end
+    return 'void *'
+  end
+
+  def to_str(ind=0)
+    res = dent(ind)+"#{@ftype} #{@name}(_#{gm.name.capitalize}ParseState *p) {\n"
+    ind = 1
+    @locals.each do |lname, ltype_init|
+      ltype, linit = ltype_init
+      ltype = get_location_type(ltype) if ltype.is_a?(Array)
+      decl = ltype.nil? ? lname : ltype + ' ' + lname
+      cmd = decl+(linit ? "= #{linit}" : '')
+      res += GMCommand.new(self, cmd, false, false).to_str(ind)
+    end
+    res += @body.map{|b| b.to_str(ind)}.join('')
+    @expected.each do |e, parts|
+      unless @implemented[e]
+        st = parts[:state].gsub(/^s_/,'')
+        msg = "Parser for '#{st}' in '#{gm.real_fname(@name)}' "
+        msg += "(substate '#{parts[:substate]}') " if parts[:substate]
+        msg += "not yet implemented."
+        res += dent(ind)+e+":\n"
+        res += dent(ind)+'    '+gm.name+'_data_err("'+msg+"\");\n"
+        if @warnings
+          msg = "Warning: missing state for /#{gm.real_fname(@name)}: #{st}"
+          msg += " (substate #{parts[:substate]})" if parts[:substate]
+          $stderr.puts(msg)
+        end
+      end
+    end
+    if (@needs_generic_eof || @eof_handler)
+      res += dent(ind) + "_eof:\n"
+      if @eof_handler then res += @eof_handler.to_str(ind+1)
+      else res += dent(ind+1) + "return self_res;\n" end
+    end
+    res += dent(ind-1)+"}\n"
+    return res
+  end
+end
+
+class GMEOF < GMGenericChild
+  def parse(&src)
+    c = yield
+    loop do
+      res, c, is_done = check_basic_commands(c, &src)
+      return c if (!res || is_done)
+    end
+  end
+  def to_str(ind) @body.map{|b| b.to_str(ind)}.join('') end
+end
+
+class GMState < GMGenericChild
+  def initialize(p, n, first_state)
+    super(p,n)
+    @local_eof_handler = nil
+    @first_state = first_state
+  end
+
+  def parse(&src)
+    $goto_eofcheck = true if @first_state
+    c = yield
+    loop do
+      if ['enum','struct','function','state'].include?(c[0])
+        return c
+      elsif c[0] == 'c'
+        cstmt = GMCase.new(self, c[1])
+        @body << cstmt
+        c = cstmt.parse(&src)
+      elsif c[0] == 'default'
+        dstmt = GMCase.new(self, nil)
+        @body << dstmt
+        c = dstmt.parse(&src)
+      elsif c[0] == 'eof'
+        @local_eof_handler = GMEOF.new(self, nil)
+        c = @local_eof_handler.parse(&src)
+      else
+        res, c, is_done = check_basic_commands(c, &src)
+        return c if is_done && res
+        c = unprocessed('state',c,&src) unless res
+      end
+    end
+  end
+
+  def to_str(ind=1)
+    res = dent(ind)+@name+":\n"
+    ind += 1
+
+    in_switch = false
+    bod = @body.map do |b|
+      r = ''
+      if b.is_a?(GMCase) && !in_switch
+        r += dent(ind)+"if(_#{gm.name.upcase}_EOF) "
+        if @local_eof_handler
+          r += "{\n"
+          r += @local_eof_handler.to_str(ind+1)
+          r += dent(ind)+"} else {\n"
+        else
+          r += "goto _eof;\n"+ dent(ind)+"else {\n"
+          gmf.needs_generic_eof = true
+        end
+        ind += 1
+        r += dent(ind)[0..-3] + "_inner_#{name}:\n"
+
+        r += dent(ind)+"switch(*(p->curr)) {\n"
+        in_switch = true; ind += 1
+      end
+      r + b.to_str(ind)
+    end
+    res += bod.join('')
+    res += dent(ind-1) + "}\n" + dent(ind-2) + "}\n" if in_switch
+    return res
+  end
+end
+
+
+class GMCase < GMGenericChild
+  attr_accessor :chars
+  def initialize(par, nm)
+    super(par, nm)
+    if @name.nil?
+      @default = true
+      gm.checked_newline = false
+    else
+      @default = false
+      @name = @name.gsub('<L>','[').gsub('<R>',']').gsub('<P>','|').gsub('\\t',"\t").gsub('\\n',"\n")
+      @chars = @name.split(//).map{|c| c.gsub("\n",'\\n').gsub("\t",'\\t').gsub("'","\\'").gsub("\\","\\\\")}
+      gm.checked_newline = @chars.include?("\\n")
+    end
+    @goto_eofcheck = false
+  end
+
+  def parse(&src)
+    $goto_eofcheck = false
+    c = yield
+    loop do
+      if ['enum','struct','function','state','c','default'].include?(c[0])
+        return c
+      elsif c[0] == '.'
+        @substate = c[2]
+        gmf.implemented[gms.name + '__' + @substate] = true
+        c = yield
+      else
+        res, c, is_done = check_basic_commands(c, &src)
+        return c if is_done && res
+        c = unprocessed('case',c,&src) unless res
+      end
+    end
+    @goto_eofcheck = $goto_eofcheck
+  end
+
+  def to_str(ind=3)
+    cstmts = []
+    label_intern = @parent.name + '__' + (@substate||'')
+    is_expected = gmf.expected[label_intern]
+    inline = (((@chars && @chars.size == 1) || @chars.nil?) &&
+              @body.size == 1 && @body[0].is_a?(GMCommand) && !is_expected)
+    if @default
+      cstmts = ["default:"]
+      gm.checked_newline = false
+    else
+      cstmts = @chars.map{|c| "case '#{c}':"}
+      gm.checked_newline = @chars.include?("\\n")
+    end
+    if @substate
+      label = gms.name.gsub(/^s_/,'')+'.'+@substate +' '
+      if inline then cstmts[-1] = cstmts[-1].ljust(11,' ') + " /*-- #{label.ljust(15,'-')}*/   "
+      else           cstmts[-1] = cstmts[-1].ljust(11,' ') + " /*-- #{label.ljust(15,'-')}*/" end
+      cstmts << '  ' + label_intern + ':' if is_expected
+    end
+    if inline
+      res = cstmts.map{|c| dent(ind) + c}.join('')
+    else
+      res = cstmts.map{|c| dent(ind) + c}.join("\n") + "\n"
+    end
+    res + @body.map{|b| b.to_str((inline ? 0 : ind+1))}.join('')
+  end
+end
+
+
+class GMConditional < GMGenericChild
+  def initialize(p,n)
+    super(p,n)
+    @conds = []
+    @curr_clause = GMCommand.new(self, n, true)
+  end
+
+  def parse(&src)
+    c = yield
+    loop do
+      if c[0] == 'elsif'
+        @conds << [@curr_clause, @body.dup]
+        @body = []
+        @curr_clause = GMCommand.new(self, c[1], true)
+        c = yield
+      elsif c[0] == 'else'
+        @conds << [@curr_clause, @body.dup]
+        @body = []
+        @curr_clause = nil
+        c = yield
+      elsif c[0] == 'endif'
+        @conds << [@curr_clause, @body]
+        c = yield
+        return c
+      elsif ['c','state','function','enum','struct','entry-point','parser','default','eof'].include?(c[0])
+        @conds << [@curr_clause, @body.dup]
+        return c
+      else
+        res, c, is_done = check_basic_commands(c, &src)
+        c = unprocessed('if-statement',c,&src) unless res
+      end
+    end
+  end
+
+  def to_str(ind=1)
+    first_if = true
+    res = ''
+    inline = @conds.all?{|c,b| b.size == 1 && b[0].to_str.count("\n") < 2}
+    sbrac = inline ? '' : "{\n"
+    ebrac = inline ? '' : "} "
+    @conds.each do |clause, body|
+      if first_if  then res =  dent(ind)+"if(" + clause.to_str(ind+1) + ") #{sbrac}"
+      elsif clause then res += dent(ind)+"#{ebrac}else if(" + clause.to_str(ind+1) + ") #{sbrac}"
+      else              res += dent(ind)+"#{ebrac}else #{sbrac}" end
+      first_if = false
+      if inline
+        b = body[0]
+        b.statement = true
+        res += b.to_str(0) + ";\n"
+      else
+        res += body.map{|b| b.to_str(ind+1)}.join('')
+      end
+    end
+    res += dent(ind)+"}\n" unless inline
+    res
+  end
+end
+
+# Filters for liquid
+module GMFilterShorthand
+  def up(input) input.upcase end
+  def cap(input) input.capitalize end
+end
+
+
+#------- Main loop (just feeding stuff to parser) --------
+# Pull in source and feed it, one part at a time, to wherever parse_source asks
+# with yield.
+content = ARGF.readlines.select{|c| c =~ /^\s*\|/}.join('').split('|').map{|c| c.rstrip}.select{|c| c.strip!=''}
+i = -1
+gm = GM.new
+gm.parse do |parser|
+  i += 1
+  break if i >= content.size
+  c = content[i]
+  next if c =~ /^\s*$/
+  tag = id = rest = nil
+  tag = c[/^(\.|[^ \[]+)/]
+  id  = c[/\[[^\]]*/] unless(tag.nil? or tag.strip=='')
+  id  = id[1..-1] unless id.nil?
+  rest = c
+  rest.gsub!(/^(\.|[^ \[]+)/,'') unless tag.nil?
+  rest.gsub!(/\[[^\]]*\]/,'') unless id.nil?
+  rest.strip!
+  [(tag || '').strip.downcase, id || '', rest || '']
+end
+
+#-------- Templates ----------
+$d = File.dirname(File.realpath(__FILE__)) + '/'
+templates = ['parser.c', 'parser.h']
+templates.map!{|t| [t, IO.read($d+t).gsub('Genm','{{parser|cap}}').
+                                     gsub('GENM','{{parser|up}}').
+                                     gsub('genm','{{parser}}')]}
+
+=begin
+templates = [
+# ------------------------- SOURCE FILE ---------------------------------
+  ['parser.c', <<END_OF_PARSER_C
+END_OF_PARSER_C
+],
+
+# ------------------------- HEADER FILE ---------------------------------
+
+['parser.h', <<END_OF_PARSER_H
+END_OF_PARSER_H
+]]
+=end
+
+#-------- Creating output files --------
+require 'liquid'
+
+context = {
+  'functions'    => gm.output_functions,
+  'enums'        => gm.output_enums,
+  'structs'      => gm.output_structs,
+  'pub_protos'   => gm.output_public_prototypes,
+  'priv_protos'  => gm.output_private_prototypes,
+  'use_gmstring' => gm.use_gmstring,
+  'use_gmlist'   => gm.use_gmlist,
+  'use_gmdict'   => gm.use_gmdict,
+  'parser'       => gm.name,
+  'listy'        => gm.listy
+}
+
+
+templates.each do |filename, t|
+  t = Liquid::Template.parse(t)
+  result = t.render(context, :filters => GMFilterShorthand)
+  filename = filename.gsub('parser',gm.name)
+  open(filename,'w'){|f| f.write(result)}
+end

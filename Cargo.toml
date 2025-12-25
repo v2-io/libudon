@@ -1,0 +1,19 @@
+[workspace]
+members = ["udon-core", "udon-ffi"]
+resolver = "2"
+
+[workspace.package]
+version = "0.9.0"
+edition = "2021"
+license = "MIT"
+authors = ["Joseph Wecker"]
+description = "UDON parser - Universal Document & Object Notation"
+repository = "https://github.com/josephwecker/libudon"
+
+[workspace.dependencies]
+unicode-xid = "0.2"
+memchr = "2.7"
+
+# Dev dependencies
+criterion = "0.5"
+pretty_assertions = "1.4"

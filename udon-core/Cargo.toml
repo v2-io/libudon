@@ -1,0 +1,23 @@
+[package]
+name = "udon-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Core UDON parser - streaming event-based parser"
+
+[dependencies]
+unicode-xid = { workspace = true }
+memchr = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+pretty_assertions = { workspace = true }
+
+[features]
+default = ["std"]
+std = []
+
+[[bench]]
+name = "parse"
+harness = false

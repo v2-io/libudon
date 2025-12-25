@@ -1,0 +1,75 @@
+|parser udon
+
+; UDON Parser - Work in Progress
+; Phase 1: Comments, text, and basic elements
+;
+; Element recognition: | is only element when followed by:
+;   - Unicode letter (\p{L}) — named element
+;   - "[" — anonymous element with id
+;   - "." — anonymous element with class
+;   - "{" — embedded element
+;   - "'" — quoted element name
+; Otherwise | is prose.
+
+|entry-point /line
+
+|function[line]
+  ; Main entry point - dispatches based on first non-whitespace character
+
+  |state[:main]
+    |eof                                                |return
+    |c[\n]    |.blank    | ->                           |>> :main
+    |c[;]     |.comment  | -> | MARK                    |>> :comment
+    |c[<P>]   |.pipe     | ->                           |>> :maybe_element
+    |default  |.prose    | MARK                         |>> :prose
+
+  ; After seeing |, check what follows to determine if element or prose
+  |state[:maybe_element]
+    |eof                  | emit(Text) | MARK_PIPE      |return
+    ; Element starters: letter, [, ., {, '
+    |c[<L>]   |.name     | MARK                         |>> :element_name
+    |c[.]     |.class    |                              |>> :element_anon_class
+    ; For now, treat other | as prose
+    |default  |.prose    | MARK_PIPE                    |>> :prose
+
+  ; Collecting element name (LABEL = [\p{L}_][\p{L}\p{N}_-]*)
+  |state[:element_name]
+    |eof                  | emit(ElementStart)          |return
+    |c[\n]    |.done     | emit(ElementStart) | ->      |>> :main
+    |c[ \t]   |.space    | emit(ElementStart) | ->      |>> :element_content
+    |c[<L>]   |.collect  | ->                           |>>
+    ; TODO: handle [, ., suffix chars
+    |default  |.end      | emit(ElementStart)           |>> :element_content
+
+  ; After element name, before any content
+  |state[:element_content]
+    |eof                  | emit(ElementEnd)            |return
+    |c[\n]    |.done     | emit(ElementEnd) | ->        |>> :main
+    |c[;]     |.comment  | emit(ElementEnd) | -> | MARK |>> :comment
+    |default  |.text     | MARK                         |>> :element_text
+
+  ; Text content inside an element (until newline)
+  |state[:element_text]
+    |eof                  | emit(Text) | emit(ElementEnd)|return
+    |c[\n]    |.done     | emit(Text) | emit(ElementEnd) | -> |>> :main
+    |c[;]     |.comment  | emit(Text) | emit(ElementEnd) | -> | MARK |>> :comment
+    |default  |.collect  | ->                           |>>
+
+  ; TODO: Anonymous element starting with class
+  |state[:element_anon_class]
+    |eof                                                |return
+    |c[\n]    |.done     | ->                           |>> :main
+    |default  |.collect  | ->                           |>>
+
+  ; Comment: ; to end of line
+  |state[:comment]
+    |eof                                                |return
+    |c[\n]    |.done     | emit(Comment) | ->           |>> :main
+    |default  |.collect  | ->                           |>>
+
+  ; Prose: regular text until newline
+  |state[:prose]
+    |eof                  | emit(Text)                  |return
+    |c[\n]    |.done     | emit(Text) | ->              |>> :main
+    |c[;]     |.comment  | emit(Text) | -> | MARK       |>> :comment
+    |default  |.collect  | ->                           |>>
