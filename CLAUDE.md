@@ -13,70 +13,117 @@ Current state: ~30% of SPEC.md implemented. Phase 2 focuses on:
 - Arena-allocated tree structure
 - World-class error messages
 
+## Critical: Use SPEC.md as Authority
+
+The UDON specification lives at `~/src/udon/SPEC.md`. This is the **only**
+authoritative source for syntax rules.
+
+Do NOT use:
+- `generator/_archive/` files (old C-era, outdated)
+- Guesses about "obvious" behavior
+- Other UDON-like formats as reference
+
+When SPEC.md is ambiguous, ask Joseph for clarification.
+
 ## Architecture
 
 ```
 libudon/
-├── udon-core/        # Core parser, no_std compatible
+├── udon-core/           # Core parser library
 │   └── src/
-│       ├── lib.rs
-│       ├── event.rs  # Event enum (hand-written, stable)
-│       ├── span.rs   # Location types
-│       ├── value.rs  # Attribute value parsing
-│       └── parser.rs # Generated from .machine DSL
-├── udon-ffi/         # C ABI exports (cdylib)
+│       ├── lib.rs       # Public API
+│       ├── event.rs     # Event enum (hand-written, stable)
+│       ├── parser.rs    # Generated state machine
+│       ├── value.rs     # Attribute value parsing
+│       └── span.rs      # Source locations
+├── udon-ffi/            # C ABI bindings (cdylib)
 │   └── src/lib.rs
-└── generator/        # Code generator
-    ├── genmachine-rs # Ruby script that generates parser.rs
-    ├── udon.machine  # Current parser state machine (authoritative)
-    ├── _archive/     # Old C-era machine files (not authoritative)
-    └── templates/
-        └── parser.rs.liquid
+├── generator/           # Parser generator
+│   ├── udon.machine     # Current state machine (authoritative)
+│   ├── genmachine-rs    # Generator script (Ruby)
+│   ├── templates/       # Liquid templates for code generation
+│   └── _archive/        # Old C-era files (not authoritative)
+└── examples/            # Test fixtures
 ```
 
-## Generator Pipeline
+## Workflow: Modifying the Parser
 
-The parser is generated from a declarative `.machine` DSL:
+1. **Edit `generator/udon.machine`** — The declarative state machine DSL
+2. **Regenerate**: `./generate-parser.sh`
+3. **Build**: `cargo build`
+4. **Test**: `cargo test`
 
-```bash
-./generate-parser.sh
+Do NOT edit `udon-core/src/parser.rs` directly — it's generated.
+
+## The .machine DSL
+
+The state machine DSL uses a pipe-delimited format:
+
+```
+|function[name]
+  |state[:state_name]
+    |c[chars]   |.label  | actions               |>> :next_state
+    |default    |.label  | actions               |>> :next_state
 ```
 
-Or manually:
-```bash
-ruby generator/genmachine-rs generator/udon.machine > udon-core/src/parser.rs
-```
+Key patterns:
+- `|c[x]` — Match character 'x'
+- `|c[\n]` — Match newline
+- `|c[ \t]` — Match space or tab
+- `|default` — Fallback case
+- `|eof` — End of input
+- `|>> :state` — Transition to state
+- `|return` — Return from function
+- `| emit(EventType)` — Emit an event
+- `| MARK` — Mark current position
+- `| TERM` — Terminate slice (MARK to current)
 
-This enables grammar tuning without hand-editing parser code.
+## Key Files
 
-## Key Design Decisions
+| File | Purpose | Edit? |
+|------|---------|-------|
+| `generator/udon.machine` | State machine definition | YES |
+| `udon-core/src/parser.rs` | Generated parser | NO (regenerate) |
+| `udon-core/src/event.rs` | Event enum | YES (stable API) |
+| `udon-core/src/value.rs` | Value type parsing | YES |
+| `generator/templates/parser.rs.liquid` | Code gen template | YES (carefully) |
+
+## Design Decisions
 
 1. **Zero-copy**: Events contain `&'a [u8]` slices into input buffer
 2. **SIMD scanning**: Uses `memchr` crate for fast character search
-3. **Event streaming**: Parser emits events without building AST
-4. **C ABI**: `udon-ffi` exports stable C interface for FFI
+3. **Event-based**: Parser emits events, doesn't build AST (yet)
+4. **Generated**: Parser code generated from DSL for maintainability
 
-## Performance Targets
+## Known Issues / TODOs
 
-- Parsing: >1 GiB/s for well-formed input
-- Memory: O(depth) stack, no heap allocation per event
-- FFI: Minimal overhead, batch JSON for scripting languages
+Current parser bugs (tests exist in udon-ruby):
+- Indented attributes parsed as text (should be `:attribute` events)
+- Integer values returned as strings (should be `Value::Integer`)
 
-## Building
-
-```bash
-cargo build --release
-```
+Missing features (see SPEC.md):
+- Element suffixes (`?`, `!`, `*`, `+`)
+- Embedded elements (`|{...}`)
+- Directives (`!name`, `!raw:lang`)
+- Column-aligned siblings
+- Freeform blocks (triple backtick)
 
 ## Testing
 
 ```bash
-cargo test
+cargo test                    # All tests
+cargo test --lib              # Unit tests only
+cargo test parsing            # Tests matching "parsing"
 ```
 
-## Specification
+## Performance Profiling
 
-The UDON specification lives in a separate repo. See:
-https://github.com/josephwecker/udon
+```bash
+cargo build --release
+cargo bench                   # Criterion benchmarks (if configured)
+```
 
-When in doubt about syntax rules, consult SPEC.md in that repo.
+## Related Repositories
+
+- `~/src/udon` — Specification, examples, implementation plan
+- `~/src/udon-ruby` — Ruby gem using this library
