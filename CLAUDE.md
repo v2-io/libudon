@@ -3,6 +3,16 @@
 This is the core UDON parser library in Rust. It produces a C-compatible shared
 library that language bindings (Ruby, Python, etc.) link against.
 
+## Implementation Plan
+
+**See `~/src/udon/implementation-phase-2.md` for the comprehensive roadmap.**
+
+Current state: ~30% of SPEC.md implemented. Phase 2 focuses on:
+- Complete parser (all SPEC.md features)
+- True streaming with ring buffer
+- Arena-allocated tree structure
+- World-class error messages
+
 ## Architecture
 
 ```
@@ -18,7 +28,8 @@ libudon/
 │   └── src/lib.rs
 └── generator/        # Code generator
     ├── genmachine-rs # Ruby script that generates parser.rs
-    ├── udon.machine  # Parser state machine DSL
+    ├── udon.machine  # Current parser state machine (authoritative)
+    ├── _archive/     # Old C-era machine files (not authoritative)
     └── templates/
         └── parser.rs.liquid
 ```
