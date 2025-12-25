@@ -39,7 +39,12 @@ libudon/
 The parser is generated from a declarative `.machine` DSL:
 
 ```bash
-cd generator && ruby genmachine-rs udon.machine > ../udon-core/src/parser.rs
+./generate-parser.sh
+```
+
+Or manually:
+```bash
+ruby generator/genmachine-rs generator/udon.machine > udon-core/src/parser.rs
 ```
 
 This enables grammar tuning without hand-editing parser code.
