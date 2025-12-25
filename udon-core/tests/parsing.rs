@@ -27,6 +27,7 @@ enum EventKind {
         name: Option<Vec<u8>>,
         id: Option<Vec<u8>>,
         classes: Vec<Vec<u8>>,
+        suffix: Option<char>,
     },
     ElementEnd,
     Attribute {
@@ -48,13 +49,15 @@ impl From<Event<'_>> for EventKind {
         match event {
             Event::Text { content, .. } => EventKind::Text(content.to_vec()),
             Event::Comment { content, .. } => EventKind::Comment(content.to_vec()),
-            Event::ElementStart { name, id, classes, .. } => EventKind::ElementStart {
+            Event::ElementStart { name, id, classes, suffix, .. } => EventKind::ElementStart {
                 name: name.map(|n| n.to_vec()),
                 id: id.and_then(|v| match v {
                     udon_core::Value::String(s) | udon_core::Value::QuotedString(s) => Some(s.to_vec()),
+                    udon_core::Value::Integer(i) => Some(i.to_string().into_bytes()),
                     _ => None,
                 }),
                 classes: classes.iter().map(|c| c.to_vec()).collect(),
+                suffix,
             },
             Event::ElementEnd { .. } => EventKind::ElementEnd,
             Event::Attribute { key, value, .. } => EventKind::Attribute {
@@ -167,6 +170,7 @@ mod elements {
                     name: Some(b"div".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementEnd,
             ]
@@ -183,6 +187,7 @@ mod elements {
                     name: Some(b"div".to_vec()),
                     id: Some(b"main".to_vec()),
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementEnd,
             ]
@@ -199,6 +204,7 @@ mod elements {
                     name: Some(b"div".to_vec()),
                     id: None,
                     classes: vec![b"container".to_vec(), b"wide".to_vec()],
+                    suffix: None,
                 },
                 EventKind::ElementEnd,
             ]
@@ -215,6 +221,7 @@ mod elements {
                     name: Some(b"div".to_vec()),
                     id: Some(b"main".to_vec()),
                     classes: vec![b"container".to_vec(), b"wide".to_vec()],
+                    suffix: None,
                 },
                 EventKind::ElementEnd,
             ]
@@ -231,6 +238,7 @@ mod elements {
                     name: None,
                     id: Some(b"only-id".to_vec()),
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementEnd,
             ]
@@ -247,6 +255,7 @@ mod elements {
                     name: None,
                     id: None,
                     classes: vec![b"mixin".to_vec(), b"another".to_vec()],
+                    suffix: None,
                 },
                 EventKind::ElementEnd,
             ]
@@ -263,6 +272,7 @@ mod elements {
                     name: Some(b"div".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::Text(b"Hello world".to_vec()),
                 EventKind::ElementEnd,
@@ -281,20 +291,101 @@ mod elements {
                     name: Some(b"a".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementStart {
                     name: Some(b"b".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementStart {
                     name: Some(b"c".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementEnd, // c
                 EventKind::ElementEnd, // b
                 EventKind::ElementEnd, // a
+            ]
+        );
+    }
+
+    #[test]
+    fn element_with_suffix_after_name() {
+        let events = parse(b"|field?\n");
+        assert_eq!(
+            events,
+            vec![
+                EventKind::ElementStart {
+                    name: Some(b"field".to_vec()),
+                    id: None,
+                    classes: vec![],
+                    suffix: Some('?'),
+                },
+                EventKind::ElementEnd,
+            ]
+        );
+    }
+
+    #[test]
+    fn element_with_suffix_after_id() {
+        let events = parse(b"|field[name]!\n");
+        assert_eq!(
+            events,
+            vec![
+                EventKind::ElementStart {
+                    name: Some(b"field".to_vec()),
+                    id: Some(b"name".to_vec()),
+                    classes: vec![],
+                    suffix: Some('!'),
+                },
+                EventKind::ElementEnd,
+            ]
+        );
+    }
+
+    #[test]
+    fn element_with_all_suffixes() {
+        // Test each suffix type
+        for (input, expected_suffix) in [
+            (b"|x?\n".as_slice(), '?'),
+            (b"|x!\n".as_slice(), '!'),
+            (b"|x*\n".as_slice(), '*'),
+            (b"|x+\n".as_slice(), '+'),
+        ] {
+            let events = parse(input);
+            assert_eq!(
+                events,
+                vec![
+                    EventKind::ElementStart {
+                        name: Some(b"x".to_vec()),
+                        id: None,
+                        classes: vec![],
+                        suffix: Some(expected_suffix),
+                    },
+                    EventKind::ElementEnd,
+                ],
+                "Failed for suffix {:?}", expected_suffix
+            );
+        }
+    }
+
+    #[test]
+    fn element_with_numeric_id() {
+        // Per SPEC: |step[1] should parse 1 as id
+        let events = parse(b"|step[1]\n");
+        assert_eq!(
+            events,
+            vec![
+                EventKind::ElementStart {
+                    name: Some(b"step".to_vec()),
+                    id: Some(b"1".to_vec()), // Converted from Integer
+                    classes: vec![],
+                    suffix: None,
+                },
+                EventKind::ElementEnd,
             ]
         );
     }
@@ -317,6 +408,7 @@ mod attributes {
                     name: Some(b"div".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::Attribute {
                     key: b"class".to_vec(),
@@ -337,6 +429,7 @@ mod attributes {
                     name: Some(b"button".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::Attribute {
                     key: b"disabled".to_vec(),
@@ -357,6 +450,7 @@ mod attributes {
                     name: Some(b"div".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::Attribute {
                     key: b"title".to_vec(),
@@ -365,6 +459,142 @@ mod attributes {
                 EventKind::ElementEnd,
             ]
         );
+    }
+
+    #[test]
+    fn indented_attributes() {
+        // Attributes can appear on indented lines after an element
+        let events = parse(b"|div\n  :title Hello\n  :author Joseph\n");
+        assert_eq!(
+            events,
+            vec![
+                EventKind::ElementStart {
+                    name: Some(b"div".to_vec()),
+                    id: None,
+                    classes: vec![],
+                    suffix: None,
+                },
+                EventKind::Attribute {
+                    key: b"title".to_vec(),
+                    value: Some(b"Hello".to_vec()),
+                },
+                EventKind::Attribute {
+                    key: b"author".to_vec(),
+                    value: Some(b"Joseph".to_vec()),
+                },
+                EventKind::ElementEnd,
+            ]
+        );
+    }
+
+    #[test]
+    fn indented_flag_attribute() {
+        let events = parse(b"|button\n  :disabled\n");
+        assert_eq!(
+            events,
+            vec![
+                EventKind::ElementStart {
+                    name: Some(b"button".to_vec()),
+                    id: None,
+                    classes: vec![],
+                    suffix: None,
+                },
+                EventKind::Attribute {
+                    key: b"disabled".to_vec(),
+                    value: None,
+                },
+                EventKind::ElementEnd,
+            ]
+        );
+    }
+
+    #[test]
+    fn list_attribute_inline() {
+        // Test list parsing in inline attributes
+        // The test helper converts lists to None since EventKind doesn't track list values
+        // This test verifies the parser doesn't crash and produces an attribute
+        let input = b"|server :ports [8080 8443 9000]\n";
+        let mut parser = udon_core::Parser::new(input);
+        let events = parser.parse();
+
+        // Find the attribute event
+        let attr = events.iter().find(|e| matches!(e, udon_core::Event::Attribute { .. }));
+        assert!(attr.is_some(), "Should have an attribute event");
+
+        if let Some(udon_core::Event::Attribute { key, value, .. }) = attr {
+            assert_eq!(*key, b"ports");
+            // Value should be a List
+            assert!(matches!(value, Some(udon_core::Value::List(_))));
+            if let Some(udon_core::Value::List(items)) = value {
+                assert_eq!(items.len(), 3);
+                assert_eq!(items[0].as_integer(), Some(8080));
+                assert_eq!(items[1].as_integer(), Some(8443));
+                assert_eq!(items[2].as_integer(), Some(9000));
+            }
+        }
+    }
+
+    #[test]
+    fn list_attribute_indented() {
+        // Test list parsing in indented attributes
+        let input = b"|config\n  :tags [api public internal]\n";
+        let mut parser = udon_core::Parser::new(input);
+        let events = parser.parse();
+
+        let attr = events.iter().find(|e| matches!(e, udon_core::Event::Attribute { .. }));
+        assert!(attr.is_some(), "Should have an attribute event");
+
+        if let Some(udon_core::Event::Attribute { key, value, .. }) = attr {
+            assert_eq!(*key, b"tags");
+            assert!(matches!(value, Some(udon_core::Value::List(_))));
+            if let Some(udon_core::Value::List(items)) = value {
+                assert_eq!(items.len(), 3);
+                // These are strings, not integers
+                assert_eq!(items[0].as_bytes(), Some(b"api".as_slice()));
+                assert_eq!(items[1].as_bytes(), Some(b"public".as_slice()));
+                assert_eq!(items[2].as_bytes(), Some(b"internal".as_slice()));
+            }
+        }
+    }
+
+    #[test]
+    fn list_with_quoted_strings() {
+        let input = b"|app :env [\"production\" \"staging\" \"dev\"]\n";
+        let mut parser = udon_core::Parser::new(input);
+        let events = parser.parse();
+
+        let attr = events.iter().find(|e| matches!(e, udon_core::Event::Attribute { .. }));
+        assert!(attr.is_some(), "Should have an attribute event");
+
+        if let Some(udon_core::Event::Attribute { value, .. }) = attr {
+            if let Some(udon_core::Value::List(items)) = value {
+                assert_eq!(items.len(), 3);
+                // Check they're quoted strings
+                assert!(matches!(items[0], udon_core::Value::QuotedString(_)));
+            }
+        }
+    }
+
+    #[test]
+    fn list_with_mixed_types() {
+        let input = b"|data :values [42 true hello 3.14]\n";
+        let mut parser = udon_core::Parser::new(input);
+        let events = parser.parse();
+
+        let attr = events.iter().find(|e| matches!(e, udon_core::Event::Attribute { .. }));
+
+        if let Some(udon_core::Event::Attribute { value, .. }) = attr {
+            if let Some(udon_core::Value::List(items)) = value {
+                assert_eq!(items.len(), 4);
+                assert_eq!(items[0].as_integer(), Some(42));
+                assert_eq!(items[1].as_bool(), Some(true));
+                assert_eq!(items[2].as_bytes(), Some(b"hello".as_slice()));
+                // Float is a bit tricky to compare
+                if let udon_core::Value::Float(f) = items[3] {
+                    assert!((f - 3.14).abs() < 0.001);
+                }
+            }
+        }
     }
 }
 
@@ -390,6 +620,7 @@ mod directives {
                     name: Some(b"div".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::Text(b"Welcome".to_vec()),
                 EventKind::ElementEnd,
@@ -480,11 +711,13 @@ mod indentation {
                     name: Some(b"parent".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementStart {
                     name: Some(b"child".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementEnd, // child
                 EventKind::ElementEnd, // parent
@@ -502,17 +735,20 @@ mod indentation {
                     name: Some(b"parent".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementStart {
                     name: Some(b"child1".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementEnd, // child1
                 EventKind::ElementStart {
                     name: Some(b"child2".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementEnd, // child2
                 EventKind::ElementEnd, // parent
@@ -532,16 +768,19 @@ mod indentation {
                     name: Some(b"a".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementStart {
                     name: Some(b"b".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementStart {
                     name: Some(b"c".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementEnd, // c
                 EventKind::ElementEnd, // b
@@ -550,6 +789,7 @@ mod indentation {
                     name: Some(b"d".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementEnd, // d
             ]
@@ -568,11 +808,13 @@ mod indentation {
                     name: Some(b"first".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementStart {
                     name: Some(b"second".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::Text(b"Some prose".to_vec()),
                 EventKind::ElementEnd, // second (closed by dedent to col 2)
@@ -597,16 +839,19 @@ mod indentation {
                     name: Some(b"first".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementStart {
                     name: Some(b"second".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::ElementStart {
                     name: Some(b"third".to_vec()),
                     id: None,
                     classes: vec![],
+                    suffix: None,
                 },
                 EventKind::Text(b"Inner".to_vec()),
                 EventKind::ElementEnd, // third (col 15 <= 15)

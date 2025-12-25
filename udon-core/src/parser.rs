@@ -307,6 +307,102 @@ impl<'a> Parser<'a> {
         matches!(b, b'[' | b'.' | b'{' | b'\'') || self.is_label_start(b)
     }
 
+    /// Parse an optional suffix modifier (?, !, *, +).
+    /// Returns the suffix char if found.
+    fn parse_suffix(&mut self) -> Option<char> {
+        match self.peek() {
+            Some(b'?') => { self.advance(); Some('?') }
+            Some(b'!') => { self.advance(); Some('!') }
+            Some(b'*') => { self.advance(); Some('*') }
+            Some(b'+') => { self.advance(); Some('+') }
+            _ => None,
+        }
+    }
+
+    /// Parse a list value: `[a b c]` or `["quoted" items]`
+    /// Returns Some(List) if successful, None if not a valid list.
+    fn parse_list_value(&mut self) -> Option<crate::Value<'a>> {
+        // Assumes we're positioned at '['
+        if self.peek() != Some(b'[') {
+            return None;
+        }
+        self.advance(); // Skip [
+
+        let mut items = Vec::new();
+
+        loop {
+            // Skip whitespace
+            while let Some(b' ') | Some(b'\t') = self.peek() {
+                self.advance();
+            }
+
+            match self.peek() {
+                None | Some(b'\n') => {
+                    // Unclosed list - return what we have
+                    break;
+                }
+                Some(b']') => {
+                    self.advance(); // Skip ]
+                    break;
+                }
+                Some(b'"') => {
+                    // Quoted string item
+                    self.advance(); // Skip opening quote
+                    let start = self.pos;
+                    while let Some(b) = self.peek() {
+                        if b == b'"' {
+                            break;
+                        }
+                        if b == b'\\' {
+                            self.advance(); // Skip escape
+                        }
+                        self.advance();
+                    }
+                    let value_slice = &self.input[start..self.pos];
+                    if self.peek() == Some(b'"') {
+                        self.advance(); // Skip closing quote
+                    }
+                    items.push(crate::Value::QuotedString(value_slice));
+                }
+                Some(b'\'') => {
+                    // Single-quoted string item
+                    self.advance(); // Skip opening quote
+                    let start = self.pos;
+                    while let Some(b) = self.peek() {
+                        if b == b'\'' {
+                            break;
+                        }
+                        if b == b'\\' {
+                            self.advance(); // Skip escape
+                        }
+                        self.advance();
+                    }
+                    let value_slice = &self.input[start..self.pos];
+                    if self.peek() == Some(b'\'') {
+                        self.advance(); // Skip closing quote
+                    }
+                    items.push(crate::Value::QuotedString(value_slice));
+                }
+                _ => {
+                    // Unquoted item - collect until whitespace or ]
+                    let start = self.pos;
+                    while let Some(b) = self.peek() {
+                        match b {
+                            b' ' | b'\t' | b']' | b'\n' => break,
+                            _ => self.advance(),
+                        }
+                    }
+                    let value_slice = &self.input[start..self.pos];
+                    if !value_slice.is_empty() {
+                        items.push(crate::Value::parse(value_slice));
+                    }
+                }
+            }
+        }
+
+        Some(crate::Value::List(items))
+    }
+
     /// Parse an element after seeing '|'.
     /// Handles: |name, |name[id], |name.class, |[id], |.class, etc.
     /// Returns true if an element was parsed, false if '|' should be prose.
@@ -321,6 +417,8 @@ impl<'a> Parser<'a> {
         let element_column = if self.column > 1 { (self.column - 2) as u16 } else { 0 };
         let start_pos = self.pos;
 
+        let mut suffix: Option<char> = None;
+
         // Parse element name (optional for anonymous elements)
         let name = if let Some(b) = self.peek() {
             if self.is_label_start(b) {
@@ -332,7 +430,10 @@ impl<'a> Parser<'a> {
             None
         };
 
-        // TODO: Parse suffix after name (?, !, *, +)
+        // Parse suffix after name: |name?
+        if suffix.is_none() {
+            suffix = self.parse_suffix();
+        }
 
         // Parse [id] if present
         let id = if self.peek() == Some(b'[') {
@@ -352,13 +453,17 @@ impl<'a> Parser<'a> {
             if id_slice.is_empty() {
                 None
             } else {
-                Some(crate::Value::String(id_slice))
+                // Parse the id value with syntactic typing
+                Some(crate::Value::parse(id_slice))
             }
         } else {
             None
         };
 
-        // TODO: Parse suffix after id
+        // Parse suffix after id: |name[id]?
+        if suffix.is_none() {
+            suffix = self.parse_suffix();
+        }
 
         // Parse .class (multiple allowed)
         let mut classes = vec![];
@@ -369,7 +474,27 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // TODO: Parse suffix after classes
+        // Parse suffix space-separated at end: |name[id].class ?
+        // (but NOT immediately after class - that's reserved)
+        if suffix.is_none() {
+            // Skip whitespace to check for space-separated suffix
+            let ws_start = self.pos;
+            while let Some(b' ') | Some(b'\t') = self.peek() {
+                self.advance();
+            }
+            // Check for suffix after whitespace
+            if self.pos > ws_start {
+                if let Some(s) = self.parse_suffix() {
+                    suffix = Some(s);
+                } else {
+                    // No suffix found, restore position before whitespace
+                    // (whitespace will be handled by attribute parsing)
+                    self.pos = ws_start;
+                    // Restore column too (simplified - just recalculate)
+                    self.column = (ws_start - self.line_start + 1) as u32;
+                }
+            }
+        }
 
         // Push this element onto the stack for indent tracking
         self.push_element(element_column);
@@ -378,7 +503,7 @@ impl<'a> Parser<'a> {
             name,
             id,
             classes,
-            suffix: None,
+            suffix,
             span: Span::new(start_pos, self.pos),
         });
 
@@ -438,6 +563,10 @@ impl<'a> Parser<'a> {
                     }
                     Some(crate::Value::QuotedString(value_slice))
                 }
+                Some(b'[') => {
+                    // List value
+                    self.parse_list_value()
+                }
                 _ => {
                     // Unquoted value - collect until space, :, |, ;, or newline
                     let start = self.pos;
@@ -451,7 +580,8 @@ impl<'a> Parser<'a> {
                     if value_slice.is_empty() {
                         None
                     } else {
-                        Some(crate::Value::String(value_slice))
+                        // Use syntactic typing to determine the correct Value type
+                        Some(crate::Value::parse(value_slice))
                     }
                 }
             };
@@ -472,6 +602,98 @@ impl<'a> Parser<'a> {
             self.parse_element_content();
             // ElementEnd is handled by the stack when we see dedent or EOF
         }
+    }
+
+    /// Parse an indented attribute line (`:key value`).
+    /// Called when we see `:` at the start of line content.
+    fn parse_indented_attribute(&mut self) {
+        // Skip the `:` we already saw
+        self.advance();
+
+        // Parse attribute key
+        let key = match self.scan_label() {
+            Some(k) => k,
+            None => return, // Invalid attribute, treat as text
+        };
+
+        // Skip whitespace before value
+        while let Some(b' ') | Some(b'\t') = self.peek() {
+            self.advance();
+        }
+
+        // Parse value (rest of line, minus comments)
+        let value = match self.peek() {
+            None | Some(b'\n') | Some(b';') => None, // Flag attribute
+            Some(b'"') => {
+                // Quoted string
+                self.advance(); // Skip opening quote
+                let start = self.pos;
+                while let Some(b) = self.peek() {
+                    if b == b'"' {
+                        break;
+                    }
+                    if b == b'\\' {
+                        self.advance(); // Skip escape
+                    }
+                    self.advance();
+                }
+                let value_slice = &self.input[start..self.pos];
+                if self.peek() == Some(b'"') {
+                    self.advance(); // Skip closing quote
+                }
+                Some(crate::Value::QuotedString(value_slice))
+            }
+            Some(b'\'') => {
+                // Single-quoted string
+                self.advance(); // Skip opening quote
+                let start = self.pos;
+                while let Some(b) = self.peek() {
+                    if b == b'\'' {
+                        break;
+                    }
+                    if b == b'\\' {
+                        self.advance(); // Skip escape
+                    }
+                    self.advance();
+                }
+                let value_slice = &self.input[start..self.pos];
+                if self.peek() == Some(b'\'') {
+                    self.advance(); // Skip closing quote
+                }
+                Some(crate::Value::QuotedString(value_slice))
+            }
+            Some(b'[') => {
+                // List value
+                self.parse_list_value()
+            }
+            _ => {
+                // Unquoted value - collect until ; or newline
+                let start = self.pos;
+                while let Some(b) = self.peek() {
+                    match b {
+                        b';' | b'\n' => break,
+                        _ => self.advance(),
+                    }
+                }
+                // Trim trailing whitespace
+                let mut end = self.pos;
+                while end > start && (self.input[end - 1] == b' ' || self.input[end - 1] == b'\t') {
+                    end -= 1;
+                }
+                let value_slice = &self.input[start..end];
+                if value_slice.is_empty() {
+                    None
+                } else {
+                    Some(crate::Value::parse(value_slice))
+                }
+            }
+        };
+
+        self.emit(Event::Attribute {
+            key,
+            value,
+            span: Span::new(self.pos, self.pos), // TODO: proper span
+        });
     }
 
     /// Parse inline content after an element (until newline).
@@ -596,6 +818,11 @@ impl<'a> Parser<'a> {
                             self.mark();
                             self.advance();
                             state = State::SAfterPipe;
+                        }
+                        b':' => {
+                            // Indented attribute
+                            self.parse_indented_attribute();
+                            state = State::SMain;
                         }
                         _ => {
                             self.mark();
