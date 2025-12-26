@@ -361,7 +361,41 @@ class GMFunction < GMGenericChild
     c
   end
 
+  def validate_eof_handlers!
+    states = @body.select { |b| b.is_a?(GMState) }
+    missing_eof = []
+
+    states.each do |state|
+      # Check if state has match cases (patterns that could leave us stuck at EOF)
+      match_cases = state.body.select { |obj| obj.is_a?(GMCase) }
+      next if match_cases.empty?  # No patterns = no EOF concern
+
+      # Check if state has explicit EOF handler
+      has_eof = state.instance_variable_get(:@local_eof)&.body&.any?
+      next if has_eof
+
+      # Check if function has a global EOF handler that would catch this
+      next if @eof_handler
+
+      # This state could loop forever at EOF
+      missing_eof << state.name
+    end
+
+    unless missing_eof.empty?
+      $stderr.puts "\n" + "=" * 70
+      $stderr.puts "ERROR: States without EOF handlers (will cause infinite loops!):"
+      $stderr.puts "=" * 70
+      missing_eof.each { |name| $stderr.puts "  - #{@name}:#{name}" }
+      $stderr.puts "=" * 70
+      $stderr.puts "Add |eof handler to each state, or add function-level |eof handler."
+      $stderr.puts ""
+      exit 1
+    end
+  end
+
   def to_rust
+    validate_eof_handlers!
+
     code = []
 
     # Generate function signature with parameters

@@ -5,16 +5,6 @@
 
 use crate::event::Event;
 use crate::span::Span;
-use memchr::{memchr, memchr3};
-
-/// Stack entry for tracking element hierarchy.
-#[derive(Debug, Clone, Copy)]
-struct StackEntry {
-    /// Column where the element started (0-indexed)
-    base_column: u16,
-    /// Byte offset where element started (for ElementEnd span)
-    span_start: u32,
-}
 
 /// Parser state for streaming UDON parsing.
 ///
@@ -30,9 +20,6 @@ pub struct Parser<'a> {
     /// Accumulator start position (for MARK/TERM pattern)
     mark_start: usize,
 
-    /// Element stack for indent/dedent tracking
-    element_stack: Vec<StackEntry>,
-
     /// Pending events to return
     events: Vec<Event<'a>>,
 }
@@ -44,7 +31,6 @@ impl<'a> Parser<'a> {
         // Pre-allocate based on input size heuristic:
         // ~1 event per 50 bytes is a reasonable estimate
         let event_capacity = (input.len() / 50).max(16);
-        let stack_capacity = 16; // Typical nesting depth
 
         Self {
             input,
@@ -53,70 +39,14 @@ impl<'a> Parser<'a> {
             column: 1,
             line_start: 0,
             mark_start: 0,
-            element_stack: Vec::with_capacity(stack_capacity),
             events: Vec::with_capacity(event_capacity),
-        }
-    }
-
-    /// Flush remaining elements at end of input.
-    fn flush_stack(&mut self) {
-        while let Some(entry) = self.element_stack.pop() {
-            self.emit(Event::ElementEnd {
-                span: Span::new(entry.span_start as usize, self.pos),
-            });
         }
     }
 
     /// Parse the entire input and return all events.
     pub fn parse(&mut self) -> Vec<Event<'a>> {
         self.parse_document();
-        self.flush_stack();
         std::mem::take(&mut self.events)
-    }
-
-    /// Handle start of a new line - count indent and pop stack as needed.
-    /// Returns the column where content starts, or None if we hit EOF/error.
-    fn handle_line_start(&mut self) -> Option<u16> {
-        // Count leading spaces (error on tab)
-        while let Some(b) = self.peek() {
-            match b {
-                b' ' => self.advance(),
-                b'\t' => {
-                    self.emit(Event::Error {
-                        message: "Tabs are not allowed in UDON indentation",
-                        span: Span::new(self.pos, self.pos + 1),
-                    });
-                    self.advance();
-                    // Continue parsing despite error
-                }
-                _ => break,
-            }
-        }
-
-        // Get the column where actual content starts
-        let content_column = (self.column - 1) as u16; // 0-indexed
-
-        // Pop stack while content_column <= top.base_column
-        while let Some(entry) = self.element_stack.last().copied() {
-            if content_column <= entry.base_column {
-                self.element_stack.pop();
-                self.emit(Event::ElementEnd {
-                    span: Span::new(entry.span_start as usize, self.pos),
-                });
-            } else {
-                break;
-            }
-        }
-
-        Some(content_column)
-    }
-
-    /// Push an element onto the stack with its column position.
-    fn push_element(&mut self, column: u16) {
-        self.element_stack.push(StackEntry {
-            base_column: column,
-            span_start: self.pos as u32,
-        });
     }
 
     /// Check if we've reached end of input.
@@ -178,34 +108,6 @@ impl<'a> Parser<'a> {
         self.events.push(event);
     }
 
-    // ========== Fast Scanning (memchr-accelerated) ==========
-
-    /// Scan forward until we hit one of the target bytes or EOF.
-    /// Updates position but NOT line/column (caller must handle).
-    /// Returns the byte found, or None if EOF.
-    #[inline]
-    fn scan_to(&mut self, needle: u8) -> Option<u8> {
-        if let Some(offset) = memchr(needle, &self.input[self.pos..]) {
-            self.pos += offset;
-            Some(needle)
-        } else {
-            self.pos = self.input.len();
-            None
-        }
-    }
-
-    /// Scan forward until we hit one of three target bytes or EOF.
-    #[inline]
-    fn scan_to3(&mut self, a: u8, b: u8, c: u8) -> Option<u8> {
-        if let Some(offset) = memchr3(a, b, c, &self.input[self.pos..]) {
-            self.pos += offset;
-            Some(self.input[self.pos])
-        } else {
-            self.pos = self.input.len();
-            None
-        }
-    }
-
     // ========== Hand-written Helpers ==========
 
     /// Check if byte can start a LABEL (Unicode letter or underscore).
@@ -248,81 +150,6 @@ impl<'a> Parser<'a> {
             }
         }
         false
-    }
-
-    /// Scan a LABEL starting at current position.
-    /// Returns the label slice and advances past it.
-    fn scan_label(&mut self) -> Option<&'a [u8]> {
-        let start = self.pos;
-
-        // First char must be letter or underscore
-        if let Some(&b) = self.input.get(self.pos) {
-            if !self.is_label_start(b) {
-                return None;
-            }
-            self.advance_bytes(self.char_len_at(self.pos));
-        } else {
-            return None;
-        }
-
-        // Continue with letters, numbers, underscore, hyphen
-        while let Some(&b) = self.input.get(self.pos) {
-            if self.is_label_continue(b) {
-                self.advance_bytes(self.char_len_at(self.pos));
-            } else {
-                break;
-            }
-        }
-
-        Some(&self.input[start..self.pos])
-    }
-
-    /// Get the byte length of the UTF-8 character at position.
-    #[inline]
-    fn char_len_at(&self, pos: usize) -> usize {
-        match self.input.get(pos) {
-            Some(&b) if b < 0x80 => 1,
-            Some(&b) if b < 0xE0 => 2,
-            Some(&b) if b < 0xF0 => 3,
-            Some(&b) if b < 0xF8 => 4,
-            _ => 1,
-        }
-    }
-
-    /// Advance by a specific number of bytes.
-    #[inline]
-    fn advance_bytes(&mut self, n: usize) {
-        for _ in 0..n {
-            self.advance();
-        }
-    }
-
-    /// Check if current position could start an element.
-    /// Element starters: Unicode letter, '[', '.', '{', "'"
-    #[inline]
-    fn is_element_start(&self) -> bool {
-        match self.peek() {
-            Some(b'[') | Some(b'.') | Some(b'{') | Some(b'\'') => true,
-            Some(b) => self.is_label_start(b),
-            None => false,
-        }
-    }
-
-    /// Check if a byte could start an element (for match guards).
-    #[inline]
-    fn is_element_start_byte(&self, b: u8) -> bool {
-        matches!(b, b'[' | b'.' | b'{' | b'\'') || self.is_label_start(b)
-    }
-
-    /// Parse an optional suffix modifier (?, !, *, +).
-    fn parse_suffix(&mut self) -> Option<char> {
-        match self.peek() {
-            Some(b'?') => { self.advance(); Some('?') }
-            Some(b'!') => { self.advance(); Some('!') }
-            Some(b'*') => { self.advance(); Some('*') }
-            Some(b'+') => { self.advance(); Some('+') }
-            _ => None,
-        }
     }
 
     // ========== Value Emission Helpers ==========
@@ -383,8 +210,6 @@ impl<'a> Parser<'a> {
 
 
     fn parse_document(&mut self) {
-        let mut col: i32 = 0;
-
         #[derive(Clone, Copy)]
         enum State { SStart, SEscaped, SEscapedText, SProse, SCheckInlineComment, SInlineComment, SInlineCommentNested, SLineComment, SBlockComment, SMaybeFreeform, SMaybeFreeform2, SFreeform, SFreeformEnd1, SFreeformEnd2, SDirective, SDirectiveInterp, SDirectiveName, SDirectiveBody, SProseAfterDirective, SSkipLine }
 
@@ -399,12 +224,10 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.advance();
-                            col = 0;
                             state = State::SStart;
                         }
                         b' ' => {
                             self.advance();
-                            col += 1;
                             state = State::SStart;
                         }
                         b'\t' => {
@@ -450,7 +273,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            col = 0;
                             state = State::SStart;
                         }
                         _ => {
@@ -469,7 +291,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            col = 0;
                             state = State::SStart;
                         }
                         _ => {
@@ -487,7 +308,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            col = 0;
                             state = State::SStart;
                         }
                         b';' => {
@@ -508,6 +328,9 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SCheckInlineComment => {
+                    if self.eof() {
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'{' => {
@@ -568,7 +391,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
-                            col = 0;
                             state = State::SStart;
                         }
                         _ => {
@@ -586,7 +408,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
-                            col = 0;
                             state = State::SStart;
                         }
                         _ => {
@@ -596,6 +417,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SMaybeFreeform => {
+                    if self.eof() {
+                        self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
@@ -610,6 +435,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SMaybeFreeform2 => {
+                    if self.eof() {
+                        self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
@@ -641,6 +470,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SFreeformEnd1 => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed freeform", span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
@@ -655,11 +488,14 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SFreeformEnd2 => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed freeform", span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
                             self.emit(Event::RawContent { content: self.term(), span: self.span_from_mark() });
-                            col = 0;
                             state = State::SStart;
                         }
                         _ => {
@@ -713,7 +549,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             // TODO: emit Directive
-                            col = 0;
                             state = State::SStart;
                         }
                         b'{' => {
@@ -756,7 +591,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            col = 0;
                             state = State::SStart;
                         }
                         b';' => {
@@ -784,7 +618,6 @@ impl<'a> Parser<'a> {
                     if let Some(b) = self.peek() {
                         match b {
                         b'\n' => {
-                            col = 0;
                             state = State::SStart;
                         }
                         _ => {
@@ -798,9 +631,6 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_element(&mut self, elem_col: i32) {
-        let mut col: i32 = elem_col;
-        let mut content_base: i32 = -1;
-
         #[derive(Clone, Copy)]
         enum State { SIdentity, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SElemCommentCheck, SElemInlineComment, SElemLineComment, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildCommentCheck, SChildInlineComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveInterp, SChildDirectiveName, SChildDirectiveBody, SSkipChild, SAttrKey, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine }
 
@@ -808,6 +638,11 @@ impl<'a> Parser<'a> {
         loop {
             match state {
                 State::SIdentity => {
+                    if self.eof() {
+                        self.emit(Event::ElementStart { name: None, span: Span::new(self.pos, self.pos) });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b if self.is_label_start(b) => {
@@ -944,6 +779,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SIdBracketStart => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed bracket", span: Span::new(self.pos, self.pos) });
+                        state = State::SAfterIdentity;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b']' => {
@@ -959,6 +798,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SIdAnonBracket => {
+                    if self.eof() {
+                        self.emit(Event::ElementStart { name: None, span: Span::new(self.pos, self.pos) });
+                        self.emit(Event::Error { message: "unclosed bracket", span: Span::new(self.pos, self.pos) });
+                        state = State::SAfterIdentity;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b']' => {
@@ -1049,6 +893,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SIdClassStart => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "expected class name", span: Span::new(self.pos, self.pos) });
+                        state = State::SAfterIdentity;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b if self.is_label_start(b) => {
@@ -1145,6 +993,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SIdQuotedName => {
+                    if self.eof() {
+                        self.emit(Event::ElementStart { name: Some(self.term()), span: self.span_from_mark() });
+                        self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
+                        state = State::SAfterIdentity;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'\'' => {
@@ -1162,6 +1015,7 @@ impl<'a> Parser<'a> {
                 }
                 State::SIdQuotedNameContent => {
                     if self.eof() {
+                        self.emit(Event::ElementStart { name: Some(self.term()), span: self.span_from_mark() });
                         self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
                         state = State::SAfterIdentity;
                     }
@@ -1184,6 +1038,7 @@ impl<'a> Parser<'a> {
                 }
                 State::SIdQuotedNameEscape => {
                     if self.eof() {
+                        self.emit(Event::ElementStart { name: Some(self.term()), span: self.span_from_mark() });
                         self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
                         state = State::SAfterIdentity;
                     }
@@ -1197,6 +1052,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SIdClassQuoted => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
+                        state = State::SAfterIdentity;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'\'' => {
@@ -1277,12 +1136,10 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         b' ' | b'\t' => {
                             self.advance();
-                            col += 1;
                             state = State::SInlineContent;
                         }
                         b';' => {
@@ -1310,7 +1167,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         b';' => {
@@ -1340,7 +1196,6 @@ impl<'a> Parser<'a> {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         b';' => {
@@ -1361,6 +1216,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SElemCommentCheck => {
+                    if self.eof() {
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'{' => {
@@ -1402,7 +1261,6 @@ impl<'a> Parser<'a> {
                         b'\n' => {
                             self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         _ => {
@@ -1420,12 +1278,10 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         b' ' => {
                             self.advance();
-                            col += 1;
                             state = State::SChildren;
                         }
                         b'\t' => {
@@ -1440,6 +1296,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SChildrenContent => {
+                    if self.eof() {
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if self.current_column()  <=  elem_col {
     self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
     return;
@@ -1488,12 +1348,10 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         b' ' => {
                             self.advance();
-                            col = 1;
                             state = State::SChildrenCountWs;
                         }
                         b'\t' => {
@@ -1502,7 +1360,6 @@ impl<'a> Parser<'a> {
                             state = State::SSkipChild;
                         }
                         _ => {
-                            col = 0;
                             state = State::SChildrenContent;
                         }
                         }
@@ -1517,12 +1374,10 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         b' ' => {
                             self.advance();
-                            col += 1;
                             state = State::SChildrenCountWs;
                         }
                         b'\t' => {
@@ -1547,7 +1402,6 @@ impl<'a> Parser<'a> {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         _ => {
@@ -1568,7 +1422,6 @@ impl<'a> Parser<'a> {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         _ => {
@@ -1588,7 +1441,6 @@ impl<'a> Parser<'a> {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         b';' => {
@@ -1609,6 +1461,10 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SChildCommentCheck => {
+                    if self.eof() {
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'{' => {
@@ -1650,7 +1506,6 @@ impl<'a> Parser<'a> {
                         b'\n' => {
                             self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         _ => {
@@ -1670,7 +1525,6 @@ impl<'a> Parser<'a> {
                         b'\n' => {
                             self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         _ => {
@@ -1680,6 +1534,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SChildFreeformCheck => {
+                    if self.eof() {
+                        self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
@@ -1694,6 +1553,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SChildFreeformCheck2 => {
+                    if self.eof() {
+                        self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
@@ -1726,6 +1590,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SChildFreeformEnd1 => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed freeform", span: Span::new(self.pos, self.pos) });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
@@ -1740,11 +1609,15 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SChildFreeformEnd2 => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed freeform", span: Span::new(self.pos, self.pos) });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
                             self.emit(Event::RawContent { content: self.term(), span: self.span_from_mark() });
-                            col = 0;
                             state = State::SChildren;
                         }
                         _ => {
@@ -1802,7 +1675,6 @@ impl<'a> Parser<'a> {
                         b'\n' => {
                             // TODO: emit Directive
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         b'{' => {
@@ -1846,7 +1718,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.advance();
-                            col = 0;
                             state = State::SChildren;
                         }
                         _ => {
@@ -1856,6 +1727,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SAttrKey => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "expected attr key", span: Span::new(self.pos, self.pos) });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b if self.is_label_start(b) => {
@@ -1891,6 +1767,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SAttrKeyQuoted => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'\'' => {
@@ -1907,6 +1788,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SAttrKeyQuotedContent => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'\'' => {
@@ -1924,6 +1810,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SAttrKeyQuotedEsc => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         _ => {
@@ -1957,7 +1848,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
-                            col = 0;
                             state = State::SChildren;
                         }
                         b';' => {
@@ -1992,7 +1882,6 @@ impl<'a> Parser<'a> {
                     if let Some(b) = self.peek() {
                         match b {
                         b'\n' => {
-                            col = 0;
                             state = State::SChildren;
                         }
                         _ => {
@@ -2002,6 +1891,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SAttrDquote => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'"' => {
@@ -2054,6 +1948,11 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::SAttrSquote => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'\'' => {
@@ -2114,7 +2013,6 @@ impl<'a> Parser<'a> {
                         match b {
                         b'\n' => {
                             self.emit_typed_value();
-                            col = 0;
                             state = State::SChildren;
                         }
                         b';' => {
@@ -2134,7 +2032,6 @@ impl<'a> Parser<'a> {
                     if let Some(b) = self.peek() {
                         match b {
                         b'\n' => {
-                            col = 0;
                             state = State::SChildren;
                         }
                         b';' => {
@@ -2157,7 +2054,6 @@ impl<'a> Parser<'a> {
                     if let Some(b) = self.peek() {
                         match b {
                         b'\n' => {
-                            col = 0;
                             state = State::SChildren;
                         }
                         _ => {

@@ -15,12 +15,10 @@
 ; ROOT DOCUMENT - Fully Generated
 ;==============================================================================
 |function[document]
-  |var[col] = 0
-
   |state[:start]
     |eof                                                |return
-    |c[\n]      |.newline     | -> | col=0              |>> :start
-    |c[ ]       |.space       | -> | col+=1             |>> :start
+    |c[\n]      |.newline     | ->               |>> :start
+    |c[ ]       |.space       | ->              |>> :start
     |c[\t]      |.tab         | -> | emit(Error:no_tabs) |>> :skip_line
     |c[']       |.escape      | ->                      |>> :escaped
     |c[;]       |.comment     | -> | MARK               |>> :block_comment
@@ -32,24 +30,25 @@
   |state[:escaped]
     ; Line started with ' - rest is literal, no special chars
     |eof                       | emit(Text)             |return
-    |c[\n]      |.done        | emit(Text) | col=0     |>> :start
+    |c[\n]      |.done        | emit(Text)      |>> :start
     |default    |.first       | MARK                    |>> :escaped_text
 
   |state[:escaped_text]
     ; Collect escaped text - no special char handling (| ; ! are literal)
     |eof                       | emit(Text)             |return
-    |c[\n]      |.done        | emit(Text) | col=0     |>> :start
+    |c[\n]      |.done        | emit(Text)      |>> :start
     |default    |.collect     | ->                      |>>
 
   |state[:prose]
     |eof                       | emit(Text)             |return
-    |c[\n]      |.done        | emit(Text) | col=0     |>> :start
+    |c[\n]      |.done        | emit(Text)      |>> :start
     |c[;]       |.semi        | emit(Text) | ->         |>> :check_inline_comment
     |c[<P>]     |.pipe        | emit(Text) | ->         |>> /element(ACTUAL_COL) :start
     |default    |.collect     | ->                      |>>
 
   |state[:check_inline_comment]
     ; After ; in prose - is it ;{...} or rest-of-line comment?
+    |eof                       |                        |return
     |c[{]       |.inline      | ->                      |>> :inline_comment
     |default    |.block       | MARK                    |>> :line_comment
 
@@ -69,22 +68,24 @@
   |state[:line_comment]
     ; Rest of line after ; (not ;{)
     |eof                       | emit(Comment)          |return
-    |c[\n]      |.done        | emit(Comment) | col=0  |>> :start
+    |c[\n]      |.done        | emit(Comment)   |>> :start
     |default    |.collect     | ->                      |>>
 
   |state[:block_comment]
     ; Full line comment starting with ;
     |eof                       | emit(Comment)          |return
-    |c[\n]      |.done        | emit(Comment) | col=0  |>> :start
+    |c[\n]      |.done        | emit(Comment)   |>> :start
     |default    |.collect     | ->                      |>>
 
   |state[:maybe_freeform]
     ; Saw one ` - check for ```
+    |eof                       | emit(Text)             |return
     |c[`]       |.second      | ->                      |>> :maybe_freeform2
     |default    |.not         | MARK                    |>> :prose
 
   |state[:maybe_freeform2]
     ; Saw `` - check for third
+    |eof                       | emit(Text)             |return
     |c[`]       |.third       | MARK                    |>> :freeform
     |default    |.not         | MARK                    |>> :prose
 
@@ -95,11 +96,13 @@
     |default    |.collect     | ->                      |>>
 
   |state[:freeform_end1]
+    |eof                       | emit(Error:unclosed_freeform) |return
     |c[`]       |.second      | ->                      |>> :freeform_end2
     |default    |.not         | ->                      |>> :freeform
 
   |state[:freeform_end2]
-    |c[`]       |.close       | emit(RawContent) | col=0 |>> :start
+    |eof                       | emit(Error:unclosed_freeform) |return
+    |c[`]       |.close       | emit(RawContent)  |>> :start
     |default    |.not         | ->                      |>> :freeform
 
   |state[:directive]
@@ -117,7 +120,7 @@
   |state[:directive_name]
     ; !name...
     |eof                       | emit(Directive)        |return
-    |c[\n]      |.block       | emit(Directive) | col=0 |>> :start
+    |c[\n]      |.block       | emit(Directive)  |>> :start
     |c[{]       |.inline      | emit(Directive)        |>> :directive_body
     |c[ \t]     |.space       | emit(Directive)        |>> :prose_after_directive
     |default    |.collect     | ->                      |>>
@@ -131,7 +134,7 @@
   |state[:prose_after_directive]
     ; Continue prose after inline directive
     |eof                       | emit(Text)             |return
-    |c[\n]      |.done        | emit(Text) | col=0     |>> :start
+    |c[\n]      |.done        | emit(Text)      |>> :start
     |c[;]       |.semi        | emit(Text) | ->         |>> :check_inline_comment
     |c[<P>]     |.pipe        | emit(Text) | ->         |>> /element(ACTUAL_COL) :start
     |default    |.collect     | MARK                    |>> :prose
@@ -139,7 +142,7 @@
   |state[:skip_line]
     ; Error recovery - skip to next line
     |eof                                                |return
-    |c[\n]      |.done        | col=0                   |>> :start
+    |c[\n]      |.done                           |>> :start
     |default    |.skip        | ->                      |>>
 
 ;==============================================================================
@@ -155,9 +158,6 @@
 ; Returning = implicit stack pop + ElementEnd event
 ;==============================================================================
 |function[element] :elem_col
-  |var[col] = :elem_col
-  |var[content_base] = -1
-
   ;============================================================================
   ; ELEMENT IDENTITY PARSING
   ; SPEC.md:654 - element = "|" [ name ] [ suffix ] [ id [ suffix ] ] { class }*
@@ -182,6 +182,7 @@
     ;   |.class  → ElementStartAnon, Attribute("$class"), StringValue("class")
     ;   |?       → ElementStartAnon, Attribute("?"), BoolValue(true)
     ;   |'name'  → ElementStart("name")
+    |eof                     | emit(ElementStartAnon) | emit(ElementEnd) |return
     |c[LETTER]    |.name     | MARK                              |>> :id_name
     |c[<L>]       |.bracket  | ->                                |>> :id_anon_bracket
     |c[.]         |.dot      | emit(ElementStartAnon) | ->       |>> :id_class_start
@@ -231,6 +232,7 @@
     ; Called after ElementStart already emitted
     ;
     ; Example: |foo[myid] → Attribute("$id"), StringValue("myid")
+    |eof                     | emit(Error:unclosed_bracket)      |>> :after_identity
     |c[<R>]       |.empty    | ->                                |>> :id_after_bracket
     |default      |.value    | emit(Attribute:$id) | MARK        |>> :id_bracket_value
 
@@ -239,6 +241,7 @@
     ; Must emit ElementStartAnon before the $id attribute
     ;
     ; Example: |[myid] → ElementStartAnon, Attribute("$id"), StringValue("myid")
+    |eof                     | emit(ElementStartAnon) | emit(Error:unclosed_bracket) |>> :after_identity
     |c[<R>]       |.empty    | emit(ElementStartAnon)            |>> :id_after_bracket
     |default      |.value    | emit(ElementStartAnon) | emit(Attribute:$id) | MARK |>> :id_bracket_value
 
@@ -274,6 +277,7 @@
     ;
     ; Example: |foo.bar → Attribute("$class"), StringValue("bar")
     ; Example: |foo.'odd name' → Attribute("$class"), QuotedStringValue("odd name")
+    |eof                     | emit(Error:expected_class_name)   |>> :after_identity
     |c[LETTER]    |.name     | emit(Attribute:$class) | MARK     |>> :id_class_name
     |c[']         |.quote    | emit(Attribute:$class) | ->       |>> :id_class_quoted
     |default      |.err      | emit(Error:expected_class_name)   |>> :after_identity
@@ -310,27 +314,29 @@
   |state[:id_quoted_name]
     ; Quoted element name: |'has spaces'
     ; After opening ' consumed - now at content
+    |eof                     | emit(ElementStart) | emit(Error:unclosed_quote) |>> :after_identity
     |c[']         |.empty    | MARK | emit(ElementStart) | ->     |>> :id_after_name
     |default      |.content  | MARK                               |>> :id_quoted_name_content
 
   |state[:id_quoted_name_content]
     ; Inside quoted name - collect until closing quote
     ; Backslash escapes the next character
-    |eof                     | emit(Error:unclosed_quote)        |>> :after_identity
+    ; On error, still emit ElementStart (with partial name) to maintain balance
+    |eof                     | emit(ElementStart) | emit(Error:unclosed_quote) |>> :after_identity
     |c[']         |.close    | emit(ElementStart) | ->           |>> :id_after_name
     |c[\\]        |.escape   | ->                                |>> :id_quoted_name_escape
     |default      |.collect  | ->                                |>>
 
   |state[:id_quoted_name_escape]
     ; After backslash - next char is literal
-    |eof                     | emit(Error:unclosed_quote)        |>> :after_identity
+    ; On error, still emit ElementStart to maintain balance
+    |eof                     | emit(ElementStart) | emit(Error:unclosed_quote) |>> :after_identity
     |default      |.char     | ->                                |>> :id_quoted_name_content
 
   |state[:id_class_quoted]
     ; Quoted class name: |foo.'has spaces'
-    ; After . consumed, now we need ' or content
-    ; Actually, the transition here already consumed '
     ; After opening ' consumed - now at content
+    |eof                     | emit(Error:unclosed_quote)        |>> :after_identity
     |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :id_class_check_more
     |default      |.content  | MARK                               |>> :id_class_quoted_content
 
@@ -360,8 +366,8 @@
 
   |state[:after_identity]
     |eof                                   | emit(ElementEnd)  |return
-    |c[\n]      |.newline  | -> | col=0                        |>> :children
-    |c[ \t]     |.space    | -> | col+=1                       |>> :inline_content
+    |c[\n]      |.newline  | ->                         |>> :children
+    |c[ \t]     |.space    | ->                        |>> :inline_content
     |c[;]       |.comment  | ->                                |>> :elem_comment_check
     |c[<P>]     |.nested   | ->                                |>> /element(ACTUAL_COL) :inline_content
     |default    |.text     | MARK                              |>> :inline_text
@@ -369,19 +375,20 @@
   |state[:inline_content]
     ; Inline content after element identity
     |eof                   | emit(ElementEnd)                  |return
-    |c[\n]      |.newline  | -> | col=0                        |>> :children
+    |c[\n]      |.newline  | ->                         |>> :children
     |c[;]       |.comment  | ->                                |>> :elem_comment_check
     |c[<P>]     |.nested   | ->                                |>> /element(ACTUAL_COL) :inline_content
     |default    |.text     | MARK                              |>> :inline_text
 
   |state[:inline_text]
     |eof                   | emit(Text) | emit(ElementEnd)     |return
-    |c[\n]      |.done     | emit(Text) | -> | col=0           |>> :children
+    |c[\n]      |.done     | emit(Text) | ->            |>> :children
     |c[;]       |.semi     | emit(Text) | ->                   |>> :elem_comment_check
     |c[<P>]     |.pipe     | emit(Text) | ->                   |>> /element(ACTUAL_COL) :inline_content
     |default    |.collect  | ->                                |>>
 
   |state[:elem_comment_check]
+    |eof                   | emit(ElementEnd)                  |return
     |c[{]       |.inline   | ->                                |>> :elem_inline_comment
     |default    |.line     | MARK                              |>> :elem_line_comment
 
@@ -392,7 +399,7 @@
 
   |state[:elem_line_comment]
     |eof                   | emit(Comment) | emit(ElementEnd)  |return
-    |c[\n]      |.done     | emit(Comment) | -> | col=0        |>> :children
+    |c[\n]      |.done     | emit(Comment) | ->         |>> :children
     |default    |.collect  | ->                                |>>
 
   ;----------------------------------------------------------------------------
@@ -401,13 +408,14 @@
   ;----------------------------------------------------------------------------
   |state[:children]
     |eof                                   | emit(ElementEnd)  |return
-    |c[\n]      |.blank    | -> | col=0                        |>> :children
-    |c[ ]       |.space    | -> | col+=1                       |>> :children
+    |c[\n]      |.blank    | ->                         |>> :children
+    |c[ ]       |.space    | ->                        |>> :children
     |c[\t]      |.tab      | -> | emit(Error:no_tabs)          |>> :skip_child
     |default               |                                   |>> :children_content
 
   |state[:children_content]
-    ; DEDENT CHECK: use actual column from line_start, not tracked col
+    ; DEDENT CHECK: use actual column from line_start
+    |eof                                   | emit(ElementEnd)  |return
     |if[ACTUAL_COL <= elem_col]            | emit(ElementEnd)  |return
     ; Still inside this element - handle actual content
     |c[']       |.escape   | ->                                |>> :child_escaped
@@ -420,40 +428,41 @@
 
   |state[:children_after_element]
     ; After child element returns - child already consumed this line's whitespace
-    ; We're at the first non-whitespace char (or newline). Reset col appropriately.
+    ; We're at the first non-whitespace char (or newline).
     |eof                                   | emit(ElementEnd)  |return
-    |c[\n]      |.newline  | -> | col=0                        |>> :children
-    |c[ ]       |.space    | -> | col=1                        |>> :children_count_ws
+    |c[\n]      |.newline  | ->                         |>> :children
+    |c[ ]       |.space    | ->                         |>> :children_count_ws
     |c[\t]      |.tab      | -> | emit(Error:no_tabs)          |>> :skip_child
-    |default               | col=0                             |>> :children_content
+    |default                                            |>> :children_content
 
   |state[:children_count_ws]
     ; Counting whitespace after seeing first space in :children_after_element
     |eof                                   | emit(ElementEnd)  |return
-    |c[\n]      |.newline  | -> | col=0                        |>> :children
-    |c[ ]       |.space    | -> | col+=1                       |>> :children_count_ws
+    |c[\n]      |.newline  | ->                         |>> :children
+    |c[ ]       |.space    | ->                        |>> :children_count_ws
     |c[\t]      |.tab      | -> | emit(Error:no_tabs)          |>> :skip_child
     |default               |                                   |>> :children_content
 
   |state[:child_escaped]
     |eof                   | emit(Text) | emit(ElementEnd)     |return
-    |c[\n]      |.done     | emit(Text) | -> | col=0           |>> :children
+    |c[\n]      |.done     | emit(Text) | ->            |>> :children
     |default    |.first    | MARK                              |>> :child_escaped_text
 
   |state[:child_escaped_text]
     ; Collect escaped text - no special char handling (| ; ! are literal)
     |eof                   | emit(Text) | emit(ElementEnd)     |return
-    |c[\n]      |.done     | emit(Text) | -> | col=0           |>> :children
+    |c[\n]      |.done     | emit(Text) | ->            |>> :children
     |default    |.collect  | ->                                |>>
 
   |state[:child_prose]
     |eof                   | emit(Text) | emit(ElementEnd)     |return
-    |c[\n]      |.done     | emit(Text) | -> | col=0           |>> :children
+    |c[\n]      |.done     | emit(Text) | ->            |>> :children
     |c[;]       |.semi     | emit(Text) | ->                   |>> :child_comment_check
     |c[<P>]     |.pipe     | emit(Text) | ->                   |>> /element(ACTUAL_COL) :children_after_element
     |default    |.collect  | ->                                |>>
 
   |state[:child_comment_check]
+    |eof                   | emit(ElementEnd)                  |return
     |c[{]       |.inline   | ->                                |>> :child_inline_comment
     |default    |.line     | MARK                              |>> :child_line_comment
 
@@ -464,19 +473,21 @@
 
   |state[:child_line_comment]
     |eof                   | emit(Comment) | emit(ElementEnd)  |return
-    |c[\n]      |.done     | emit(Comment) | -> | col=0        |>> :children
+    |c[\n]      |.done     | emit(Comment) | ->         |>> :children
     |default    |.collect  | ->                                |>>
 
   |state[:child_block_comment]
     |eof                   | emit(Comment) | emit(ElementEnd)  |return
-    |c[\n]      |.done     | emit(Comment) | -> | col=0        |>> :children
+    |c[\n]      |.done     | emit(Comment) | ->         |>> :children
     |default    |.collect  | ->                                |>>
 
   |state[:child_freeform_check]
+    |eof                   | emit(Text) | emit(ElementEnd)     |return
     |c[`]       |.second   | ->                                |>> :child_freeform_check2
     |default    |.not      | MARK                              |>> :child_prose
 
   |state[:child_freeform_check2]
+    |eof                   | emit(Text) | emit(ElementEnd)     |return
     |c[`]       |.third    | MARK                              |>> :child_freeform
     |default    |.not      | MARK                              |>> :child_prose
 
@@ -486,11 +497,13 @@
     |default    |.collect  | ->                                |>>
 
   |state[:child_freeform_end1]
+    |eof                   | emit(Error:unclosed_freeform) | emit(ElementEnd) |return
     |c[`]       |.second   | ->                                |>> :child_freeform_end2
     |default    |.not      | ->                                |>> :child_freeform
 
   |state[:child_freeform_end2]
-    |c[`]       |.close    | emit(RawContent) | col=0          |>> :children
+    |eof                   | emit(Error:unclosed_freeform) | emit(ElementEnd) |return
+    |c[`]       |.close    | emit(RawContent)           |>> :children
     |default    |.not      | ->                                |>> :child_freeform
 
   |state[:child_directive]
@@ -505,7 +518,7 @@
 
   |state[:child_directive_name]
     |eof                   | emit(Directive) | emit(ElementEnd)|return
-    |c[\n]      |.block    | emit(Directive) | -> | col=0      |>> :children
+    |c[\n]      |.block    | emit(Directive) | ->       |>> :children
     |c[{]       |.body     | emit(Directive)                   |>> :child_directive_body
     |c[ \t]     |.end      | emit(Directive)                   |>> :child_prose
     |default    |.collect  | ->                                |>>
@@ -517,7 +530,7 @@
 
   |state[:skip_child]
     |eof                   | emit(ElementEnd)                  |return
-    |c[\n]      |.done     | -> | col=0                        |>> :children
+    |c[\n]      |.done     | ->                         |>> :children
     |default    |.skip     | ->                                |>>
 
   ;============================================================================
@@ -538,6 +551,7 @@
   |state[:attr_key]
     ; SPEC.md:670 - Parse attribute key (LABEL or quoted)
     ; Example: :foo-bar value → Attribute("foo-bar"), then value
+    |eof                     | emit(Error:expected_attr_key) | emit(ElementEnd) |return
     |c[LETTER]    |.name    | MARK                              |>> :attr_key_scan
     |c[']         |.quoted  | ->                                |>> :attr_key_quoted
     |default      |.err     | emit(Error:expected_attr_key)     |>> :children
@@ -551,15 +565,18 @@
   |state[:attr_key_quoted]
     ; Quoted attribute key: :'odd key'
     ; After opening ' consumed - now at content
+    |eof                     | emit(Error:unclosed_quote) | emit(ElementEnd) |return
     |c[']         |.empty   | MARK | emit(Attribute) | ->       |>> :attr_ws
     |default      |.content | MARK                              |>> :attr_key_quoted_content
 
   |state[:attr_key_quoted_content]
+    |eof                     | emit(Error:unclosed_quote) | emit(ElementEnd) |return
     |c[']         |.close   | emit(Attribute)                   |>> :attr_ws
     |c[\\]        |.escape  | ->                                |>> :attr_key_quoted_esc
     |default      |.collect | ->                                |>>
 
   |state[:attr_key_quoted_esc]
+    |eof                     | emit(Error:unclosed_quote) | emit(ElementEnd) |return
     |default      |.char    | ->                                |>> :attr_key_quoted_content
 
   |state[:attr_ws]
@@ -572,7 +589,7 @@
     ; SPEC.md:671-680 - Dispatch on value type
     ; Flag attribute (no value) → emit BoolValue(true)
     |eof                      | emit(BoolValue:true)            |>> :children
-    |c[\n]        |.flag     | emit(BoolValue:true) | col=0     |>> :children
+    |c[\n]        |.flag     | emit(BoolValue:true)      |>> :children
     |c[;]         |.flag     | emit(BoolValue:true)             |>> :attr_comment
     |c[<L>]       |.array    | emit(ArrayStart) | ->            |>> /array :attr_after_value
     |c["]         |.dquote   | ->                               |>> :attr_dquote
@@ -582,13 +599,14 @@
   |state[:attr_comment]
     ; Comment after flag attribute - rest of line is comment
     |eof                      |                                 |>> :children
-    |c[\n]        |.done     | col=0                            |>> :children
+    |c[\n]        |.done                                 |>> :children
     |default      |.skip     | ->                               |>>
 
   |state[:attr_dquote]
     ; Double-quoted string value: :key "value"
     ; After opening " consumed - now at content
     ; Example: :msg "hello world" → QuotedStringValue("hello world")
+    |eof                      | emit(Error:unclosed_string) | emit(ElementEnd) |return
     |c["]         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :attr_after_value
     |default      |.content  | MARK                             |>> :attr_dquote_content
 
@@ -605,6 +623,7 @@
   |state[:attr_squote]
     ; Single-quoted string value: :key 'value'
     ; After opening ' consumed - now at content
+    |eof                      | emit(Error:unclosed_string) | emit(ElementEnd) |return
     |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :attr_after_value
     |default      |.content  | MARK                             |>> :attr_squote_content
 
@@ -623,14 +642,14 @@
     ; Type determined by content: true/false/null/nil/~/number/string
     ; Example: :count 42 → TypedValue(emits IntegerValue or StringValue)
     |eof                      | emit(TypedValue)                |>> :children
-    |c[\n]        |.done     | emit(TypedValue) | col=0         |>> :children
+    |c[\n]        |.done     | emit(TypedValue)          |>> :children
     |c[;]         |.done     | emit(TypedValue)                 |>> :attr_comment
     |default      |.collect  | ->                               |>>
 
   |state[:attr_after_value]
     ; After quoted value - skip to end of attribute
     |eof                      |                                 |>> :children
-    |c[\n]        |.done     | col=0                            |>> :children
+    |c[\n]        |.done                                 |>> :children
     |c[;]         |.comment  |                                  |>> :attr_comment
     |c[ \t]       |.space    | ->                               |>>
     |default      |.extra    | emit(Error:unexpected_after_value) |>> :attr_skip_line
@@ -638,7 +657,7 @@
   |state[:attr_skip_line]
     ; Error recovery - skip to newline
     |eof                      |                                 |>> :children
-    |c[\n]        |.done     | col=0                            |>> :children
+    |c[\n]        |.done                                 |>> :children
     |default      |.skip     | ->                               |>>
 
 ;==============================================================================
