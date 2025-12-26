@@ -3,68 +3,168 @@
 
 # genmachine-rs: Generate Rust parser from .machine DSL
 #
-# This is a port of the original genmachine to emit Rust instead of C.
-# The DSL is parsed column-by-column (pipe-separated), not line-by-line.
+# Full port of the original C genmachine to emit Rust.
+# The DSL is parsed column-by-column (pipe-separated).
 #
-# Usage: ./genmachine-rs bootstrap.machine
+# Key features:
+# - Variables with arithmetic (lvl=0, lvl+=1)
+# - Conditionals (if[cond] ... endif)
+# - Advance-to patterns (->[chars])
+# - MARK/TERM for string accumulation
+# - emit() for event emission
+#
+# Usage: ./genmachine-rs udon.machine > udon-core/src/parser.rs
 
 require 'liquid'
 
-# --- Configuration ---
 INDENTS = 4
 
 def dent(i)
   ' ' * i * INDENTS
 end
 
-# --- DSL Parser ---
-# Parse the .machine file into an intermediate representation.
-# The format uses pipe-separated columns, similar to UDON itself.
+# ============================================================================
+# DSL AST Classes
+# ============================================================================
 
-class MachineParser
-  attr_reader :name, :entry_point, :functions
+class GMGenericChild
+  attr_accessor :parent, :name, :body
+
+  def initialize(parent, name)
+    @parent = parent
+    @name = name
+    @body = []
+  end
+
+  def gm
+    return self if self.is_a?(GM)
+    p = @parent
+    p = p.parent while p && !p.is_a?(GM)
+    p
+  end
+
+  def gmf
+    return self if self.is_a?(GMFunction)
+    p = @parent
+    p = p.parent while p && !p.is_a?(GMFunction)
+    p
+  end
+
+  def gms
+    return self if self.is_a?(GMState)
+    p = @parent
+    p = p.parent while p && !p.is_a?(GMState)
+    p
+  end
+
+  def check_basic_commands(c, &src)
+    matched = false
+    is_done = false
+    new_c = c
+
+    case c[0]
+    when ''
+      cmd_str = c[2].strip
+      unless cmd_str.empty?
+        @body << GMCommand.new(self, cmd_str)
+      end
+      new_c = yield
+      matched = true
+    when /^emit\(/i
+      # Handle emit(EventType) as a command
+      @body << GMCommand.new(self, c[0])
+      new_c = yield
+      matched = true
+    when '>>'
+      if c[2].strip.empty?
+        # Self-loop - stay in current state
+      else
+        loc = gm.parse_location(c[2])
+        if loc[:function]
+          # Call function using DSL format - GMCommand will parse it
+          args = loc[:args] ? loc[:args].join(", ") : ""
+          @body << GMCommand.new(self, "/#{loc[:function]}(#{args})")
+          # If there's also a state after the function call, transition to it
+          if loc[:state]
+            state_enum = "State::S#{loc[:state].split('_').map(&:capitalize).join}"
+            @body << GMCommand.new(self, "state = #{state_enum}")
+          end
+        elsif loc[:state]
+          state_enum = "State::S#{loc[:state].split('_').map(&:capitalize).join}"
+          @body << GMCommand.new(self, "state = #{state_enum}")
+        end
+      end
+      new_c = yield
+      matched = true
+      is_done = true
+    when 'err'
+      msg = c[2].gsub('"', '\\"')
+      @body << GMCommand.new(self, %{self.emit(Event::Error { message: "#{msg}", span: Span::new(self.pos, self.pos) })})
+      @body << GMCommand.new(self, "return")
+      new_c = yield
+      matched = true
+      is_done = true
+    when 'return'
+      ret_val = c[2].strip
+      if ret_val.empty? || ret_val == 'S'
+        @body << GMCommand.new(self, "return")
+      else
+        @body << GMCommand.new(self, "return #{ret_val}")
+      end
+      new_c = yield
+      matched = true
+      is_done = true
+    when 'if'
+      cond = GMConditional.new(self, c[1])
+      @body << cond
+      new_c = cond.parse(&src)
+      matched = true
+    end
+
+    [matched, new_c, is_done]
+  end
+end
+
+class GM < GMGenericChild
+  attr_accessor :enums, :structs, :epoints, :listy
 
   def initialize
-    @name = ''
+    super(nil, '')
+    @enums = []
+    @structs = []
+    @epoints = []
+    @listy = ['LIST', 'STRING']
     @entry_point = nil
-    @functions = []
   end
 
-  def parse(content)
-    # Split on | just like the original genmachine
-    # Filter lines starting with | or comment lines starting with ;
-    lines = content.lines.select { |l| l =~ /^\s*\|/ }
-    parts = lines.join('').split('|').map(&:rstrip).reject { |c| c.strip.empty? }
-
-    i = 0
-    while i < parts.size
-      elem = parse_element(parts[i])
-      i += 1
-
-      case elem[:tag]
+  def parse(&src)
+    c = yield
+    loop do
+      case c[0]
       when 'parser'
-        @name = elem[:rest].strip.downcase
+        @name = c[2].strip.downcase
+        c = yield
       when 'entry-point'
-        @entry_point = parse_location(elem[:rest].strip)
+        @entry_point = parse_location(c[2].strip)
+        c = yield
       when 'function'
-        func = { name: elem[:id].split(':').first, states: [], commands: [] }
-        i = parse_function_body(func, parts, i)
-        @functions << func
-      when 'enum', 'struct'
-        # Skip for now - bootstrap doesn't need these
-        i += 1 while i < parts.size && !%w[function parser entry-point enum struct].include?(parse_element(parts[i])[:tag])
+        fname, ftype = c[1].split(':')
+        params_str = c[2]  # e.g., ":elem_col :content_base"
+        f = GMFunction.new(self, fname, ftype, params_str)
+        @body << f
+        c = f.parse(&src)
+      when 'enum'
+        e = GMEnum.new(self, c[1])
+        @enums << e
+        c = e.parse(&src)
+      when 'struct'
+        s = GMStruct.new(self, c[1])
+        @structs << s
+        c = s.parse(&src)
+      else
+        c = yield rescue break
       end
     end
-  end
-
-  private
-
-  def parse_element(part)
-    part = part.strip
-    tag = part[/^(\.|[^ \[]+)/]&.strip&.downcase || ''
-    id = part[/\[([^\]]*)\]/, 1] || ''
-    rest = part.gsub(/^(\.|[^ \[]+)/, '').gsub(/\[[^\]]*\]/, '').strip
-    { tag: tag, id: id, rest: rest }
   end
 
   def parse_location(loc)
@@ -73,230 +173,356 @@ class MachineParser
     parts.each do |part|
       case part[0]
       when '/'
-        result[:function] = part[1..-1]
+        # Handle /func(arg1, arg2) syntax
+        # Note: part may have trailing space before next location component
+        clean_part = part.strip
+        if clean_part =~ /^\/([^(]+)\(([^)]*)\)$/
+          # Capture immediately - gsub resets $1/$2!
+          func_name = $1
+          args_str = $2 || ""
+          result[:function] = func_name.gsub('-', '_')
+          result[:args] = args_str.empty? ? [] : args_str.split(',').map(&:strip)
+        else
+          result[:function] = clean_part[1..-1].gsub('-', '_')
+        end
       when ':'
-        result[:state] = part[1..-1].gsub('-', '_')
+        result[:state] = part[1..-1].gsub('-', '_').gsub(':', '')
       when '.'
         result[:substate] = part[1..-1]
       else
         result[:state] = part.gsub('-', '_')
       end
     end
+    @epoints << result if result[:function]
     result
   end
 
-  def parse_function_body(func, parts, i)
-    while i < parts.size
-      elem = parse_element(parts[i])
-      break if %w[function parser entry-point enum struct].include?(elem[:tag])
-
-      case elem[:tag]
-      when 'state'
-        state = { name: elem[:id].gsub('-', '_').gsub(':', ''), cases: [], eof_handler: nil }
-        i += 1
-        i = parse_state_body(state, parts, i)
-        func[:states] << state
-      when 'eof'
-        # Function-level EOF handler
-        i += 1
-        while i < parts.size
-          elem = parse_element(parts[i])
-          break if %w[function state parser entry-point enum struct eof c default].include?(elem[:tag])
-          i += 1  # Commands handled inline
-        end
-      when ''
-        # Inline command at function level
-        i += 1
-      else
-        i += 1
-      end
-    end
-    i
+  def entry_function
+    @entry_point ? @entry_point[:function] : 'line'
   end
 
-  def parse_state_body(state, parts, i)
-    current_case = nil
+  def output_functions
+    @body.select { |b| b.is_a?(GMFunction) }.map(&:to_rust)
+  end
 
-    while i < parts.size
-      elem = parse_element(parts[i])
-      break if %w[function state parser entry-point enum struct].include?(elem[:tag])
+  def output_enums
+    @enums.map(&:to_rust)
+  end
 
-      case elem[:tag]
-      when 'c'
-        chars_str = elem[:id].gsub('<L>', '[').gsub('<R>', ']').gsub('<P>', '|')
-                              .gsub('\\t', "\t").gsub('\\n', "\n")
-        # Check for special character class (all uppercase with underscores)
-        if chars_str =~ /^[A-Z_]+$/
-          current_case = { chars: [chars_str], is_special: true, substate: nil, commands: [] }
-        else
-          current_case = { chars: chars_str.chars.to_a, is_special: false, substate: nil, commands: [] }
-        end
-        state[:cases] << current_case
-        i += 1
-      when 'default'
-        current_case = { chars: nil, substate: nil, commands: [] }
-        state[:cases] << current_case
-        i += 1
-      when 'eof'
-        state[:eof_handler] = []
-        i += 1
-      else
-        # This could be:
-        # - A substate marker (.name)
-        # - A command (->  >> etc)
-        # - Or a raw command
-
-        if elem[:tag].start_with?('.')
-          # Substate marker
-          if current_case
-            current_case[:substate] = elem[:tag][1..-1]
-          end
-          i += 1
-        elsif elem[:tag] == '->'
-          # Advance command
-          if current_case
-            current_case[:commands] << { type: :advance }
-          end
-          i += 1
-        elsif elem[:tag] == '>>'
-          # Goto command
-          target = elem[:rest].strip
-          if current_case
-            if target.empty?
-              current_case[:commands] << { type: :goto_self }
-            else
-              current_case[:commands] << { type: :goto, target: parse_location(target) }
-            end
-          end
-          i += 1
-        elsif elem[:tag] == 'return'
-          if current_case
-            current_case[:commands] << { type: :return }
-          end
-          i += 1
-        elsif elem[:tag] == 'mark'
-          if current_case
-            current_case[:commands] << { type: :mark }
-          end
-          i += 1
-        elsif elem[:tag] =~ /^emit\((\w+)\)$/i
-          event = $1
-          if current_case
-            current_case[:commands] << { type: :emit, event: event }
-          end
-          i += 1
-        elsif elem[:tag] =~ /^call:(\w+)$/i
-          # Call a helper method (tag is call:method_name)
-          if current_case
-            current_case[:commands] << { type: :call, method: $1 }
-          end
-          i += 1
-        elsif elem[:tag] == ''
-          # Check if rest contains commands
-          rest = elem[:rest].strip
-          if rest =~ /^emit\((\w+)\)$/i
-            if current_case
-              current_case[:commands] << { type: :emit, event: $1 }
-            end
-          elsif rest == 'MARK'
-            if current_case
-              current_case[:commands] << { type: :mark }
-            end
-          elsif rest == 'return'
-            if current_case
-              current_case[:commands] << { type: :return }
-            end
-          elsif rest =~ /^CALL:(\w+)$/i
-            # Call a helper method (in rest)
-            if current_case
-              current_case[:commands] << { type: :call, method: $1 }
-            end
-          elsif rest =~ /^IF_ELEMENT$/i
-            # Conditional: if parse_element() succeeds
-            if current_case
-              current_case[:commands] << { type: :if_element }
-            end
-          end
-          i += 1
-        else
-          i += 1
-        end
-      end
-    end
-    i
+  def output_structs
+    @structs.map(&:to_rust)
   end
 end
 
-# --- Rust Code Generator ---
-
-class RustGenerator
-  def initialize(machine)
-    @machine = machine
+class GMEnum < GMGenericChild
+  def parse(&src)
+    c = yield
+    loop do
+      break if %w[struct enum function parser entry-point].include?(c[0])
+      @body << c[0].strip
+      c = yield
+    end
+    c
   end
 
-  def generate
-    functions_code = @machine.functions.map { |f| generate_function(f) }.join("\n\n")
+  def to_rust
+    variants = @body.map { |v| "    #{v.split(/(?=[A-Z])/).map(&:capitalize).join}," }.join("\n")
+    <<~RUST
+      #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+      pub enum #{@name} {
+      #{variants}
+      }
+    RUST
+  end
+end
 
-    entry = @machine.entry_point
-    entry_fn = entry[:function]
-
-    template = File.read(File.join(__dir__, 'templates/parser.rs.liquid'))
-    template = Liquid::Template.parse(template)
-
-    template.render(
-      'parser' => @machine.name,
-      'entry_function' => entry_fn,
-      'functions' => functions_code,
-      'machine_file' => ARGV[0] || 'unknown'
-    )
+class GMStruct < GMGenericChild
+  def initialize(parent, name)
+    super(parent, name)
+    parts = name.split('<').map(&:strip)
+    @name = parts[0]
+    @struct_parent = parts[1]
   end
 
-  private
+  def parse(&src)
+    c = yield
+    loop do
+      break if %w[struct enum function parser entry-point].include?(c[0])
+      field_name = c[0].strip
+      field_type = c[2].strip
+      @body << [field_name, rust_type(field_type)]
+      c = yield
+    end
+    c
+  end
 
-  def generate_function(func)
+  def rust_type(t)
+    case t
+    when 'Z+' then 'u64'
+    when 'STRING' then "&'a [u8]"
+    when 'LIST' then "Vec<#{gm.name.capitalize}Node<'a>>"
+    when 'DICT' then "std::collections::HashMap<&'a [u8], Value<'a>>"
+    else "#{t}<'a>"
+    end
+  end
+
+  def to_rust
+    fields = @body.map { |name, typ| "    pub #{name}: #{typ}," }.join("\n")
+    <<~RUST
+      #[derive(Debug, Clone)]
+      pub struct #{@name}<'a> {
+      #{fields}
+      }
+    RUST
+  end
+end
+
+class GMFunction < GMGenericChild
+  attr_accessor :ftype, :locals, :expected, :implemented, :eof_handler, :init_commands, :params
+
+  def initialize(parent, name, return_type, params_str = nil)
+    super(parent, name.gsub('-', '_'))
+    @ftype = return_type
+    @locals = {}           # Variable name => type
+    @params = []           # Parameter names (without leading :)
+    @init_commands = []    # Commands to run at function start
+    @expected = {}
+    @implemented = {}
+    @eof_handler = nil
+    @has_states = false
+
+    # Parse parameters from string like ":col :parent_col"
+    if params_str && !params_str.empty?
+      params_str.scan(/:(\w+)/).each do |match|
+        @params << match[0]
+      end
+    end
+  end
+
+  def register_local(name, init_value = nil)
+    return if @locals[name]
+    @locals[name] = init_value
+  end
+
+  def parse(&src)
+    c = yield
+    loop do
+      break if %w[enum struct function].include?(c[0])
+
+      case c[0]
+      when 'eof'
+        @eof_handler = GMEOF.new(self)
+        c = @eof_handler.parse(&src)
+      when 'var'
+        # Variable declaration: |var[name] = value
+        var_name = c[1]
+        init_val = c[2].strip.sub(/^=\s*/, '')
+        register_local(var_name, init_val)
+        c = yield
+      when 'state'
+        state_name = c[1].gsub('-', '_').gsub(':', '')
+        # Check for inline init commands after state name
+        rest = c[2].strip
+        st = GMState.new(self, state_name, !@has_states)
+        @has_states = true
+
+        # Parse inline commands on the state line
+        if rest && !rest.empty?
+          # Could be things like "| S.node_type=ROOT | inl = 0"
+          rest.split('|').each do |cmd|
+            cmd = cmd.strip
+            next if cmd.empty?
+            st.inline_init << GMCommand.new(st, cmd)
+          end
+        end
+
+        @body << st
+        @implemented[state_name] = true
+        c = st.parse(&src)
+      when ''
+        # Function-level command (initialization)
+        cmd_str = c[2].strip
+        unless cmd_str.empty?
+          # Check if it's a variable init
+          if cmd_str =~ /^(\w+)\s*=\s*(.+)$/
+            var_name = $1
+            init_val = $2
+            register_local(var_name, init_val)
+            @init_commands << GMCommand.new(self, cmd_str)
+          else
+            @init_commands << GMCommand.new(self, cmd_str)
+          end
+        end
+        c = yield
+      else
+        c = yield
+      end
+    end
+    c
+  end
+
+  def to_rust
     code = []
-    code << "    fn parse_#{func[:name]}(&mut self) {"
 
-    # Generate state enum values
-    state_names = func[:states].map { |s| "S#{s[:name].split('_').map(&:capitalize).join}" }
-
-    code << "        #[derive(Clone, Copy)]"
-    code << "        enum State { #{state_names.join(', ')} }"
-    code << ""
-    code << "        let mut state = State::#{state_names.first};"
-    code << "        loop {"
-    code << "            if self.eof() {"
-    code << "                return;"
-    code << "            }"
-    code << ""
-    code << "            match state {"
-
-    # Generate states
-    func[:states].each_with_index do |state, idx|
-      state_enum = state_names[idx]
-      code << generate_state(func, state, state_enum, state_names)
+    # Generate function signature with parameters
+    if @params.any?
+      param_list = @params.map { |p| "#{p}: i32" }.join(", ")
+      code << "    fn parse_#{@name}(&mut self, #{param_list}) {"
+    else
+      code << "    fn parse_#{@name}(&mut self) {"
     end
 
-    code << "            }"
-    code << "        }"
+    # Generate local variable declarations
+    @locals.each do |name, init_val|
+      rust_init = map_value(init_val)
+      code << "        let mut #{name}: i32 = #{rust_init};"
+    end
+    code << "" if @locals.any?
+
+    # Generate init commands (non-variable ones)
+    @init_commands.each do |cmd|
+      next if cmd.name =~ /^\w+\s*=/ # Skip var inits, already handled
+      code << "        #{cmd.to_rust}"
+    end
+
+    # Generate state enum if we have states
+    states = @body.select { |b| b.is_a?(GMState) }
+    if states.any?
+      state_names = states.map { |s| "S#{s.name.split('_').map(&:capitalize).join}" }
+      code << "        #[derive(Clone, Copy)]"
+      code << "        enum State { #{state_names.join(', ')} }"
+      code << ""
+      code << "        let mut state = State::#{state_names.first};"
+      code << "        loop {"
+      # Only add function-level EOF check if there's an explicit handler
+      # Otherwise, let each state handle EOF with its own handler
+      if @eof_handler
+        code << "            if self.eof() {"
+        @eof_handler.body.each { |cmd| code << "                #{cmd.to_rust}" }
+        code << "            }"
+        code << ""
+      end
+      code << "            match state {"
+
+      states.each_with_index do |state, idx|
+        code << state.to_rust(state_names, idx)
+      end
+
+      code << "            }"
+      code << "        }"
+    else
+      @body.each { |b| code << "        #{b.to_rust}" if b.is_a?(GMCommand) }
+    end
+
     code << "    }"
     code.join("\n")
   end
 
-  def generate_state(func, state, state_enum, all_state_names)
+  def map_value(val)
+    return "0" if val.nil?
+    val = val.strip
+
+    # Handle parameter references like :elem_col
+    if val =~ /^:(\w+)$/
+      return $1  # Just the parameter name
+    end
+
+    # Map special values
+    val.gsub(/\bCOL\b/, '(self.column as i32)')
+       .gsub(/\bACTUAL_COL\b/, 'self.current_column()')
+       .gsub(/\bLINE\b/, '(self.line as i32)')
+       .gsub(/:(\w+)/, '\1')  # Also handle :param in expressions
+  end
+end
+
+class GMEOF < GMGenericChild
+  def initialize(parent)
+    super(parent, 'eof')
+  end
+
+  def parse(&src)
+    c = yield
+    loop do
+      res, c, is_done = check_basic_commands(c, &src)
+      return c if !res || is_done
+    end
+  end
+end
+
+class GMState < GMGenericChild
+  attr_accessor :is_first, :inline_init
+
+  def initialize(parent, name, is_first)
+    super(parent, name)
+    @is_first = is_first
+    @inline_init = []
+    @local_eof = nil
+  end
+
+  def parse(&src)
+    c = yield
+    loop do
+      break if %w[enum struct function state].include?(c[0])
+
+      case c[0]
+      when 'c'
+        cstmt = GMCase.new(self, c[1])
+        @body << cstmt
+        c = cstmt.parse(&src)
+      when 'default'
+        dstmt = GMCase.new(self, nil)
+        @body << dstmt
+        c = dstmt.parse(&src)
+      when 'eof'
+        @local_eof = GMEOF.new(self)
+        c = @local_eof.parse(&src)
+      else
+        res, c, is_done = check_basic_commands(c, &src)
+        break if is_done && res
+        c = yield unless res
+      end
+    end
+    c
+  end
+
+  def to_rust(state_names, idx)
+    state_enum = state_names[idx]
     code = []
     code << "                State::#{state_enum} => {"
 
-    # Check for optimized fast-scan states
-    if state[:name] == 'text' || state[:name] == 'text_with_pipe'
-      code << generate_fast_text_state(state, all_state_names)
-    elsif state[:name] == 'comment'
-      code << generate_fast_comment_state(state, all_state_names)
-    else
+    # Inline init commands
+    @inline_init.each do |cmd|
+      code << "                    #{cmd.to_rust}"
+    end
+
+    # Handle state-specific EOF (skip for states without local_eof,
+    # as the function-level EOF handler at the loop top will catch it)
+    if @local_eof && @local_eof.body.any?
+      code << "                    if self.eof() {"
+      @local_eof.body.each do |cmd|
+        rust = cmd.to_rust
+        code << "                        #{rust}" if rust && !rust.empty?
+      end
+      code << "                    }"
+    end
+
+    # Separate conditionals from match cases
+    # Conditionals (|if[...]) go before the match block
+    conditionals = @body.select { |obj| obj.is_a?(GMConditional) }
+    match_cases = @body.reject { |obj| obj.is_a?(GMConditional) }
+
+    # Output conditionals first (as prefix guards)
+    conditionals.each do |cond|
+      code << "                    #{cond.to_rust(state_names)}"
+    end
+
+    # Check if this is a fast-scan state (text or comment)
+    if @name =~ /^text/ || @name == 'comment'
+      code << generate_fast_scan
+    elsif match_cases.any?
       code << "                    match self.peek().unwrap() {"
-      # Generate cases
-      state[:cases].each do |case_obj|
-        code << generate_case(case_obj, func, state, all_state_names)
+      match_cases.each do |case_obj|
+        code << case_obj.to_rust(state_names)
       end
       code << "                    }"
     end
@@ -305,95 +531,149 @@ class RustGenerator
     code.join("\n")
   end
 
-  # Optimized text state: fast scan to \n, |, or ;
-  def generate_fast_text_state(state, all_state_names)
-    <<~RUST.lines.map { |l| "                    #{l.rstrip}" }.join("\n")
-      // Fast scan: skip to next special character
-      let scan_start = self.pos;
-      match self.scan_to3(b'\\n', b'|', b';') {
-          Some(b'\\n') => {
-              if self.pos > self.mark_start {
-                  self.column += (self.pos - scan_start) as u32;
-                  self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-              }
-              self.advance();
-              state = State::SLineStart;
-          }
-          Some(b'|') => {
-              if self.pos > self.mark_start {
-                  self.column += (self.pos - scan_start) as u32;
-                  self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-              }
-              self.advance();
-              state = State::SAfterPipe;
-          }
-          Some(b';') => {
-              if self.pos > self.mark_start {
-                  self.column += (self.pos - scan_start) as u32;
-                  self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-              }
-              self.advance();
-              self.mark();
-              state = State::SComment;
-          }
-          None => {
-              // EOF
-              if self.pos > self.mark_start {
-                  self.column += (self.pos - scan_start) as u32;
-                  self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-              }
-              return;
-          }
-          _ => {}
-      }
-    RUST
+  def generate_fast_scan
+    if @name == 'comment'
+      <<~RUST.lines.map { |l| "                    #{l.rstrip}" }.join("\n")
+        // Fast scan to newline
+        let scan_start = self.pos;
+        if self.scan_to(b'\\n').is_some() {
+            self.column += (self.pos - scan_start) as u32;
+            self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
+            self.advance();
+            state = State::SLineStart;
+        } else {
+            self.column += (self.pos - scan_start) as u32;
+            if self.pos > self.mark_start {
+                self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
+            }
+            return;
+        }
+      RUST
+    else
+      <<~RUST.lines.map { |l| "                    #{l.rstrip}" }.join("\n")
+        // Fast scan to special characters
+        let scan_start = self.pos;
+        match self.scan_to3(b'\\n', b'|', b';') {
+            Some(b'\\n') => {
+                if self.pos > self.mark_start {
+                    self.column += (self.pos - scan_start) as u32;
+                    self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
+                }
+                self.advance();
+                state = State::SLineStart;
+            }
+            Some(b'|') => {
+                if self.pos > self.mark_start {
+                    self.column += (self.pos - scan_start) as u32;
+                    self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
+                }
+                self.advance();
+                state = State::SAfterPipe;
+            }
+            Some(b';') => {
+                if self.pos > self.mark_start {
+                    self.column += (self.pos - scan_start) as u32;
+                    self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
+                }
+                self.advance();
+                self.mark();
+                state = State::SComment;
+            }
+            None => {
+                if self.pos > self.mark_start {
+                    self.column += (self.pos - scan_start) as u32;
+                    self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
+                }
+                return;
+            }
+            _ => {}
+        }
+      RUST
+    end
+  end
+end
+
+class GMCase < GMGenericChild
+  attr_accessor :chars, :is_default, :substate
+
+  def initialize(parent, chars_str)
+    super(parent, chars_str)
+    @is_default = chars_str.nil?
+    @substate = nil
+    @special_class = nil
+    @chars = nil
+
+    unless @is_default
+      # Parse character class
+      processed = chars_str
+        .gsub('<L>', "\x01LEFT_BRACKET\x01")
+        .gsub('<R>', "\x01RIGHT_BRACKET\x01")
+        .gsub('<P>', "\x01PIPE\x01")
+        .gsub('\\t', "\t")
+        .gsub('\\n', "\n")
+
+      # Check for special named classes (all uppercase)
+      if processed =~ /^[A-Z_]+$/
+        @special_class = processed
+      else
+        # Restore special chars
+        processed = processed
+          .gsub("\x01LEFT_BRACKET\x01", '[')
+          .gsub("\x01RIGHT_BRACKET\x01", ']')
+          .gsub("\x01PIPE\x01", '|')
+        @chars = processed.chars
+      end
+    end
   end
 
-  # Optimized comment state: fast scan to \n
-  def generate_fast_comment_state(state, all_state_names)
-    <<~RUST.lines.map { |l| "                    #{l.rstrip}" }.join("\n")
-      // Fast scan: skip to newline
-      let scan_start = self.pos;
-      if self.scan_to(b'\\n').is_some() {
-          self.column += (self.pos - scan_start) as u32;
-          self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
-          self.advance();
-          state = State::SLineStart;
-      } else {
-          // EOF - emit remaining comment
-          self.column += (self.pos - scan_start) as u32;
-          if self.pos > self.mark_start {
-              self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
-          }
-          return;
-      }
-    RUST
+  def parse(&src)
+    c = yield
+    loop do
+      break if %w[enum struct function state c default].include?(c[0])
+
+      if c[0] == '.'
+        @substate = c[2]
+        gmf.implemented["#{gms.name}__#{@substate}"] = true if gmf && gms
+        c = yield
+      else
+        res, c, is_done = check_basic_commands(c, &src)
+        break if is_done && res
+        c = yield unless res
+      end
+    end
+    c
   end
 
-  def generate_case(case_obj, func, state, all_state_names)
+  def to_rust(state_names)
     code = []
     indent = "                        "
 
-    if case_obj[:chars].nil?
+    # Generate match arm
+    if @is_default
       code << "#{indent}_ => {"
-    elsif case_obj[:is_special]
-      # Special character class like LETTER or ELEMENT_START
-      match_expr = generate_special_match(case_obj[:chars][0])
+    elsif @special_class
+      match_expr = case @special_class
+      when 'LETTER' then 'b if self.is_label_start(b)'
+      when 'ELEMENT_START' then 'b if self.is_element_start_byte(b)'
+      else "_ /* unknown: #{@special_class} */"
+      end
       code << "#{indent}#{match_expr} => {"
-    else
-      chars = case_obj[:chars].map { |c| format_char(c) }.join(" | ")
+    elsif @chars && !@chars.empty?
+      chars = @chars.map { |c| format_char(c) }.join(' | ')
       code << "#{indent}#{chars} => {"
+    else
+      return "#{indent}// WARNING: empty pattern for #{@name.inspect}"
     end
 
-    # Generate commands
-    case_obj[:commands].each do |cmd|
-      generated = generate_command(cmd, func, state, all_state_names)
-      code << "#{indent}    #{generated}" unless generated.nil? || generated.empty?
+    # Generate body
+    @body.each do |cmd|
+      rust = cmd.to_rust
+      code << "#{indent}    #{rust}" unless rust.nil? || rust.empty?
     end
 
-    # If no commands, add a placeholder
-    if case_obj[:commands].empty?
-      code << "#{indent}    // #{case_obj[:substate] || 'unhandled'}"
+    # Default placeholder if empty
+    if @body.empty?
+      code << "#{indent}    // #{@substate || 'unhandled'}"
     end
 
     code << "#{indent}}"
@@ -406,93 +686,314 @@ class RustGenerator
     when "\t" then "b'\\t'"
     when "'" then "b'\\''"
     when "\\" then "b'\\\\'"
+    when "[" then "b'['"
+    when "]" then "b']'"
+    when "|" then "b'|'"
+    when "@" then "b'@'"
+    when "`" then "b'`'"
+    when "{" then "b'{'"
+    when "}" then "b'}'"
     else "b'#{c}'"
-    end
-  end
-
-  # Check if a case uses a special character class
-  def is_special_class?(chars)
-    return false unless chars.is_a?(Array) && chars.size == 1
-    chars[0] =~ /^[A-Z_]+$/  # All uppercase = special class
-  end
-
-  # Generate match arm for special character class
-  def generate_special_match(class_name)
-    case class_name
-    when 'LETTER'
-      "b if self.is_label_start(b)"
-    when 'ELEMENT_START'
-      "b if self.is_element_start_byte(b)"
-    else
-      "_ /* unknown class: #{class_name} */"
-    end
-  end
-
-  def generate_command(cmd, func, state, all_state_names)
-    return nil if cmd.nil?
-
-    case cmd[:type]
-    when :advance
-      "self.advance();"
-    when :goto
-      target = cmd[:target]
-      if target[:state]
-        # Convert state name to enum variant
-        state_enum = "S#{target[:state].split('_').map(&:capitalize).join}"
-        "state = State::#{state_enum};"
-      else
-        # Stay in current state
-        ""
-      end
-    when :goto_self
-      # Stay in current state (no-op, just continue the loop)
-      ""
-    when :return
-      "return;"
-    when :mark
-      "self.mark();"
-    when :call
-      method = cmd[:method]
-      "self.#{method}();"
-    when :if_element
-      # Special: try to parse element, handle success/failure
-      "if self.parse_element() { self.parse_element_content(); self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) }); }"
-    when :emit
-      event = cmd[:event]
-      case event.downcase
-      when 'comment'
-        "self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });"
-      when 'text'
-        "self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });"
-      when 'elementend'
-        "self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });"
-      else
-        "// TODO: emit #{event}"
-      end
-    else
-      nil
     end
   end
 end
 
-# --- Main ---
+class GMCommand < GMGenericChild
+  def initialize(parent, cmd)
+    super(parent, cmd.strip)
+    @raw_cmd = cmd.strip
+    parse_command
+  end
+
+  def parse_command
+    cmd = @raw_cmd
+
+    # Handle MARK
+    if cmd =~ /\bMARK\b/
+      @type = :mark
+      return
+    end
+
+    # Handle TERM
+    if cmd =~ /\bTERM\b/
+      @type = :term
+      return
+    end
+
+    # Handle function call /name or /name(args)
+    if cmd =~ /^\/(\w+)(?:\(([^)]*)\))?/
+      @type = :call
+      func_name = $1
+      args_str = $2
+      @call_target = func_name.gsub('-', '_')
+      @call_args = args_str ? args_str.split(',').map(&:strip) : []
+      return
+    end
+
+    # Handle advance-to pattern: ->[chars] or ->[\n]
+    if cmd =~ /^->\s*\[([^\]]+)\]$/
+      @type = :advance_to
+      @advance_chars = $1.gsub('\\n', "\n").gsub('\\t', "\t")
+      return
+    end
+
+    # Handle simple advance ->
+    if cmd =~ /^\s*->\s*$/
+      @type = :advance
+      return
+    end
+
+    # Handle emit(EventType) or emit(Error:message)
+    if cmd =~ /emit\(([^)]+)\)/i
+      @type = :emit
+      @event_type = $1
+      return
+    end
+
+    # Handle CALL:method
+    if cmd =~ /CALL:(\w+)/i
+      @type = :call_method
+      @method_name = $1
+      return
+    end
+
+    # Handle += and -=
+    if cmd =~ /^(\w+)\s*\+=\s*(.+)$/
+      @type = :add_assign
+      @lhs = $1
+      @rhs = $2
+      return
+    end
+
+    if cmd =~ /^(\w+)\s*-=\s*(.+)$/
+      @type = :sub_assign
+      @lhs = $1
+      @rhs = $2
+      return
+    end
+
+    # Handle simple assignment (but not +=/-=)
+    if cmd =~ /^(\w+)\s*=\s*(.+)$/ && !cmd.include?('+=') && !cmd.include?('-=')
+      @type = :assign
+      @lhs = $1
+      @rhs = $2
+      return
+    end
+
+    # Handle return statement
+    if cmd =~ /^return\b(.*)$/
+      @type = :return
+      @return_value = $1.strip
+      return
+    end
+
+    # Default: raw command
+    @type = :raw
+  end
+
+  def to_rust
+    case @type
+    when :mark
+      "self.mark();"
+    when :term
+      "self.term();"
+    when :advance
+      "self.advance();"
+    when :advance_to
+      # Generate advance-to loop
+      chars = @advance_chars.chars.map { |c| format_char_literal(c) }
+      if chars.size == 1
+        "while self.peek() != Some(#{chars[0]}) && !self.eof() { self.advance(); }"
+      else
+        conds = chars.map { |c| "self.peek() != Some(#{c})" }.join(" && ")
+        "while #{conds} && !self.eof() { self.advance(); }"
+      end
+    when :emit
+      emit_rust(@event_type)
+    when :call_method
+      "self.#{@method_name}();"
+    when :call
+      args = @call_args ? @call_args.map { |a| map_value(a) }.join(", ") : ""
+      "self.parse_#{@call_target}(#{args});"
+    when :add_assign
+      "#{@lhs} += #{map_value(@rhs)};"
+    when :sub_assign
+      "#{@lhs} -= #{map_value(@rhs)};"
+    when :assign
+      "#{@lhs} = #{map_value(@rhs)};"
+    when :return
+      if @return_value && !@return_value.empty?
+        "return #{@return_value};"
+      else
+        "return;"
+      end
+    when :raw
+      nil  # Don't emit unknown commands
+    else
+      nil
+    end
+  end
+
+  def format_char_literal(c)
+    case c
+    when "\n" then "b'\\n'"
+    when "\t" then "b'\\t'"
+    when "'" then "b'\\''"
+    when "\\" then "b'\\\\'"
+    else "b'#{c}'"
+    end
+  end
+
+  def map_value(val)
+    return "0" if val.nil?
+    val = val.strip
+    val.gsub(/\bCOL\b/, '(self.column as i32)')
+       .gsub(/\bACTUAL_COL\b/, 'self.current_column()')
+       .gsub(/\bLINE\b/, '(self.line as i32)')
+  end
+
+  def emit_rust(event_type)
+    # Handle Error:message format
+    if event_type =~ /^error:(.+)$/i
+      msg = $1.gsub('_', ' ')
+      return %{self.emit(Event::Error { message: "#{msg}", span: Span::new(self.pos, self.pos) });}
+    end
+
+    case event_type.downcase
+    when 'comment'
+      "self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });"
+    when 'text'
+      "self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });"
+    when 'elementend'
+      "self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });"
+    when 'idreference'
+      "self.emit(Event::IdReference { id: self.term(), span: self.span_from_mark() });"
+    when 'attributemerge'
+      "self.emit(Event::AttributeMerge { id: self.term(), span: self.span_from_mark() });"
+    else
+      "// TODO: emit #{event_type}"
+    end
+  end
+end
+
+class GMConditional < GMGenericChild
+  def initialize(parent, condition)
+    super(parent, condition)
+    @clauses = []
+    @current_condition = condition
+    @current_body = []
+  end
+
+  def parse(&src)
+    c = yield
+    loop do
+      case c[0]
+      when 'elsif'
+        @clauses << [@current_condition, @current_body.dup]
+        @current_body = []
+        @current_condition = c[1]
+        c = yield
+      when 'else'
+        @clauses << [@current_condition, @current_body.dup]
+        @current_body = []
+        @current_condition = nil
+        c = yield
+      when 'endif'
+        @clauses << [@current_condition, @current_body]
+        c = yield
+        return c
+      else
+        res, c, is_done = check_basic_commands(c, &src)
+        if res
+          @current_body.concat(@body)
+          @body = []
+        end
+        if is_done
+          # Finalize current clause before returning
+          @clauses << [@current_condition, @current_body.dup]
+          return c
+        end
+        c = yield unless res
+      end
+    end
+  end
+
+  def to_rust(_state_names = nil)
+    code = []
+    @clauses.each_with_index do |(cond, body), idx|
+      cond_rust = cond ? map_condition(cond) : nil
+
+      if idx == 0
+        code << "if #{cond_rust} {"
+      elsif cond_rust
+        code << "} else if #{cond_rust} {"
+      else
+        code << "} else {"
+      end
+
+      body.each { |cmd| code << "    #{cmd.to_rust}" }
+    end
+    code << "}"
+    code.join("\n")
+  end
+
+  def map_condition(cond)
+    cond
+      .gsub(/\bCOL\b/, '(self.column as i32)')
+      .gsub(/\bACTUAL_COL\b/, 'self.current_column()')
+      .gsub(/\bipar\b/, 'indent_parent')
+      .gsub(/\bibase\b/, 'indent_base')
+      .gsub(/\binl\b/, 'is_inline')
+      .gsub(/:(\w+)/, '\1')  # Map :param to param
+      .gsub(/!(\w)/, '!\1')  # Keep negation
+      .gsub(/==/, ' == ')
+      .gsub(/<=/, ' <= ')
+      .gsub(/>=/, ' >= ')
+      .gsub(/!=/, ' != ')
+  end
+end
+
+# ============================================================================
+# Main
+# ============================================================================
 
 if ARGV.empty?
   puts "Usage: #{$0} <machine-file>"
   exit 1
 end
 
+# Parse the machine file
 content = File.read(ARGV[0])
-parser = MachineParser.new
-parser.parse(content)
+# Keep lines starting with | but filter out comment-only lines
+lines = content.lines.reject { |l| l.strip.start_with?(';') }
+parts = lines.join('').split('|').map(&:rstrip).reject { |c| c.strip.empty? }
 
-generator = RustGenerator.new(parser)
-output = generator.generate
+i = -1
+gm = GM.new
+gm.parse do
+  i += 1
+  break if i >= parts.size
+  c = parts[i]
+  next if c =~ /^\s*$/ || c.strip.start_with?(';')
 
-# Output to stdout or file
-if ARGV[1]
-  File.write(ARGV[1], output)
-  puts "Generated: #{ARGV[1]}"
-else
-  puts output
+  tag = c[/^(\.|[^ \[]+)/]&.strip&.downcase || ''
+  id = c[/\[([^\]]*)\]/, 1] || ''
+  rest = c.gsub(/^(\.|[^ \[]+)/, '').gsub(/\[[^\]]*\]/, '').strip
+
+  [tag, id, rest]
 end
+
+# Load and render template
+template_path = File.join(__dir__, 'templates/parser.rs.liquid')
+template = Liquid::Template.parse(File.read(template_path))
+
+output = template.render(
+  'parser' => gm.name,
+  'entry_function' => gm.entry_function,
+  'functions' => gm.output_functions.join("\n\n"),
+  'enums' => gm.output_enums.join("\n"),
+  'structs' => gm.output_structs.join("\n"),
+  'machine_file' => ARGV[0] || 'unknown'
+)
+
+puts output

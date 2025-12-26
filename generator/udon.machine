@@ -1,80 +1,317 @@
 |parser udon
 
-; UDON Bootstrap Parser
-; Handles: comments, text, prose, and basic elements
+; UDON Parser - Full Grammar via DSL
 ;
-; Element recognition: | is only element when followed by:
-;   - Unicode letter (\p{L}) — named element
-;   - "[" — anonymous element with id
-;   - "." — anonymous element with class
-;   - "{" — embedded element
-;   - "'" — quoted element name
-; Otherwise | is prose.
+; Uses recursive function calls for element nesting:
+;   /element(ACTUAL_COL) - call pushes element, return pops + emits ElementEnd
+;
+; CALLs only for:
+;   - parse_element_identity: complex unicode label parsing
+;   - parse_indented_attribute: typed value parsing
 
-|entry-point /line
+|entry-point /document
 
-|function[line]
-  ; Entry point - handle first line
-  |state[:main]
+;==============================================================================
+; ROOT DOCUMENT - Fully Generated
+;==============================================================================
+|function[document]
+  |var[col] = 0
+
+  |state[:start]
     |eof                                                |return
-    |c[\n]    |.newline  | ->                           |>> :line_start
-    |c[']     |.escape   | ->                           |>> :escaped
-    |c[;]     |.comment  | -> | MARK                    |>> :comment
-    |c[<P>]   |.pipe     | MARK | ->                    |>> :after_pipe
-    |default  |.text     | MARK                         |>> :text
+    |c[\n]      |.newline     | -> | col=0              |>> :start
+    |c[ ]       |.space       | -> | col+=1             |>> :start
+    |c[\t]      |.tab         | -> | emit(Error:no_tabs) |>> :skip_line
+    |c[']       |.escape      | ->                      |>> :escaped
+    |c[;]       |.comment     | -> | MARK               |>> :block_comment
+    |c[<P>]     |.pipe        | ->                         |>> /element(ACTUAL_COL) :start
+    |c[`]       |.backtick    | ->                      |>> :maybe_freeform
+    |c[!]       |.directive   | ->                      |>> :directive
+    |default    |.text        | MARK                    |>> :prose
 
-  ; Start of a new line - handle indentation
-  |state[:line_start]
-    |eof                                                |return
-    |c[\n]    |.blank    | ->                           |>> :line_start
-    |default  |.indent   | CALL:handle_line_start       |>> :line_content
-
-  ; After handling indentation, dispatch on content
-  |state[:line_content]
-    |eof                                                |return
-    |c[\n]    |.newline  | ->                           |>> :line_start
-    |c[']     |.escape   | ->                           |>> :escaped
-    |c[;]     |.comment  | -> | MARK                    |>> :comment
-    |c[<P>]   |.pipe     | MARK | ->                    |>> :after_pipe
-    |default  |.text     | MARK                         |>> :text
-
-  ; Escape prefix: ' prevents special char interpretation
-  ; After ', the next char is literal (part of prose)
   |state[:escaped]
+    ; Line started with ' - rest is literal, no special chars
+    |eof                       | emit(Text)             |return
+    |c[\n]      |.done        | emit(Text) | col=0     |>> :start
+    |default    |.first       | MARK                    |>> :escaped_text
+
+  |state[:escaped_text]
+    ; Collect escaped text - no special char handling (| ; ! are literal)
+    |eof                       | emit(Text)             |return
+    |c[\n]      |.done        | emit(Text) | col=0     |>> :start
+    |default    |.collect     | ->                      |>>
+
+  |state[:prose]
+    |eof                       | emit(Text)             |return
+    |c[\n]      |.done        | emit(Text) | col=0     |>> :start
+    |c[;]       |.semi        | emit(Text) | ->         |>> :check_inline_comment
+    |c[<P>]     |.pipe        | emit(Text) | ->         |>> /element(ACTUAL_COL) :start
+    |default    |.collect     | ->                      |>>
+
+  |state[:check_inline_comment]
+    ; After ; in prose - is it ;{...} or rest-of-line comment?
+    |c[{]       |.inline      | ->                      |>> :inline_comment
+    |default    |.block       | MARK                    |>> :line_comment
+
+  |state[:inline_comment]
+    ; ;{...} - balanced braces stripped from output
+    |eof                       | emit(Error:unclosed_comment) |return
+    |c[}]       |.close       | ->                      |>> :prose
+    |c[{]       |.nest        | ->                      |>> :inline_comment_nested
+    |default    |.collect     | ->                      |>>
+
+  |state[:inline_comment_nested]
+    ; Nested braces in inline comment - simple nesting (one level)
+    |eof                       | emit(Error:unclosed_comment) |return
+    |c[}]       |.close       | ->                      |>> :inline_comment
+    |default    |.collect     | ->                      |>>
+
+  |state[:line_comment]
+    ; Rest of line after ; (not ;{)
+    |eof                       | emit(Comment)          |return
+    |c[\n]      |.done        | emit(Comment) | col=0  |>> :start
+    |default    |.collect     | ->                      |>>
+
+  |state[:block_comment]
+    ; Full line comment starting with ;
+    |eof                       | emit(Comment)          |return
+    |c[\n]      |.done        | emit(Comment) | col=0  |>> :start
+    |default    |.collect     | ->                      |>>
+
+  |state[:maybe_freeform]
+    ; Saw one ` - check for ```
+    |c[`]       |.second      | ->                      |>> :maybe_freeform2
+    |default    |.not         | MARK                    |>> :prose
+
+  |state[:maybe_freeform2]
+    ; Saw `` - check for third
+    |c[`]       |.third       | MARK                    |>> :freeform
+    |default    |.not         | MARK                    |>> :prose
+
+  |state[:freeform]
+    ; Inside ``` block - preserve exact whitespace
+    |eof                       | emit(Error:unclosed_freeform) |return
+    |c[`]       |.maybe_end   | ->                      |>> :freeform_end1
+    |default    |.collect     | ->                      |>>
+
+  |state[:freeform_end1]
+    |c[`]       |.second      | ->                      |>> :freeform_end2
+    |default    |.not         | ->                      |>> :freeform
+
+  |state[:freeform_end2]
+    |c[`]       |.close       | emit(RawContent) | col=0 |>> :start
+    |default    |.not         | ->                      |>> :freeform
+
+  |state[:directive]
+    ; After ! - could be !{expr} or !name
+    |eof                       | emit(Error:incomplete_directive) |return
+    |c[{]       |.interp      | MARK                    |>> :directive_interp
+    |default    |.name        | MARK                    |>> :directive_name
+
+  |state[:directive_interp]
+    ; !{...} interpolation
+    |eof                       | emit(Error:unclosed_directive) |return
+    |c[}]       |.close       | emit(Interpolation)    |>> :prose_after_directive
+    |default    |.collect     | ->                      |>>
+
+  |state[:directive_name]
+    ; !name...
+    |eof                       | emit(Directive)        |return
+    |c[\n]      |.block       | emit(Directive) | col=0 |>> :start
+    |c[{]       |.inline      | emit(Directive)        |>> :directive_body
+    |c[ \t]     |.space       | emit(Directive)        |>> :prose_after_directive
+    |default    |.collect     | ->                      |>>
+
+  |state[:directive_body]
+    ; !name{...} inline directive body
+    |eof                       | emit(Error:unclosed_directive) |return
+    |c[}]       |.close       | emit(DirectiveBody)    |>> :prose_after_directive
+    |default    |.collect     | ->                      |>>
+
+  |state[:prose_after_directive]
+    ; Continue prose after inline directive
+    |eof                       | emit(Text)             |return
+    |c[\n]      |.done        | emit(Text) | col=0     |>> :start
+    |c[;]       |.semi        | emit(Text) | ->         |>> :check_inline_comment
+    |c[<P>]     |.pipe        | emit(Text) | ->         |>> /element(ACTUAL_COL) :start
+    |default    |.collect     | MARK                    |>> :prose
+
+  |state[:skip_line]
+    ; Error recovery - skip to next line
     |eof                                                |return
-    |c[\n]    |.newline  | ->                           |>> :main
-    |c[']     |.apos     | MARK | ->                    |>> :text
-    |default  |.literal  | MARK | ->                    |>> :text
+    |c[\n]      |.done        | col=0                   |>> :start
+    |default    |.skip        | ->                      |>>
 
-  ; After seeing |, check if it's an element or prose
-  ; Note: MARK was set BEFORE the |, so text_with_pipe will include it
-  |state[:after_pipe]
-    |eof                                                |>> :text_with_pipe
-    |c[\n]    |.newline                                 |>> :text_with_pipe
-    |c[ \t]   |.space                                   |>> :text_with_pipe
-    |c[-]     |.dash                                    |>> :text_with_pipe
-    |c[<P>]   |.pipe                                    |>> :text_with_pipe
-    ; Element starters: letter, [, ., {, '
-    |c[ELEMENT_START] |.element | CALL:parse_element_line |>> :main
-    |default  |.prose                                   |>> :text_with_pipe
+;==============================================================================
+; ELEMENT - Called when we see | at some column
+; Entering = implicit push, returning = implicit pop + ElementEnd
+;==============================================================================
+|function[element] :elem_col
+  |var[col] = :elem_col
+  |var[content_base] = -1
 
-  ; Text that started with | (not an element)
-  |state[:text_with_pipe]
-    |eof                  | emit(Text)                  |return
-    |c[\n]    |.done     | emit(Text) | ->              |>> :line_start
-    |c[;]     |.comment  | emit(Text) | -> | MARK       |>> :comment
-    |default  |.collect  | ->                           |>>
+  |state[:identity]
+    ; Parse element identity - uses helper for unicode label parsing
+    |default               | CALL:parse_element_identity |>> :after_identity
 
-  ; Regular text
-  |state[:text]
-    |eof                  | emit(Text)                  |return
-    |c[\n]    |.done     | emit(Text) | ->              |>> :line_start
-    |c[;]     |.comment  | emit(Text) | -> | MARK       |>> :comment
-    |c[<P>]   |.pipe     | emit(Text) | ->              |>> :after_pipe
-    |default  |.collect  | ->                           |>>
+  |state[:after_identity]
+    |eof                                   | emit(ElementEnd)  |return
+    |c[\n]      |.newline  | -> | col=0                        |>> :children
+    |c[ \t]     |.space    | -> | col+=1                       |>> :inline_content
+    |c[;]       |.comment  | ->                                |>> :elem_comment_check
+    |c[<P>]     |.nested   | ->                                |>> /element(ACTUAL_COL) :inline_content
+    |default    |.text     | MARK                              |>> :inline_text
 
-  ; Comment: ; to end of line
-  |state[:comment]
-    |eof                                                |return
-    |c[\n]    |.done     | emit(Comment) | ->           |>> :line_start
-    |default  |.collect  | ->                           |>>
+  |state[:inline_content]
+    ; Inline content after element identity
+    |eof                   | emit(ElementEnd)                  |return
+    |c[\n]      |.newline  | -> | col=0                        |>> :children
+    |c[;]       |.comment  | ->                                |>> :elem_comment_check
+    |c[<P>]     |.nested   | ->                                |>> /element(ACTUAL_COL) :inline_content
+    |default    |.text     | MARK                              |>> :inline_text
+
+  |state[:inline_text]
+    |eof                   | emit(Text) | emit(ElementEnd)     |return
+    |c[\n]      |.done     | emit(Text) | -> | col=0           |>> :children
+    |c[;]       |.semi     | emit(Text) | ->                   |>> :elem_comment_check
+    |c[<P>]     |.pipe     | emit(Text) | ->                   |>> /element(ACTUAL_COL) :inline_content
+    |default    |.collect  | ->                                |>>
+
+  |state[:elem_comment_check]
+    |c[{]       |.inline   | ->                                |>> :elem_inline_comment
+    |default    |.line     | MARK                              |>> :elem_line_comment
+
+  |state[:elem_inline_comment]
+    |eof                   | emit(ElementEnd)                  |return
+    |c[}]       |.close    | ->                                |>> :inline_content
+    |default    |.collect  | ->                                |>>
+
+  |state[:elem_line_comment]
+    |eof                   | emit(Comment) | emit(ElementEnd)  |return
+    |c[\n]      |.done     | emit(Comment) | -> | col=0        |>> :children
+    |default    |.collect  | ->                                |>>
+
+  ;----------------------------------------------------------------------------
+  ; CHILDREN - indented content after element
+  ; Split into whitespace counting and content handling for correct dedent check
+  ;----------------------------------------------------------------------------
+  |state[:children]
+    |eof                                   | emit(ElementEnd)  |return
+    |c[\n]      |.blank    | -> | col=0                        |>> :children
+    |c[ ]       |.space    | -> | col+=1                       |>> :children
+    |c[\t]      |.tab      | -> | emit(Error:no_tabs)          |>> :skip_child
+    |default               |                                   |>> :children_content
+
+  |state[:children_content]
+    ; DEDENT CHECK: use actual column from line_start, not tracked col
+    |if[ACTUAL_COL <= elem_col]            | emit(ElementEnd)  |return
+    ; Still inside this element - handle actual content
+    |c[']       |.escape   | ->                                |>> :child_escaped
+    |c[;]       |.comment  | -> | MARK                         |>> :child_block_comment
+    |c[<P>]     |.element  | ->                                |>> /element(ACTUAL_COL) :children_after_element
+    |c[:]       |.attr     | -> | CALL:parse_indented_attribute |>> :children
+    |c[`]       |.backtick | ->                                |>> :child_freeform_check
+    |c[!]       |.directive| ->                                |>> :child_directive
+    |default    |.prose    | MARK                              |>> :child_prose
+
+  |state[:children_after_element]
+    ; After child element returns - child already consumed this line's whitespace
+    ; We're at the first non-whitespace char (or newline). Reset col appropriately.
+    |eof                                   | emit(ElementEnd)  |return
+    |c[\n]      |.newline  | -> | col=0                        |>> :children
+    |c[ ]       |.space    | -> | col=1                        |>> :children_count_ws
+    |c[\t]      |.tab      | -> | emit(Error:no_tabs)          |>> :skip_child
+    |default               | col=0                             |>> :children_content
+
+  |state[:children_count_ws]
+    ; Counting whitespace after seeing first space in :children_after_element
+    |eof                                   | emit(ElementEnd)  |return
+    |c[\n]      |.newline  | -> | col=0                        |>> :children
+    |c[ ]       |.space    | -> | col+=1                       |>> :children_count_ws
+    |c[\t]      |.tab      | -> | emit(Error:no_tabs)          |>> :skip_child
+    |default               |                                   |>> :children_content
+
+  |state[:child_escaped]
+    |eof                   | emit(Text) | emit(ElementEnd)     |return
+    |c[\n]      |.done     | emit(Text) | -> | col=0           |>> :children
+    |default    |.first    | MARK                              |>> :child_escaped_text
+
+  |state[:child_escaped_text]
+    ; Collect escaped text - no special char handling (| ; ! are literal)
+    |eof                   | emit(Text) | emit(ElementEnd)     |return
+    |c[\n]      |.done     | emit(Text) | -> | col=0           |>> :children
+    |default    |.collect  | ->                                |>>
+
+  |state[:child_prose]
+    |eof                   | emit(Text) | emit(ElementEnd)     |return
+    |c[\n]      |.done     | emit(Text) | -> | col=0           |>> :children
+    |c[;]       |.semi     | emit(Text) | ->                   |>> :child_comment_check
+    |c[<P>]     |.pipe     | emit(Text) | ->                   |>> /element(ACTUAL_COL) :children_after_element
+    |default    |.collect  | ->                                |>>
+
+  |state[:child_comment_check]
+    |c[{]       |.inline   | ->                                |>> :child_inline_comment
+    |default    |.line     | MARK                              |>> :child_line_comment
+
+  |state[:child_inline_comment]
+    |eof                   | emit(ElementEnd)                  |return
+    |c[}]       |.close    | ->                                |>> :child_prose
+    |default    |.collect  | ->                                |>>
+
+  |state[:child_line_comment]
+    |eof                   | emit(Comment) | emit(ElementEnd)  |return
+    |c[\n]      |.done     | emit(Comment) | -> | col=0        |>> :children
+    |default    |.collect  | ->                                |>>
+
+  |state[:child_block_comment]
+    |eof                   | emit(Comment) | emit(ElementEnd)  |return
+    |c[\n]      |.done     | emit(Comment) | -> | col=0        |>> :children
+    |default    |.collect  | ->                                |>>
+
+  |state[:child_freeform_check]
+    |c[`]       |.second   | ->                                |>> :child_freeform_check2
+    |default    |.not      | MARK                              |>> :child_prose
+
+  |state[:child_freeform_check2]
+    |c[`]       |.third    | MARK                              |>> :child_freeform
+    |default    |.not      | MARK                              |>> :child_prose
+
+  |state[:child_freeform]
+    |eof                   | emit(Error:unclosed_freeform) | emit(ElementEnd) |return
+    |c[`]       |.maybe    | ->                                |>> :child_freeform_end1
+    |default    |.collect  | ->                                |>>
+
+  |state[:child_freeform_end1]
+    |c[`]       |.second   | ->                                |>> :child_freeform_end2
+    |default    |.not      | ->                                |>> :child_freeform
+
+  |state[:child_freeform_end2]
+    |c[`]       |.close    | emit(RawContent) | col=0          |>> :children
+    |default    |.not      | ->                                |>> :child_freeform
+
+  |state[:child_directive]
+    |eof                   | emit(Directive) | emit(ElementEnd)|return
+    |c[{]       |.interp   | MARK                              |>> :child_directive_interp
+    |default    |.name     | MARK                              |>> :child_directive_name
+
+  |state[:child_directive_interp]
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.close    | emit(Interpolation)              |>> :child_prose
+    |default    |.collect  | ->                                |>>
+
+  |state[:child_directive_name]
+    |eof                   | emit(Directive) | emit(ElementEnd)|return
+    |c[\n]      |.block    | emit(Directive) | -> | col=0      |>> :children
+    |c[{]       |.body     | emit(Directive)                   |>> :child_directive_body
+    |c[ \t]     |.end      | emit(Directive)                   |>> :child_prose
+    |default    |.collect  | ->                                |>>
+
+  |state[:child_directive_body]
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.close    | emit(DirectiveBody)              |>> :child_prose
+    |default    |.collect  | ->                                |>>
+
+  |state[:skip_child]
+    |eof                   | emit(ElementEnd)                  |return
+    |c[\n]      |.done     | -> | col=0                        |>> :children
+    |default    |.skip     | ->                                |>>

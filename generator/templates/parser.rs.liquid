@@ -159,6 +159,13 @@ impl<'a> Parser<'a> {
         &self.input[self.mark_start..self.pos]
     }
 
+    /// Get the current column (0-indexed) based on line_start.
+    /// This is the actual column in the source, not a tracked variable.
+    #[inline]
+    fn current_column(&self) -> i32 {
+        (self.pos - self.line_start) as i32
+    }
+
     /// Create a span from mark to current position.
     #[inline]
     fn span_from_mark(&self) -> Span {
@@ -307,19 +314,87 @@ impl<'a> Parser<'a> {
         matches!(b, b'[' | b'.' | b'{' | b'\'') || self.is_label_start(b)
     }
 
-    /// Parse an element after seeing '|'.
-    /// Handles: |name, |name[id], |name.class, |[id], |.class, etc.
-    /// Returns true if an element was parsed, false if '|' should be prose.
-    fn parse_element(&mut self) -> bool {
-        // Check if this is actually an element
-        if !self.is_element_start() {
-            return false;
+    /// Parse an optional suffix modifier (?, !, *, +).
+    fn parse_suffix(&mut self) -> Option<char> {
+        match self.peek() {
+            Some(b'?') => { self.advance(); Some('?') }
+            Some(b'!') => { self.advance(); Some('!') }
+            Some(b'*') => { self.advance(); Some('*') }
+            Some(b'+') => { self.advance(); Some('+') }
+            _ => None,
+        }
+    }
+
+    /// Parse a list value: `[a b c]` or `["quoted" items]`
+    fn parse_list_value(&mut self) -> Option<crate::Value<'a>> {
+        if self.peek() != Some(b'[') {
+            return None;
+        }
+        self.advance(); // Skip [
+
+        let mut items = Vec::new();
+
+        loop {
+            // Skip whitespace
+            while let Some(b' ') | Some(b'\t') = self.peek() {
+                self.advance();
+            }
+
+            match self.peek() {
+                None | Some(b'\n') => break,
+                Some(b']') => {
+                    self.advance();
+                    break;
+                }
+                Some(b'"') => {
+                    self.advance();
+                    let start = self.pos;
+                    while let Some(b) = self.peek() {
+                        if b == b'"' { break; }
+                        if b == b'\\' { self.advance(); }
+                        self.advance();
+                    }
+                    let v = &self.input[start..self.pos];
+                    if self.peek() == Some(b'"') { self.advance(); }
+                    items.push(crate::Value::QuotedString(v));
+                }
+                Some(b'\'') => {
+                    self.advance();
+                    let start = self.pos;
+                    while let Some(b) = self.peek() {
+                        if b == b'\'' { break; }
+                        if b == b'\\' { self.advance(); }
+                        self.advance();
+                    }
+                    let v = &self.input[start..self.pos];
+                    if self.peek() == Some(b'\'') { self.advance(); }
+                    items.push(crate::Value::QuotedString(v));
+                }
+                _ => {
+                    let start = self.pos;
+                    while let Some(b) = self.peek() {
+                        match b {
+                            b' ' | b'\t' | b']' | b'\n' => break,
+                            _ => self.advance(),
+                        }
+                    }
+                    let v = &self.input[start..self.pos];
+                    if !v.is_empty() {
+                        items.push(crate::Value::parse(v));
+                    }
+                }
+            }
         }
 
-        // Record the column where this element starts (the | was already consumed)
-        // So the element's column is current_column - 1 (where the | was)
-        let element_column = if self.column > 1 { (self.column - 2) as u16 } else { 0 };
+        Some(crate::Value::List(items))
+    }
+
+    /// Parse element identity after '|' has been consumed.
+    /// Handles: |name, |name[id], |name.class, |[id], |.class, etc.
+    /// Called from generated state machine - assumes we're at a valid element start.
+    fn parse_element_identity(&mut self) {
         let start_pos = self.pos;
+        let mut suffix: Option<char> = None;
 
         // Parse element name (optional for anonymous elements)
         let name = if let Some(b) = self.peek() {
@@ -332,7 +407,8 @@ impl<'a> Parser<'a> {
             None
         };
 
-        // TODO: Parse suffix after name (?, !, *, +)
+        // Parse suffix after name: |name?
+        if suffix.is_none() { suffix = self.parse_suffix(); }
 
         // Parse [id] if present
         let id = if self.peek() == Some(b'[') {
@@ -352,13 +428,14 @@ impl<'a> Parser<'a> {
             if id_slice.is_empty() {
                 None
             } else {
-                Some(crate::Value::String(id_slice))
+                Some(crate::Value::parse(id_slice))
             }
         } else {
             None
         };
 
-        // TODO: Parse suffix after id
+        // Parse suffix after id: |name[id]?
+        if suffix.is_none() { suffix = self.parse_suffix(); }
 
         // Parse .class (multiple allowed)
         let mut classes = vec![];
@@ -369,23 +446,31 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // TODO: Parse suffix after classes
+        // Parse suffix space-separated at end: |name.class ?
+        if suffix.is_none() {
+            let ws_start = self.pos;
+            while let Some(b' ') | Some(b'\t') = self.peek() { self.advance(); }
+            if self.pos > ws_start {
+                if let Some(s) = self.parse_suffix() {
+                    suffix = Some(s);
+                } else {
+                    self.pos = ws_start;
+                    self.column = (ws_start - self.line_start + 1) as u32;
+                }
+            }
+        }
 
-        // Push this element onto the stack for indent tracking
-        self.push_element(element_column);
-
+        // Note: stack push/pop is handled by function call/return in generated code
         self.emit(Event::ElementStart {
             name,
             id,
             classes,
-            suffix: None,
+            suffix,
             span: Span::new(start_pos, self.pos),
         });
 
         // Parse inline attributes (:key value)
         self.parse_inline_attributes();
-
-        true
     }
 
     /// Parse inline attributes after element identity.
@@ -419,6 +504,7 @@ impl<'a> Parser<'a> {
                 None | Some(b'\n') | Some(b';') => None, // Flag attribute
                 Some(b':') => None, // Next attribute (flag)
                 Some(b'|') => None, // Inline element (flag)
+                Some(b'[') => self.parse_list_value(), // List value
                 Some(b'"') => {
                     // Quoted string
                     self.advance(); // Skip opening quote
@@ -464,67 +550,70 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse a complete element line after seeing '|' and confirming it's an element.
-    /// This handles the element name and any inline content.
-    /// ElementEnd is NOT emitted here - the indent/dedent stack handles it.
-    fn parse_element_line(&mut self) {
-        if self.parse_element() {
-            self.parse_element_content();
-            // ElementEnd is handled by the stack when we see dedent or EOF
-        }
-    }
+    /// Parse an indented attribute line (`:key value`).
+    /// Called AFTER the `:` has been consumed by the caller.
+    fn parse_indented_attribute(&mut self) {
+        // Note: caller already advanced past `:` before calling this
 
-    /// Parse inline content after an element (until newline).
-    /// Handles text and nested elements.
-    fn parse_element_content(&mut self) {
-        // Skip leading whitespace
+        // Parse attribute key
+        let key = match self.scan_label() {
+            Some(k) => k,
+            None => return, // Invalid attribute
+        };
+
+        // Skip whitespace before value
         while let Some(b' ') | Some(b'\t') = self.peek() {
             self.advance();
         }
 
-        // Check for content
-        if self.eof() || self.peek() == Some(b'\n') {
-            return;
-        }
-
-        // Collect text content
-        self.mark();
-        while let Some(b) = self.peek() {
-            match b {
-                b'\n' => break,
-                b';' => break, // Comment starts
-                b'|' => {
-                    // Could be nested element - emit text so far
-                    if self.pos > self.mark_start {
-                        self.emit(Event::Text {
-                            content: self.term(),
-                            span: self.span_from_mark(),
-                        });
-                    }
-                    self.advance(); // Skip |
-                    if self.parse_element() {
-                        self.parse_element_content();
-                        // ElementEnd is handled by the stack (no emit here)
-                        self.mark();
-                    } else {
-                        // Not an element, continue as text
-                        // But we already advanced past |, need to include it
-                        // This is tricky - for now just continue
+        // Parse value
+        let value = match self.peek() {
+            None | Some(b'\n') | Some(b';') => None, // Flag attribute
+            Some(b'"') => {
+                self.advance();
+                let start = self.pos;
+                while let Some(b) = self.peek() {
+                    if b == b'"' { break; }
+                    if b == b'\\' { self.advance(); }
+                    self.advance();
+                }
+                let v = &self.input[start..self.pos];
+                if self.peek() == Some(b'"') { self.advance(); }
+                Some(crate::Value::QuotedString(v))
+            }
+            Some(b'\'') => {
+                self.advance();
+                let start = self.pos;
+                while let Some(b) = self.peek() {
+                    if b == b'\'' { break; }
+                    if b == b'\\' { self.advance(); }
+                    self.advance();
+                }
+                let v = &self.input[start..self.pos];
+                if self.peek() == Some(b'\'') { self.advance(); }
+                Some(crate::Value::QuotedString(v))
+            }
+            Some(b'[') => self.parse_list_value(),
+            _ => {
+                let start = self.pos;
+                while let Some(b) = self.peek() {
+                    match b {
+                        b';' | b'\n' => break,
+                        _ => self.advance(),
                     }
                 }
-                _ => self.advance(),
+                // Trim trailing whitespace
+                let mut end = self.pos;
+                while end > start && (self.input[end - 1] == b' ' || self.input[end - 1] == b'\t') {
+                    end -= 1;
+                }
+                let v = &self.input[start..end];
+                if v.is_empty() { None } else { Some(crate::Value::parse(v)) }
             }
-        }
+        };
 
-        // Emit remaining text
-        if self.pos > self.mark_start {
-            self.emit(Event::Text {
-                content: self.term(),
-                span: self.span_from_mark(),
-            });
-        }
+        self.emit(Event::Attribute { key, value, span: Span::new(self.pos, self.pos) });
     }
-
     // ========== Generated State Machine ==========
 
 {% for function in functions %}
