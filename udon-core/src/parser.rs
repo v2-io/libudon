@@ -377,165 +377,8 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse an indented attribute line (`:key value`).
-    /// Called AFTER the `:` has been consumed by the caller.
-    /// TODO: Express this in DSL for full streaming.
-    fn parse_indented_attribute(&mut self) {
-        // Parse attribute key
-        let key_start = self.pos;
-        let key = match self.scan_label() {
-            Some(k) => k,
-            None => return,
-        };
-
-        // Emit the attribute key
-        self.emit(Event::Attribute { key, span: Span::new(key_start, self.pos) });
-
-        // Skip whitespace before value
-        while let Some(b' ') | Some(b'\t') = self.peek() {
-            self.advance();
-        }
-
-        // Check what follows and emit appropriate value event
-        match self.peek() {
-            None | Some(b'\n') | Some(b';') => {
-                // Flag attribute - emit true
-                self.emit(Event::BoolValue { value: true, span: Span::new(self.pos, self.pos) });
-            }
-            Some(b'[') => {
-                // Array value - emit ArrayStart, then parse contents
-                self.emit(Event::ArrayStart { span: Span::new(self.pos, self.pos) });
-                self.advance(); // Skip [
-                self.parse_array_contents();
-            }
-            Some(b'"') => {
-                self.advance();
-                self.mark();
-                while let Some(b) = self.peek() {
-                    if b == b'"' { break; }
-                    if b == b'\\' { self.advance(); }
-                    self.advance();
-                }
-                self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
-                if self.peek() == Some(b'"') { self.advance(); }
-            }
-            Some(b'\'') => {
-                self.advance();
-                self.mark();
-                while let Some(b) = self.peek() {
-                    if b == b'\'' { break; }
-                    if b == b'\\' { self.advance(); }
-                    self.advance();
-                }
-                self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
-                if self.peek() == Some(b'\'') { self.advance(); }
-            }
-            _ => {
-                self.mark();
-                while let Some(b) = self.peek() {
-                    match b {
-                        b';' | b'\n' => break,
-                        _ => self.advance(),
-                    }
-                }
-                // Trim trailing whitespace from term
-                let mut bytes = self.term();
-                while !bytes.is_empty() && (bytes[bytes.len()-1] == b' ' || bytes[bytes.len()-1] == b'\t') {
-                    bytes = &bytes[..bytes.len()-1];
-                }
-                if !bytes.is_empty() {
-                    self.emit_typed_value_for(bytes);
-                }
-            }
-        }
-    }
-
-    /// Emit a typed value for the given bytes.
-    fn emit_typed_value_for(&mut self, bytes: &'a [u8]) {
-        let span = Span::new(self.pos - bytes.len(), self.pos);
-
-        if bytes == b"null" || bytes == b"nil" || bytes == b"~" {
-            self.emit(Event::NilValue { span });
-            return;
-        }
-        if bytes == b"true" {
-            self.emit(Event::BoolValue { value: true, span });
-            return;
-        }
-        if bytes == b"false" {
-            self.emit(Event::BoolValue { value: false, span });
-            return;
-        }
-        if let Some(event) = self.try_parse_number_event(bytes, span) {
-            self.emit(event);
-            return;
-        }
-        self.emit(Event::StringValue { value: bytes, span });
-    }
-
-    /// Parse array contents after '[' has been consumed.
-    /// Emits individual value events and ArrayEnd.
-    fn parse_array_contents(&mut self) {
-        loop {
-            // Skip whitespace
-            while let Some(b' ') | Some(b'\t') = self.peek() {
-                self.advance();
-            }
-
-            match self.peek() {
-                None | Some(b'\n') => {
-                    self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });
-                    break;
-                }
-                Some(b']') => {
-                    self.advance();
-                    self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });
-                    break;
-                }
-                Some(b'"') => {
-                    self.advance();
-                    self.mark();
-                    while let Some(b) = self.peek() {
-                        if b == b'"' { break; }
-                        if b == b'\\' { self.advance(); }
-                        self.advance();
-                    }
-                    self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
-                    if self.peek() == Some(b'"') { self.advance(); }
-                }
-                Some(b'\'') => {
-                    self.advance();
-                    self.mark();
-                    while let Some(b) = self.peek() {
-                        if b == b'\'' { break; }
-                        if b == b'\\' { self.advance(); }
-                        self.advance();
-                    }
-                    self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
-                    if self.peek() == Some(b'\'') { self.advance(); }
-                }
-                Some(b'[') => {
-                    // Nested array
-                    self.emit(Event::ArrayStart { span: Span::new(self.pos, self.pos) });
-                    self.advance();
-                    self.parse_array_contents();
-                }
-                _ => {
-                    self.mark();
-                    while let Some(b) = self.peek() {
-                        match b {
-                            b' ' | b'\t' | b']' | b'\n' => break,
-                            _ => self.advance(),
-                        }
-                    }
-                    let bytes = self.term();
-                    if !bytes.is_empty() {
-                        self.emit_typed_value_for(bytes);
-                    }
-                }
-            }
-        }
-    }
+    // Note: parse_indented_attribute and parse_array_contents are now
+    // expressed in the DSL (udon.machine). See :attr_* and :array_* states.
     // ========== Generated State Machine ==========
 
 
@@ -919,7 +762,7 @@ impl<'a> Parser<'a> {
         let mut content_base: i32 = -1;
 
         #[derive(Clone, Copy)]
-        enum State { SIdentity, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SElemCommentCheck, SElemInlineComment, SElemLineComment, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildCommentCheck, SChildInlineComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveInterp, SChildDirectiveName, SChildDirectiveBody, SSkipChild }
+        enum State { SIdentity, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SElemCommentCheck, SElemInlineComment, SElemLineComment, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildCommentCheck, SChildInlineComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveInterp, SChildDirectiveName, SChildDirectiveBody, SSkipChild, SAttrKey, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine, SArrayValue, SArrDquote, SArrDquoteContent, SArrDquoteEsc, SArrSquote, SArrSquoteContent, SArrSquoteEsc, SArrBare }
 
         let mut state = State::SIdentity;
         loop {
@@ -1217,7 +1060,7 @@ impl<'a> Parser<'a> {
                             self.emit(Event::ElementStart { name: Some(self.term()), span: self.span_from_mark() });
                             state = State::SIdAfterName;
                         }
-                        b'\\' | b'\\' => {
+                        b'\\' => {
                             self.advance();
                             state = State::SIdQuotedNameEscape;
                         }
@@ -1252,7 +1095,7 @@ impl<'a> Parser<'a> {
                             self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
                             state = State::SIdClassCheckMore;
                         }
-                        b'\\' | b'\\' => {
+                        b'\\' => {
                             self.advance();
                             state = State::SIdClassQuotedEscape;
                         }
@@ -1463,8 +1306,7 @@ impl<'a> Parser<'a> {
                         }
                         b':' => {
                             self.advance();
-                            self.parse_indented_attribute();
-                            state = State::SChildren;
+                            state = State::SAttrKey;
                         }
                         b'`' => {
                             self.advance();
@@ -1812,6 +1654,408 @@ impl<'a> Parser<'a> {
                             self.advance();
                             col = 0;
                             state = State::SChildren;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
+                State::SAttrKey => {
+                    match self.peek().unwrap() {
+                        b if self.is_label_start(b) => {
+                            self.mark();
+                            state = State::SAttrKeyScan;
+                        }
+                        b'\'' => {
+                            self.advance();
+                            state = State::SAttrKeyQuoted;
+                        }
+                        _ => {
+                            self.emit(Event::Error { message: "expected attr key", span: Span::new(self.pos, self.pos) });
+                            state = State::SChildren;
+                        }
+                    }
+                }
+                State::SAttrKeyScan => {
+                    match self.peek().unwrap() {
+                        b if self.is_label_continue(b) => {
+                            self.advance();
+                        }
+                        _ => {
+                            self.emit(Event::Attribute { key: self.term(), span: self.span_from_mark() });
+                            state = State::SAttrWs;
+                        }
+                    }
+                }
+                State::SAttrKeyQuoted => {
+                    match self.peek().unwrap() {
+                        b'\'' => {
+                            self.mark();
+                            state = State::SAttrKeyQuotedContent;
+                        }
+                        _ => {
+                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
+                            state = State::SChildren;
+                        }
+                    }
+                }
+                State::SAttrKeyQuotedContent => {
+                    match self.peek().unwrap() {
+                        b'\'' => {
+                            self.emit(Event::Attribute { key: self.term(), span: self.span_from_mark() });
+                            state = State::SAttrWs;
+                        }
+                        b'\\' => {
+                            self.advance();
+                            state = State::SAttrKeyQuotedEsc;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
+                State::SAttrKeyQuotedEsc => {
+                    match self.peek().unwrap() {
+                        _ => {
+                            self.advance();
+                            state = State::SAttrKeyQuotedContent;
+                        }
+                    }
+                }
+                State::SAttrWs => {
+                    match self.peek().unwrap() {
+                        b' ' | b'\t' => {
+                            self.advance();
+                        }
+                        _ => {
+                            state = State::SAttrValue;
+                        }
+                    }
+                }
+                State::SAttrValue => {
+                    if self.eof() {
+                        self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        b'\n' => {
+                            self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
+                            col = 0;
+                            state = State::SChildren;
+                        }
+                        b';' => {
+                            self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
+                            state = State::SAttrComment;
+                        }
+                        b'[' => {
+                            self.emit(Event::ArrayStart { span: Span::new(self.pos, self.pos) });
+                            self.advance();
+                            state = State::SArrayValue;
+                        }
+                        b'"' => {
+                            self.advance();
+                            state = State::SAttrDquote;
+                        }
+                        b'\'' => {
+                            self.advance();
+                            state = State::SAttrSquote;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SAttrBare;
+                        }
+                    }
+                }
+                State::SAttrComment => {
+                    if self.eof() {
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        b'\n' => {
+                            col = 0;
+                            state = State::SChildren;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
+                State::SAttrDquote => {
+                    match self.peek().unwrap() {
+                        b'"' => {
+                            self.mark();
+                            state = State::SAttrDquoteContent;
+                        }
+                        _ => {
+                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
+                            state = State::SChildren;
+                        }
+                    }
+                }
+                State::SAttrDquoteContent => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        b'"' => {
+                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SAttrAfterValue;
+                        }
+                        b'\\' => {
+                            self.advance();
+                            state = State::SAttrDquoteEsc;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
+                State::SAttrDquoteEsc => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        _ => {
+                            self.advance();
+                            state = State::SAttrDquoteContent;
+                        }
+                    }
+                }
+                State::SAttrSquote => {
+                    match self.peek().unwrap() {
+                        b'\'' => {
+                            self.mark();
+                            state = State::SAttrSquoteContent;
+                        }
+                        _ => {
+                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
+                            state = State::SChildren;
+                        }
+                    }
+                }
+                State::SAttrSquoteContent => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        b'\'' => {
+                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SAttrAfterValue;
+                        }
+                        b'\\' => {
+                            self.advance();
+                            state = State::SAttrSquoteEsc;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
+                State::SAttrSquoteEsc => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        _ => {
+                            self.advance();
+                            state = State::SAttrSquoteContent;
+                        }
+                    }
+                }
+                State::SAttrBare => {
+                    if self.eof() {
+                        self.emit_typed_value();
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        b'\n' => {
+                            self.emit_typed_value();
+                            col = 0;
+                            state = State::SChildren;
+                        }
+                        b';' => {
+                            self.emit_typed_value();
+                            state = State::SAttrComment;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
+                State::SAttrAfterValue => {
+                    if self.eof() {
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        b'\n' => {
+                            col = 0;
+                            state = State::SChildren;
+                        }
+                        b';' => {
+                            state = State::SAttrComment;
+                        }
+                        b' ' | b'\t' => {
+                            self.advance();
+                        }
+                        _ => {
+                            self.emit(Event::Error { message: "unexpected after value", span: Span::new(self.pos, self.pos) });
+                            state = State::SAttrSkipLine;
+                        }
+                    }
+                }
+                State::SAttrSkipLine => {
+                    if self.eof() {
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        b'\n' => {
+                            col = 0;
+                            state = State::SChildren;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
+                State::SArrayValue => {
+                    match self.peek().unwrap() {
+                        b' ' | b'\t' => {
+                            self.advance();
+                        }
+                        b'\n' => {
+                            self.advance();
+                        }
+                        b']' => {
+                            self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });
+                            state = State::SAttrAfterValue;
+                        }
+                        b'"' => {
+                            self.advance();
+                            state = State::SArrDquote;
+                        }
+                        b'\'' => {
+                            self.advance();
+                            state = State::SArrSquote;
+                        }
+                        b'[' => {
+                            self.emit(Event::ArrayStart { span: Span::new(self.pos, self.pos) });
+                            self.advance();
+                            state = State::SArrayValue;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SArrBare;
+                        }
+                    }
+                }
+                State::SArrDquote => {
+                    match self.peek().unwrap() {
+                        b'"' => {
+                            self.mark();
+                            state = State::SArrDquoteContent;
+                        }
+                        _ => {
+                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
+                            state = State::SArrayValue;
+                        }
+                    }
+                }
+                State::SArrDquoteContent => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        b'"' => {
+                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SArrayValue;
+                        }
+                        b'\\' => {
+                            self.advance();
+                            state = State::SArrDquoteEsc;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
+                State::SArrDquoteEsc => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        _ => {
+                            self.advance();
+                            state = State::SArrDquoteContent;
+                        }
+                    }
+                }
+                State::SArrSquote => {
+                    match self.peek().unwrap() {
+                        b'\'' => {
+                            self.mark();
+                            state = State::SArrSquoteContent;
+                        }
+                        _ => {
+                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
+                            state = State::SArrayValue;
+                        }
+                    }
+                }
+                State::SArrSquoteContent => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        b'\'' => {
+                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SArrayValue;
+                        }
+                        b'\\' => {
+                            self.advance();
+                            state = State::SArrSquoteEsc;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                    }
+                }
+                State::SArrSquoteEsc => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        _ => {
+                            self.advance();
+                            state = State::SArrSquoteContent;
+                        }
+                    }
+                }
+                State::SArrBare => {
+                    if self.eof() {
+                        self.emit_typed_value();
+                        state = State::SChildren;
+                    }
+                    match self.peek().unwrap() {
+                        b' ' | b'\t' | b'\n' => {
+                            self.emit_typed_value();
+                            state = State::SArrayValue;
+                        }
+                        b']' => {
+                            self.emit_typed_value();
+                            self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });
+                            state = State::SAttrAfterValue;
                         }
                         _ => {
                             self.advance();

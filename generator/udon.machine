@@ -396,7 +396,7 @@
     |c[']       |.escape   | ->                                |>> :child_escaped
     |c[;]       |.comment  | -> | MARK                         |>> :child_block_comment
     |c[<P>]     |.element  | ->                                |>> /element(ACTUAL_COL) :children_after_element
-    |c[:]       |.attr     | -> | CALL:parse_indented_attribute |>> :children
+    |c[:]       |.attr     | ->                                |>> :attr_key
     |c[`]       |.backtick | ->                                |>> :child_freeform_check
     |c[!]       |.directive| ->                                |>> :child_directive
     |default    |.prose    | MARK                              |>> :child_prose
@@ -502,3 +502,175 @@
     |eof                   | emit(ElementEnd)                  |return
     |c[\n]      |.done     | -> | col=0                        |>> :children
     |default    |.skip     | ->                                |>>
+
+  ;============================================================================
+  ; ATTRIBUTE PARSING - Indented attributes `:key value`
+  ; SPEC.md:670 - attribute = ":" ( LABEL | quoted_label ) [ value ]
+  ;
+  ; Called after `:` consumed. Emits:
+  ;   Attribute { key } followed by value event(s)
+  ;
+  ; Value types:
+  ;   - Missing/newline/semicolon → BoolValue(true) (flag attribute)
+  ;   - [...]  → ArrayStart, values..., ArrayEnd
+  ;   - "..."  → QuotedStringValue
+  ;   - '...'  → QuotedStringValue
+  ;   - other  → typed value (int/float/bool/nil/string)
+  ;============================================================================
+
+  |state[:attr_key]
+    ; SPEC.md:670 - Parse attribute key (LABEL or quoted)
+    ; Example: :foo-bar value → Attribute("foo-bar"), then value
+    |c[LETTER]    |.name    | MARK                              |>> :attr_key_scan
+    |c[']         |.quoted  | ->                                |>> :attr_key_quoted
+    |default      |.err     | emit(Error:expected_attr_key)     |>> :children
+
+  |state[:attr_key_scan]
+    ; Scanning attribute key label
+    |c[LABEL_CONT] |.cont   | ->                                |>>
+    |default       |.done   | emit(Attribute)                   |>> :attr_ws
+
+  |state[:attr_key_quoted]
+    ; Quoted attribute key: :'odd key'
+    |c[']         |.start   | MARK                              |>> :attr_key_quoted_content
+    |default      |.err     | emit(Error:expected_quote)        |>> :children
+
+  |state[:attr_key_quoted_content]
+    |c[']         |.close   | emit(Attribute)                   |>> :attr_ws
+    |c[\\]        |.escape  | ->                                |>> :attr_key_quoted_esc
+    |default      |.collect | ->                                |>>
+
+  |state[:attr_key_quoted_esc]
+    |default      |.char    | ->                                |>> :attr_key_quoted_content
+
+  |state[:attr_ws]
+    ; Skip whitespace before value
+    |c[ \t]       |.space   | ->                                |>>
+    |default      |.done    |                                   |>> :attr_value
+
+  |state[:attr_value]
+    ; SPEC.md:671-680 - Dispatch on value type
+    ; Flag attribute (no value) → emit BoolValue(true)
+    |eof                      | emit(BoolValue:true)            |>> :children
+    |c[\n]        |.flag     | emit(BoolValue:true) | col=0     |>> :children
+    |c[;]         |.flag     | emit(BoolValue:true)             |>> :attr_comment
+    |c[<L>]       |.array    | emit(ArrayStart) | ->            |>> :array_value
+    |c["]         |.dquote   | ->                               |>> :attr_dquote
+    |c[']         |.squote   | ->                               |>> :attr_squote
+    |default      |.bare     | MARK                             |>> :attr_bare
+
+  |state[:attr_comment]
+    ; Comment after flag attribute - rest of line is comment
+    |eof                      |                                 |>> :children
+    |c[\n]        |.done     | col=0                            |>> :children
+    |default      |.skip     | ->                               |>>
+
+  |state[:attr_dquote]
+    ; Double-quoted string value: :key "value"
+    ; Example: :msg "hello world" → QuotedStringValue("hello world")
+    |c["]         |.start    | MARK                             |>> :attr_dquote_content
+    |default      |.err      | emit(Error:expected_quote)       |>> :children
+
+  |state[:attr_dquote_content]
+    |eof                      | emit(Error:unclosed_string)     |>> :children
+    |c["]         |.close    | emit(QuotedStringValue) | ->     |>> :attr_after_value
+    |c[\\]        |.escape   | ->                               |>> :attr_dquote_esc
+    |default      |.collect  | ->                               |>>
+
+  |state[:attr_dquote_esc]
+    |eof                      | emit(Error:unclosed_string)     |>> :children
+    |default      |.char     | ->                               |>> :attr_dquote_content
+
+  |state[:attr_squote]
+    ; Single-quoted string value: :key 'value'
+    |c[']         |.start    | MARK                             |>> :attr_squote_content
+    |default      |.err      | emit(Error:expected_quote)       |>> :children
+
+  |state[:attr_squote_content]
+    |eof                      | emit(Error:unclosed_string)     |>> :children
+    |c[']         |.close    | emit(QuotedStringValue) | ->     |>> :attr_after_value
+    |c[\\]        |.escape   | ->                               |>> :attr_squote_esc
+    |default      |.collect  | ->                               |>>
+
+  |state[:attr_squote_esc]
+    |eof                      | emit(Error:unclosed_string)     |>> :children
+    |default      |.char     | ->                               |>> :attr_squote_content
+
+  |state[:attr_bare]
+    ; Bare (unquoted) value - collect until ; or newline
+    ; Type determined by content: true/false/null/nil/~/number/string
+    ; Example: :count 42 → TypedValue(emits IntegerValue or StringValue)
+    |eof                      | emit(TypedValue)                |>> :children
+    |c[\n]        |.done     | emit(TypedValue) | col=0         |>> :children
+    |c[;]         |.done     | emit(TypedValue)                 |>> :attr_comment
+    |default      |.collect  | ->                               |>>
+
+  |state[:attr_after_value]
+    ; After quoted value - skip to end of attribute
+    |eof                      |                                 |>> :children
+    |c[\n]        |.done     | col=0                            |>> :children
+    |c[;]         |.comment  |                                  |>> :attr_comment
+    |c[ \t]       |.space    | ->                               |>>
+    |default      |.extra    | emit(Error:unexpected_after_value) |>> :attr_skip_line
+
+  |state[:attr_skip_line]
+    ; Error recovery - skip to newline
+    |eof                      |                                 |>> :children
+    |c[\n]        |.done     | col=0                            |>> :children
+    |default      |.skip     | ->                               |>>
+
+  ;============================================================================
+  ; ARRAY VALUE PARSING - [value value ...]
+  ; SPEC.md:696-700 - list = "[" { value }* "]"
+  ;
+  ; Recursive - arrays can contain arrays.
+  ; Each value emits immediately, ArrayEnd when ] seen.
+  ;============================================================================
+
+  |state[:array_value]
+    ; Inside array - looking for values or ]
+    ; Example: [a b c] → StringValue(a), StringValue(b), StringValue(c), ArrayEnd
+    |c[ \t]       |.space    | ->                               |>>
+    |c[\n]        |.newline  | ->                               |>>
+    |c[<R>]       |.close    | emit(ArrayEnd)                   |>> :attr_after_value
+    |c["]         |.dquote   | ->                               |>> :arr_dquote
+    |c[']         |.squote   | ->                               |>> :arr_squote
+    |c[<L>]       |.nested   | emit(ArrayStart) | ->            |>> :array_value
+    |default      |.bare     | MARK                             |>> :arr_bare
+
+  |state[:arr_dquote]
+    ; Double-quoted string in array
+    |c["]         |.start    | MARK                             |>> :arr_dquote_content
+    |default      |.err      | emit(Error:expected_quote)       |>> :array_value
+
+  |state[:arr_dquote_content]
+    |eof                      | emit(Error:unclosed_string)     |>> :children
+    |c["]         |.close    | emit(QuotedStringValue) | ->     |>> :array_value
+    |c[\\]        |.escape   | ->                               |>> :arr_dquote_esc
+    |default      |.collect  | ->                               |>>
+
+  |state[:arr_dquote_esc]
+    |eof                      | emit(Error:unclosed_string)     |>> :children
+    |default      |.char     | ->                               |>> :arr_dquote_content
+
+  |state[:arr_squote]
+    ; Single-quoted string in array
+    |c[']         |.start    | MARK                             |>> :arr_squote_content
+    |default      |.err      | emit(Error:expected_quote)       |>> :array_value
+
+  |state[:arr_squote_content]
+    |eof                      | emit(Error:unclosed_string)     |>> :children
+    |c[']         |.close    | emit(QuotedStringValue) | ->     |>> :array_value
+    |c[\\]        |.escape   | ->                               |>> :arr_squote_esc
+    |default      |.collect  | ->                               |>>
+
+  |state[:arr_squote_esc]
+    |eof                      | emit(Error:unclosed_string)     |>> :children
+    |default      |.char     | ->                               |>> :arr_squote_content
+
+  |state[:arr_bare]
+    ; Bare value in array - collect until whitespace or ]
+    |eof                      | emit(TypedValue)                |>> :children
+    |c[ \t\n]     |.done     | emit(TypedValue)                 |>> :array_value
+    |c[<R>]       |.done     | emit(TypedValue) | emit(ArrayEnd)|>> :attr_after_value
+    |default      |.collect  | ->                               |>>

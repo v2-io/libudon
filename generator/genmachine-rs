@@ -609,6 +609,8 @@ class GMCase < GMGenericChild
         .gsub('<L>', "\x01LEFT_BRACKET\x01")
         .gsub('<R>', "\x01RIGHT_BRACKET\x01")
         .gsub('<P>', "\x01PIPE\x01")
+        .gsub('<BS>', "\x01BACKSLASH\x01")
+        .gsub('\\\\', "\x01BACKSLASH\x01")
         .gsub('\\t', "\t")
         .gsub('\\n', "\n")
 
@@ -621,6 +623,7 @@ class GMCase < GMGenericChild
           .gsub("\x01LEFT_BRACKET\x01", '[')
           .gsub("\x01RIGHT_BRACKET\x01", ']')
           .gsub("\x01PIPE\x01", '|')
+          .gsub("\x01BACKSLASH\x01", '\\')
         @chars = processed.chars
       end
     end
