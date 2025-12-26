@@ -184,11 +184,11 @@
     ;   |'name'  → ElementStart("name")
     |c[LETTER]    |.name     | MARK                              |>> :id_name
     |c[<L>]       |.bracket  | ->                                |>> :id_anon_bracket
-    |c[.]         |.dot      | emit(ElementStartAnon)            |>> :id_class_start
-    |c[?]         |.q        | emit(ElementStartAnon) | emit(Attribute:?) | emit(BoolValue:true) |>> :id_check_more
-    |c[!]         |.bang     | emit(ElementStartAnon) | emit(Attribute:!) | emit(BoolValue:true) |>> :id_check_more
-    |c[*]         |.star     | emit(ElementStartAnon) | emit(Attribute:*) | emit(BoolValue:true) |>> :id_check_more
-    |c[+]         |.plus     | emit(ElementStartAnon) | emit(Attribute:+) | emit(BoolValue:true) |>> :id_check_more
+    |c[.]         |.dot      | emit(ElementStartAnon) | ->       |>> :id_class_start
+    |c[?]         |.q        | emit(ElementStartAnon) | emit(Attribute:?) | emit(BoolValue:true) | -> |>> :id_check_more
+    |c[!]         |.bang     | emit(ElementStartAnon) | emit(Attribute:!) | emit(BoolValue:true) | -> |>> :id_check_more
+    |c[*]         |.star     | emit(ElementStartAnon) | emit(Attribute:*) | emit(BoolValue:true) | -> |>> :id_check_more
+    |c[+]         |.plus     | emit(ElementStartAnon) | emit(Attribute:+) | emit(BoolValue:true) | -> |>> :id_check_more
     |c[']         |.quote    | ->                                |>> :id_quoted_name
     |default      |.anon     | emit(ElementStartAnon)            |>> :after_identity
 
@@ -197,6 +197,7 @@
     ; LABEL = /[\p{L}_][\p{L}\p{N}_-]*/
     ;
     ; Example: |foo-bar → scans "foo-bar", emits ElementStart("foo-bar")
+    |eof           |.done    | emit(ElementStart)                |>> :after_identity
     |c[LABEL_CONT] |.cont    | ->                                |>>
     |default       |.done    | emit(ElementStart)                |>> :id_after_name
 
@@ -208,6 +209,7 @@
     ;   |foo?      → ..., Attribute("?"), BoolValue(true)
     ;   |foo[id]   → ..., Attribute("$id"), StringValue("id")
     ;   |foo.bar   → ..., Attribute("$class"), StringValue("bar")
+    |eof                                                        |>> :after_identity
     |c[?]         |.q        | emit(Attribute:?) | emit(BoolValue:true) | -> |>> :id_check_bracket
     |c[!]         |.bang     | emit(Attribute:!) | emit(BoolValue:true) | -> |>> :id_check_bracket
     |c[*]         |.star     | emit(Attribute:*) | emit(BoolValue:true) | -> |>> :id_check_bracket
@@ -219,6 +221,7 @@
   |state[:id_check_bracket]
     ; After name+suffix - can still have [id] or .class
     ; Example: |foo?[id] → suffix already emitted, now parse [id]
+    |eof                                                        |>> :after_identity
     |c[<L>]       |.bracket  | ->                                |>> :id_bracket_start
     |c[.]         |.dot      | ->                                |>> :id_class_start
     |default      |.done     |                                   |>> :after_identity
@@ -244,12 +247,14 @@
     ; Collecting bytes until ] - value type determined by content
     ;
     ; Example: |foo[123] → StringValue("123") (consumer may parse as int)
+    |eof                     | emit(Error:unclosed_bracket)      |>> :after_identity
     |c[<R>]       |.close    | emit(StringValue) | ->            |>> :id_after_bracket
     |default      |.collect  | ->                                |>>
 
   |state[:id_after_bracket]
     ; After [id] - check for suffix or .class
     ; SPEC.md:95 - |name[id]? is valid (suffix after id)
+    |eof                                                        |>> :after_identity
     |c[?]         |.q        | emit(Attribute:?) | emit(BoolValue:true) | -> |>> :id_check_class
     |c[!]         |.bang     | emit(Attribute:!) | emit(BoolValue:true) | -> |>> :id_check_class
     |c[*]         |.star     | emit(Attribute:*) | emit(BoolValue:true) | -> |>> :id_check_class
@@ -259,6 +264,7 @@
 
   |state[:id_check_class]
     ; After [id]+suffix - can still have .class
+    |eof                                                        |>> :after_identity
     |c[.]         |.dot      | ->                                |>> :id_class_start
     |default      |.done     |                                   |>> :after_identity
 
@@ -269,20 +275,23 @@
     ; Example: |foo.bar → Attribute("$class"), StringValue("bar")
     ; Example: |foo.'odd name' → Attribute("$class"), QuotedStringValue("odd name")
     |c[LETTER]    |.name     | emit(Attribute:$class) | MARK     |>> :id_class_name
-    |c[']         |.quote    | emit(Attribute:$class)            |>> :id_class_quoted
+    |c[']         |.quote    | emit(Attribute:$class) | ->       |>> :id_class_quoted
     |default      |.err      | emit(Error:expected_class_name)   |>> :after_identity
 
   |state[:id_class_name]
     ; SPEC.md:659 - class = "." LABEL
     ; Scanning class name until non-LABEL char
+    |eof           |.done    | emit(StringValue)                 |>> :after_identity
     |c[LABEL_CONT] |.cont    | ->                                |>>
     |default       |.done    | emit(StringValue)                 |>> :id_class_check_more
 
   |state[:id_class_check_more]
     ; After class name - check for more .class or space+suffix
-    ; SPEC.md:100-105 - suffix on class is reserved (NOT allowed)
+    ; SPEC.md:100-105 - suffix directly on class is RESERVED (not allowed)
     ;
     ; Example: |foo.bar.baz → multiple classes, each emits separately
+    ; Example: |foo.bar ? → space-separated suffix (allowed)
+    |eof                                                        |>> :after_identity
     |c[.]         |.more     | ->                                |>> :id_class_start
     |c[ ]         |.space    | ->                                |>> :id_space_suffix
     |default      |.done     |                                   |>> :after_identity
@@ -290,6 +299,7 @@
   |state[:id_space_suffix]
     ; SPEC.md:97 - |name[id].class ? (space-separated suffix at end)
     ; Only suffix chars valid here, otherwise back to content parsing
+    |eof                                                        |>> :after_identity
     |c[?]         |.q        | emit(Attribute:?) | emit(BoolValue:true) | -> |>> :after_identity
     |c[!]         |.bang     | emit(Attribute:!) | emit(BoolValue:true) | -> |>> :after_identity
     |c[*]         |.star     | emit(Attribute:*) | emit(BoolValue:true) | -> |>> :after_identity
@@ -299,40 +309,47 @@
 
   |state[:id_quoted_name]
     ; Quoted element name: |'has spaces'
-    ; Allows any characters in element name
-    |c[']         |.close    | emit(ElementStart)                |>> :id_after_name
-    |default      |.collect  | MARK                              |>> :id_quoted_name_content
+    ; After opening ' consumed - now at content
+    |c[']         |.empty    | MARK | emit(ElementStart) | ->     |>> :id_after_name
+    |default      |.content  | MARK                               |>> :id_quoted_name_content
 
   |state[:id_quoted_name_content]
     ; Inside quoted name - collect until closing quote
     ; Backslash escapes the next character
-    |c[']         |.close    | emit(ElementStart)                |>> :id_after_name
+    |eof                     | emit(Error:unclosed_quote)        |>> :after_identity
+    |c[']         |.close    | emit(ElementStart) | ->           |>> :id_after_name
     |c[\\]        |.escape   | ->                                |>> :id_quoted_name_escape
     |default      |.collect  | ->                                |>>
 
   |state[:id_quoted_name_escape]
     ; After backslash - next char is literal
+    |eof                     | emit(Error:unclosed_quote)        |>> :after_identity
     |default      |.char     | ->                                |>> :id_quoted_name_content
 
   |state[:id_class_quoted]
     ; Quoted class name: |foo.'has spaces'
-    ; Must see opening quote next
-    |c[']         |.start    | MARK                              |>> :id_class_quoted_content
-    |default      |.err      | emit(Error:expected_quote)        |>> :after_identity
+    ; After . consumed, now we need ' or content
+    ; Actually, the transition here already consumed '
+    ; After opening ' consumed - now at content
+    |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :id_class_check_more
+    |default      |.content  | MARK                               |>> :id_class_quoted_content
 
   |state[:id_class_quoted_content]
     ; Inside quoted class name
-    |c[']         |.close    | emit(QuotedStringValue)           |>> :id_class_check_more
+    |eof                     | emit(Error:unclosed_quote)        |>> :after_identity
+    |c[']         |.close    | emit(QuotedStringValue) | ->      |>> :id_class_check_more
     |c[\\]        |.escape   | ->                                |>> :id_class_quoted_escape
     |default      |.collect  | ->                                |>>
 
   |state[:id_class_quoted_escape]
     ; After backslash in quoted class
+    |eof                     | emit(Error:unclosed_quote)        |>> :after_identity
     |default      |.char     | ->                                |>> :id_class_quoted_content
 
   |state[:id_check_more]
     ; After suffix on anonymous element - can still have [id] or .class
     ; Example: |?[id] → suffix emitted, now parse id
+    |eof                                                        |>> :after_identity
     |c[<L>]       |.bracket  | ->                                |>> :id_bracket_start
     |c[.]         |.dot      | ->                                |>> :id_class_start
     |default      |.done     |                                   |>> :after_identity
@@ -527,13 +544,15 @@
 
   |state[:attr_key_scan]
     ; Scanning attribute key label
+    |eof           |.done   | emit(Attribute)                   |>> :attr_ws
     |c[LABEL_CONT] |.cont   | ->                                |>>
     |default       |.done   | emit(Attribute)                   |>> :attr_ws
 
   |state[:attr_key_quoted]
     ; Quoted attribute key: :'odd key'
-    |c[']         |.start   | MARK                              |>> :attr_key_quoted_content
-    |default      |.err     | emit(Error:expected_quote)        |>> :children
+    ; After opening ' consumed - now at content
+    |c[']         |.empty   | MARK | emit(Attribute) | ->       |>> :attr_ws
+    |default      |.content | MARK                              |>> :attr_key_quoted_content
 
   |state[:attr_key_quoted_content]
     |c[']         |.close   | emit(Attribute)                   |>> :attr_ws
@@ -545,6 +564,7 @@
 
   |state[:attr_ws]
     ; Skip whitespace before value
+    |eof                                                        |>> :attr_value
     |c[ \t]       |.space   | ->                                |>>
     |default      |.done    |                                   |>> :attr_value
 
@@ -567,9 +587,10 @@
 
   |state[:attr_dquote]
     ; Double-quoted string value: :key "value"
+    ; After opening " consumed - now at content
     ; Example: :msg "hello world" → QuotedStringValue("hello world")
-    |c["]         |.start    | MARK                             |>> :attr_dquote_content
-    |default      |.err      | emit(Error:expected_quote)       |>> :children
+    |c["]         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :attr_after_value
+    |default      |.content  | MARK                             |>> :attr_dquote_content
 
   |state[:attr_dquote_content]
     |eof                      | emit(Error:unclosed_string)     |>> :children
@@ -583,8 +604,9 @@
 
   |state[:attr_squote]
     ; Single-quoted string value: :key 'value'
-    |c[']         |.start    | MARK                             |>> :attr_squote_content
-    |default      |.err      | emit(Error:expected_quote)       |>> :children
+    ; After opening ' consumed - now at content
+    |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :attr_after_value
+    |default      |.content  | MARK                             |>> :attr_squote_content
 
   |state[:attr_squote_content]
     |eof                      | emit(Error:unclosed_string)     |>> :children
@@ -632,16 +654,28 @@
     ; Example: [a b c] → StringValue(a), StringValue(b), StringValue(c), ArrayEnd
     |c[ \t]       |.space    | ->                               |>>
     |c[\n]        |.newline  | ->                               |>>
-    |c[<R>]       |.close    | emit(ArrayEnd)                   |>> :attr_after_value
+    |c[<R>]       |.close    | emit(ArrayEnd) | ->              |>> :array_after_close
     |c["]         |.dquote   | ->                               |>> :arr_dquote
     |c[']         |.squote   | ->                               |>> :arr_squote
     |c[<L>]       |.nested   | emit(ArrayStart) | ->            |>> :array_value
     |default      |.bare     | MARK                             |>> :arr_bare
 
+  |state[:array_after_close]
+    ; After ] - check if there are more values (nested array case) or we're done
+    |eof                     |                                  |>> :attr_after_value
+    |c[ \t]       |.space    | ->                               |>>
+    |c[\n]        |.newline  | ->                               |>>
+    |c[<R>]       |.close    | emit(ArrayEnd) | ->              |>>
+    |c[<L>]       |.nested   | emit(ArrayStart) | ->            |>> :array_value
+    |c["]         |.dquote   | ->                               |>> :arr_dquote
+    |c[']         |.squote   | ->                               |>> :arr_squote
+    |default      |.done     |                                  |>> :attr_after_value
+
   |state[:arr_dquote]
     ; Double-quoted string in array
-    |c["]         |.start    | MARK                             |>> :arr_dquote_content
-    |default      |.err      | emit(Error:expected_quote)       |>> :array_value
+    ; After opening " consumed - now at content
+    |c["]         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :array_value
+    |default      |.content  | MARK                             |>> :arr_dquote_content
 
   |state[:arr_dquote_content]
     |eof                      | emit(Error:unclosed_string)     |>> :children
@@ -655,8 +689,9 @@
 
   |state[:arr_squote]
     ; Single-quoted string in array
-    |c[']         |.start    | MARK                             |>> :arr_squote_content
-    |default      |.err      | emit(Error:expected_quote)       |>> :array_value
+    ; After opening ' consumed - now at content
+    |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :array_value
+    |default      |.content  | MARK                             |>> :arr_squote_content
 
   |state[:arr_squote_content]
     |eof                      | emit(Error:unclosed_string)     |>> :children
@@ -672,5 +707,5 @@
     ; Bare value in array - collect until whitespace or ]
     |eof                      | emit(TypedValue)                |>> :children
     |c[ \t\n]     |.done     | emit(TypedValue)                 |>> :array_value
-    |c[<R>]       |.done     | emit(TypedValue) | emit(ArrayEnd)|>> :attr_after_value
+    |c[<R>]       |.done     | emit(TypedValue) | emit(ArrayEnd) | -> |>> :array_after_close
     |default      |.collect  | ->                               |>>

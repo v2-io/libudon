@@ -395,7 +395,8 @@ impl<'a> Parser<'a> {
                     if self.eof() {
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.advance();
                             col = 0;
@@ -437,6 +438,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SProse;
                         }
+                        }
                     }
                 }
                 State::SEscaped => {
@@ -444,7 +446,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             col = 0;
@@ -454,6 +457,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SEscapedText;
                         }
+                        }
                     }
                 }
                 State::SEscapedText => {
@@ -461,7 +465,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             col = 0;
@@ -470,6 +475,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SProse => {
@@ -477,7 +483,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             col = 0;
@@ -497,10 +504,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SCheckInlineComment => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'{' => {
                             self.advance();
                             state = State::SInlineComment;
@@ -509,6 +518,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SLineComment;
                         }
+                        }
                     }
                 }
                 State::SInlineComment => {
@@ -516,7 +526,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed comment", span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'}' => {
                             self.advance();
                             state = State::SProse;
@@ -528,6 +539,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SInlineCommentNested => {
@@ -535,13 +547,15 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed comment", span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'}' => {
                             self.advance();
                             state = State::SInlineComment;
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }
@@ -550,7 +564,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
                             col = 0;
@@ -558,6 +573,7 @@ impl<'a> Parser<'a> {
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }
@@ -566,7 +582,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
                             col = 0;
@@ -575,10 +592,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SMaybeFreeform => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'`' => {
                             self.advance();
                             state = State::SMaybeFreeform2;
@@ -587,10 +606,12 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SProse;
                         }
+                        }
                     }
                 }
                 State::SMaybeFreeform2 => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'`' => {
                             self.mark();
                             state = State::SFreeform;
@@ -599,6 +620,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SProse;
                         }
+                        }
                     }
                 }
                 State::SFreeform => {
@@ -606,7 +628,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed freeform", span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'`' => {
                             self.advance();
                             state = State::SFreeformEnd1;
@@ -614,10 +637,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SFreeformEnd1 => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'`' => {
                             self.advance();
                             state = State::SFreeformEnd2;
@@ -626,10 +651,12 @@ impl<'a> Parser<'a> {
                             self.advance();
                             state = State::SFreeform;
                         }
+                        }
                     }
                 }
                 State::SFreeformEnd2 => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'`' => {
                             self.emit(Event::RawContent { content: self.term(), span: self.span_from_mark() });
                             col = 0;
@@ -639,6 +666,7 @@ impl<'a> Parser<'a> {
                             self.advance();
                             state = State::SFreeform;
                         }
+                        }
                     }
                 }
                 State::SDirective => {
@@ -646,7 +674,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "incomplete directive", span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'{' => {
                             self.mark();
                             state = State::SDirectiveInterp;
@@ -655,6 +684,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SDirectiveName;
                         }
+                        }
                     }
                 }
                 State::SDirectiveInterp => {
@@ -662,13 +692,15 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed directive", span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'}' => {
                             self.emit(Event::Interpolation { expression: self.term(), span: self.span_from_mark() });
                             state = State::SProseAfterDirective;
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }
@@ -677,7 +709,8 @@ impl<'a> Parser<'a> {
                         // TODO: emit Directive
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             // TODO: emit Directive
                             col = 0;
@@ -694,6 +727,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SDirectiveBody => {
@@ -701,13 +735,15 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed directive", span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'}' => {
                             // TODO: emit DirectiveBody
                             state = State::SProseAfterDirective;
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }
@@ -716,7 +752,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             col = 0;
@@ -737,19 +774,22 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SProse;
                         }
+                        }
                     }
                 }
                 State::SSkipLine => {
                     if self.eof() {
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             col = 0;
                             state = State::SStart;
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }
@@ -762,13 +802,14 @@ impl<'a> Parser<'a> {
         let mut content_base: i32 = -1;
 
         #[derive(Clone, Copy)]
-        enum State { SIdentity, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SElemCommentCheck, SElemInlineComment, SElemLineComment, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildCommentCheck, SChildInlineComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveInterp, SChildDirectiveName, SChildDirectiveBody, SSkipChild, SAttrKey, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine, SArrayValue, SArrDquote, SArrDquoteContent, SArrDquoteEsc, SArrSquote, SArrSquoteContent, SArrSquoteEsc, SArrBare }
+        enum State { SIdentity, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SElemCommentCheck, SElemInlineComment, SElemLineComment, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildCommentCheck, SChildInlineComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveInterp, SChildDirectiveName, SChildDirectiveBody, SSkipChild, SAttrKey, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine, SArrayValue, SArrayAfterClose, SArrDquote, SArrDquoteContent, SArrDquoteEsc, SArrSquote, SArrSquoteContent, SArrSquoteEsc, SArrBare }
 
         let mut state = State::SIdentity;
         loop {
             match state {
                 State::SIdentity => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b if self.is_label_start(b) => {
                             self.mark();
                             state = State::SIdName;
@@ -779,30 +820,35 @@ impl<'a> Parser<'a> {
                         }
                         b'.' => {
                             self.emit(Event::ElementStart { name: None, span: Span::new(self.pos, self.pos) });
+                            self.advance();
                             state = State::SIdClassStart;
                         }
                         b'?' => {
                             self.emit(Event::ElementStart { name: None, span: Span::new(self.pos, self.pos) });
                             self.emit(Event::Attribute { key: b"?", span: self.span_from_mark() });
                             self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
+                            self.advance();
                             state = State::SIdCheckMore;
                         }
                         b'!' => {
                             self.emit(Event::ElementStart { name: None, span: Span::new(self.pos, self.pos) });
                             self.emit(Event::Attribute { key: b"!", span: self.span_from_mark() });
                             self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
+                            self.advance();
                             state = State::SIdCheckMore;
                         }
                         b'*' => {
                             self.emit(Event::ElementStart { name: None, span: Span::new(self.pos, self.pos) });
                             self.emit(Event::Attribute { key: b"*", span: self.span_from_mark() });
                             self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
+                            self.advance();
                             state = State::SIdCheckMore;
                         }
                         b'+' => {
                             self.emit(Event::ElementStart { name: None, span: Span::new(self.pos, self.pos) });
                             self.emit(Event::Attribute { key: b"+", span: self.span_from_mark() });
                             self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
+                            self.advance();
                             state = State::SIdCheckMore;
                         }
                         b'\'' => {
@@ -813,10 +859,16 @@ impl<'a> Parser<'a> {
                             self.emit(Event::ElementStart { name: None, span: Span::new(self.pos, self.pos) });
                             state = State::SAfterIdentity;
                         }
+                        }
                     }
                 }
                 State::SIdName => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        self.emit(Event::ElementStart { name: Some(self.term()), span: self.span_from_mark() });
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b if self.is_label_continue(b) => {
                             self.advance();
                         }
@@ -824,10 +876,15 @@ impl<'a> Parser<'a> {
                             self.emit(Event::ElementStart { name: Some(self.term()), span: self.span_from_mark() });
                             state = State::SIdAfterName;
                         }
+                        }
                     }
                 }
                 State::SIdAfterName => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'?' => {
                             self.emit(Event::Attribute { key: b"?", span: self.span_from_mark() });
                             self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
@@ -863,10 +920,15 @@ impl<'a> Parser<'a> {
                         _ => {
                             state = State::SAfterIdentity;
                         }
+                        }
                     }
                 }
                 State::SIdCheckBracket => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'[' => {
                             self.advance();
                             state = State::SIdBracketStart;
@@ -878,10 +940,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             state = State::SAfterIdentity;
                         }
+                        }
                     }
                 }
                 State::SIdBracketStart => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b']' => {
                             self.advance();
                             state = State::SIdAfterBracket;
@@ -891,10 +955,12 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SIdBracketValue;
                         }
+                        }
                     }
                 }
                 State::SIdAnonBracket => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b']' => {
                             self.emit(Event::ElementStart { name: None, span: Span::new(self.pos, self.pos) });
                             state = State::SIdAfterBracket;
@@ -905,10 +971,16 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SIdBracketValue;
                         }
+                        }
                     }
                 }
                 State::SIdBracketValue => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed bracket", span: Span::new(self.pos, self.pos) });
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b']' => {
                             self.emit(Event::StringValue { value: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -917,10 +989,15 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SIdAfterBracket => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'?' => {
                             self.emit(Event::Attribute { key: b"?", span: self.span_from_mark() });
                             self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
@@ -952,10 +1029,15 @@ impl<'a> Parser<'a> {
                         _ => {
                             state = State::SAfterIdentity;
                         }
+                        }
                     }
                 }
                 State::SIdCheckClass => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'.' => {
                             self.advance();
                             state = State::SIdClassStart;
@@ -963,10 +1045,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             state = State::SAfterIdentity;
                         }
+                        }
                     }
                 }
                 State::SIdClassStart => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b if self.is_label_start(b) => {
                             self.emit(Event::Attribute { key: b"$class", span: self.span_from_mark() });
                             self.mark();
@@ -974,16 +1058,23 @@ impl<'a> Parser<'a> {
                         }
                         b'\'' => {
                             self.emit(Event::Attribute { key: b"$class", span: self.span_from_mark() });
+                            self.advance();
                             state = State::SIdClassQuoted;
                         }
                         _ => {
                             self.emit(Event::Error { message: "expected class name", span: Span::new(self.pos, self.pos) });
                             state = State::SAfterIdentity;
                         }
+                        }
                     }
                 }
                 State::SIdClassName => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        self.emit(Event::StringValue { value: self.term(), span: self.span_from_mark() });
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b if self.is_label_continue(b) => {
                             self.advance();
                         }
@@ -991,10 +1082,15 @@ impl<'a> Parser<'a> {
                             self.emit(Event::StringValue { value: self.term(), span: self.span_from_mark() });
                             state = State::SIdClassCheckMore;
                         }
+                        }
                     }
                 }
                 State::SIdClassCheckMore => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'.' => {
                             self.advance();
                             state = State::SIdClassStart;
@@ -1006,10 +1102,15 @@ impl<'a> Parser<'a> {
                         _ => {
                             state = State::SAfterIdentity;
                         }
+                        }
                     }
                 }
                 State::SIdSpaceSuffix => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'?' => {
                             self.emit(Event::Attribute { key: b"?", span: self.span_from_mark() });
                             self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
@@ -1040,24 +1141,35 @@ impl<'a> Parser<'a> {
                         _ => {
                             state = State::SAfterIdentity;
                         }
+                        }
                     }
                 }
                 State::SIdQuotedName => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
+                            self.mark();
                             self.emit(Event::ElementStart { name: Some(self.term()), span: self.span_from_mark() });
+                            self.advance();
                             state = State::SIdAfterName;
                         }
                         _ => {
                             self.mark();
                             state = State::SIdQuotedNameContent;
                         }
+                        }
                     }
                 }
                 State::SIdQuotedNameContent => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
                             self.emit(Event::ElementStart { name: Some(self.term()), span: self.span_from_mark() });
+                            self.advance();
                             state = State::SIdAfterName;
                         }
                         b'\\' => {
@@ -1067,32 +1179,49 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SIdQuotedNameEscape => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         _ => {
                             self.advance();
                             state = State::SIdQuotedNameContent;
                         }
+                        }
                     }
                 }
                 State::SIdClassQuoted => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
+                            self.mark();
+                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SIdClassCheckMore;
+                        }
+                        _ => {
                             self.mark();
                             state = State::SIdClassQuotedContent;
                         }
-                        _ => {
-                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
-                            state = State::SAfterIdentity;
                         }
                     }
                 }
                 State::SIdClassQuotedContent => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
                             self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
                             state = State::SIdClassCheckMore;
                         }
                         b'\\' => {
@@ -1102,18 +1231,29 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SIdClassQuotedEscape => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed quote", span: Span::new(self.pos, self.pos) });
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         _ => {
                             self.advance();
                             state = State::SIdClassQuotedContent;
                         }
+                        }
                     }
                 }
                 State::SIdCheckMore => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'[' => {
                             self.advance();
                             state = State::SIdBracketStart;
@@ -1125,6 +1265,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             state = State::SAfterIdentity;
                         }
+                        }
                     }
                 }
                 State::SAfterIdentity => {
@@ -1132,7 +1273,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.advance();
                             col = 0;
@@ -1156,6 +1298,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SInlineText;
                         }
+                        }
                     }
                 }
                 State::SInlineContent => {
@@ -1163,7 +1306,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.advance();
                             col = 0;
@@ -1182,6 +1326,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SInlineText;
                         }
+                        }
                     }
                 }
                 State::SInlineText => {
@@ -1190,7 +1335,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -1211,10 +1357,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SElemCommentCheck => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'{' => {
                             self.advance();
                             state = State::SElemInlineComment;
@@ -1223,6 +1371,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SElemLineComment;
                         }
+                        }
                     }
                 }
                 State::SElemInlineComment => {
@@ -1230,13 +1379,15 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'}' => {
                             self.advance();
                             state = State::SInlineContent;
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }
@@ -1246,7 +1397,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -1256,6 +1408,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SChildren => {
@@ -1263,7 +1416,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.advance();
                             col = 0;
@@ -1282,6 +1436,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             state = State::SChildrenContent;
                         }
+                        }
                     }
                 }
                 State::SChildrenContent => {
@@ -1289,7 +1444,8 @@ impl<'a> Parser<'a> {
     self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
     return;
 }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
                             self.advance();
                             state = State::SChildEscaped;
@@ -1320,6 +1476,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SChildProse;
                         }
+                        }
                     }
                 }
                 State::SChildrenAfterElement => {
@@ -1327,7 +1484,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.advance();
                             col = 0;
@@ -1347,6 +1505,7 @@ impl<'a> Parser<'a> {
                             col = 0;
                             state = State::SChildrenContent;
                         }
+                        }
                     }
                 }
                 State::SChildrenCountWs => {
@@ -1354,7 +1513,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.advance();
                             col = 0;
@@ -1373,6 +1533,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             state = State::SChildrenContent;
                         }
+                        }
                     }
                 }
                 State::SChildEscaped => {
@@ -1381,7 +1542,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -1392,6 +1554,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SChildEscapedText;
                         }
+                        }
                     }
                 }
                 State::SChildEscapedText => {
@@ -1400,7 +1563,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -1410,6 +1574,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SChildProse => {
@@ -1418,7 +1583,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -1439,10 +1605,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SChildCommentCheck => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'{' => {
                             self.advance();
                             state = State::SChildInlineComment;
@@ -1451,6 +1619,7 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SChildLineComment;
                         }
+                        }
                     }
                 }
                 State::SChildInlineComment => {
@@ -1458,13 +1627,15 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'}' => {
                             self.advance();
                             state = State::SChildProse;
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }
@@ -1474,7 +1645,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -1483,6 +1655,7 @@ impl<'a> Parser<'a> {
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }
@@ -1492,7 +1665,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -1502,10 +1676,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SChildFreeformCheck => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'`' => {
                             self.advance();
                             state = State::SChildFreeformCheck2;
@@ -1514,10 +1690,12 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SChildProse;
                         }
+                        }
                     }
                 }
                 State::SChildFreeformCheck2 => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'`' => {
                             self.mark();
                             state = State::SChildFreeform;
@@ -1525,6 +1703,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.mark();
                             state = State::SChildProse;
+                        }
                         }
                     }
                 }
@@ -1534,7 +1713,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'`' => {
                             self.advance();
                             state = State::SChildFreeformEnd1;
@@ -1542,10 +1722,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SChildFreeformEnd1 => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'`' => {
                             self.advance();
                             state = State::SChildFreeformEnd2;
@@ -1554,10 +1736,12 @@ impl<'a> Parser<'a> {
                             self.advance();
                             state = State::SChildFreeform;
                         }
+                        }
                     }
                 }
                 State::SChildFreeformEnd2 => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'`' => {
                             self.emit(Event::RawContent { content: self.term(), span: self.span_from_mark() });
                             col = 0;
@@ -1567,6 +1751,7 @@ impl<'a> Parser<'a> {
                             self.advance();
                             state = State::SChildFreeform;
                         }
+                        }
                     }
                 }
                 State::SChildDirective => {
@@ -1575,7 +1760,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'{' => {
                             self.mark();
                             state = State::SChildDirectiveInterp;
@@ -1583,6 +1769,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.mark();
                             state = State::SChildDirectiveName;
+                        }
                         }
                     }
                 }
@@ -1592,13 +1779,15 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'}' => {
                             self.emit(Event::Interpolation { expression: self.term(), span: self.span_from_mark() });
                             state = State::SChildProse;
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }
@@ -1608,7 +1797,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             // TODO: emit Directive
                             self.advance();
@@ -1626,6 +1816,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SChildDirectiveBody => {
@@ -1634,13 +1825,15 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'}' => {
                             // TODO: emit DirectiveBody
                             state = State::SChildProse;
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }
@@ -1649,7 +1842,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });
                         return;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.advance();
                             col = 0;
@@ -1658,10 +1852,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SAttrKey => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b if self.is_label_start(b) => {
                             self.mark();
                             state = State::SAttrKeyScan;
@@ -1674,10 +1870,16 @@ impl<'a> Parser<'a> {
                             self.emit(Event::Error { message: "expected attr key", span: Span::new(self.pos, self.pos) });
                             state = State::SChildren;
                         }
+                        }
                     }
                 }
                 State::SAttrKeyScan => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        self.emit(Event::Attribute { key: self.term(), span: self.span_from_mark() });
+                        state = State::SAttrWs;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b if self.is_label_continue(b) => {
                             self.advance();
                         }
@@ -1685,22 +1887,28 @@ impl<'a> Parser<'a> {
                             self.emit(Event::Attribute { key: self.term(), span: self.span_from_mark() });
                             state = State::SAttrWs;
                         }
+                        }
                     }
                 }
                 State::SAttrKeyQuoted => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
+                            self.mark();
+                            self.emit(Event::Attribute { key: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SAttrWs;
+                        }
+                        _ => {
                             self.mark();
                             state = State::SAttrKeyQuotedContent;
                         }
-                        _ => {
-                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
-                            state = State::SChildren;
                         }
                     }
                 }
                 State::SAttrKeyQuotedContent => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
                             self.emit(Event::Attribute { key: self.term(), span: self.span_from_mark() });
                             state = State::SAttrWs;
@@ -1712,23 +1920,31 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SAttrKeyQuotedEsc => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         _ => {
                             self.advance();
                             state = State::SAttrKeyQuotedContent;
                         }
+                        }
                     }
                 }
                 State::SAttrWs => {
-                    match self.peek().unwrap() {
+                    if self.eof() {
+                        state = State::SAttrValue;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
                         b' ' | b'\t' => {
                             self.advance();
                         }
                         _ => {
                             state = State::SAttrValue;
+                        }
                         }
                     }
                 }
@@ -1737,7 +1953,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });
                             col = 0;
@@ -1764,13 +1981,15 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SAttrBare;
                         }
+                        }
                     }
                 }
                 State::SAttrComment => {
                     if self.eof() {
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             col = 0;
                             state = State::SChildren;
@@ -1778,17 +1997,22 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SAttrDquote => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'"' => {
+                            self.mark();
+                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SAttrAfterValue;
+                        }
+                        _ => {
                             self.mark();
                             state = State::SAttrDquoteContent;
                         }
-                        _ => {
-                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
-                            state = State::SChildren;
                         }
                     }
                 }
@@ -1797,7 +2021,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'"' => {
                             self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -1810,6 +2035,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SAttrDquoteEsc => {
@@ -1817,22 +2043,28 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         _ => {
                             self.advance();
                             state = State::SAttrDquoteContent;
                         }
+                        }
                     }
                 }
                 State::SAttrSquote => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
+                            self.mark();
+                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SAttrAfterValue;
+                        }
+                        _ => {
                             self.mark();
                             state = State::SAttrSquoteContent;
                         }
-                        _ => {
-                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
-                            state = State::SChildren;
                         }
                     }
                 }
@@ -1841,7 +2073,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
                             self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -1854,6 +2087,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SAttrSquoteEsc => {
@@ -1861,10 +2095,12 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         _ => {
                             self.advance();
                             state = State::SAttrSquoteContent;
+                        }
                         }
                     }
                 }
@@ -1873,7 +2109,8 @@ impl<'a> Parser<'a> {
                         self.emit_typed_value();
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             self.emit_typed_value();
                             col = 0;
@@ -1886,13 +2123,15 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SAttrAfterValue => {
                     if self.eof() {
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             col = 0;
                             state = State::SChildren;
@@ -1907,13 +2146,15 @@ impl<'a> Parser<'a> {
                             self.emit(Event::Error { message: "unexpected after value", span: Span::new(self.pos, self.pos) });
                             state = State::SAttrSkipLine;
                         }
+                        }
                     }
                 }
                 State::SAttrSkipLine => {
                     if self.eof() {
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\n' => {
                             col = 0;
                             state = State::SChildren;
@@ -1921,10 +2162,12 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SArrayValue => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b' ' | b'\t' => {
                             self.advance();
                         }
@@ -1933,7 +2176,8 @@ impl<'a> Parser<'a> {
                         }
                         b']' => {
                             self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });
-                            state = State::SAttrAfterValue;
+                            self.advance();
+                            state = State::SArrayAfterClose;
                         }
                         b'"' => {
                             self.advance();
@@ -1952,17 +2196,57 @@ impl<'a> Parser<'a> {
                             self.mark();
                             state = State::SArrBare;
                         }
+                        }
+                    }
+                }
+                State::SArrayAfterClose => {
+                    if self.eof() {
+                        state = State::SAttrAfterValue;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b' ' | b'\t' => {
+                            self.advance();
+                        }
+                        b'\n' => {
+                            self.advance();
+                        }
+                        b']' => {
+                            self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });
+                            self.advance();
+                        }
+                        b'[' => {
+                            self.emit(Event::ArrayStart { span: Span::new(self.pos, self.pos) });
+                            self.advance();
+                            state = State::SArrayValue;
+                        }
+                        b'"' => {
+                            self.advance();
+                            state = State::SArrDquote;
+                        }
+                        b'\'' => {
+                            self.advance();
+                            state = State::SArrSquote;
+                        }
+                        _ => {
+                            state = State::SAttrAfterValue;
+                        }
+                        }
                     }
                 }
                 State::SArrDquote => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'"' => {
+                            self.mark();
+                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SArrayValue;
+                        }
+                        _ => {
                             self.mark();
                             state = State::SArrDquoteContent;
                         }
-                        _ => {
-                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
-                            state = State::SArrayValue;
                         }
                     }
                 }
@@ -1971,7 +2255,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'"' => {
                             self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -1984,6 +2269,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SArrDquoteEsc => {
@@ -1991,22 +2277,28 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         _ => {
                             self.advance();
                             state = State::SArrDquoteContent;
                         }
+                        }
                     }
                 }
                 State::SArrSquote => {
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
+                            self.mark();
+                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SArrayValue;
+                        }
+                        _ => {
                             self.mark();
                             state = State::SArrSquoteContent;
                         }
-                        _ => {
-                            self.emit(Event::Error { message: "expected quote", span: Span::new(self.pos, self.pos) });
-                            state = State::SArrayValue;
                         }
                     }
                 }
@@ -2015,7 +2307,8 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b'\'' => {
                             self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
                             self.advance();
@@ -2028,6 +2321,7 @@ impl<'a> Parser<'a> {
                         _ => {
                             self.advance();
                         }
+                        }
                     }
                 }
                 State::SArrSquoteEsc => {
@@ -2035,10 +2329,12 @@ impl<'a> Parser<'a> {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         _ => {
                             self.advance();
                             state = State::SArrSquoteContent;
+                        }
                         }
                     }
                 }
@@ -2047,7 +2343,8 @@ impl<'a> Parser<'a> {
                         self.emit_typed_value();
                         state = State::SChildren;
                     }
-                    match self.peek().unwrap() {
+                    if let Some(b) = self.peek() {
+                        match b {
                         b' ' | b'\t' | b'\n' => {
                             self.emit_typed_value();
                             state = State::SArrayValue;
@@ -2055,10 +2352,12 @@ impl<'a> Parser<'a> {
                         b']' => {
                             self.emit_typed_value();
                             self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });
-                            state = State::SAttrAfterValue;
+                            self.advance();
+                            state = State::SArrayAfterClose;
                         }
                         _ => {
                             self.advance();
+                        }
                         }
                     }
                 }

@@ -443,9 +443,30 @@ class GMEOF < GMGenericChild
   def parse(&src)
     c = yield
     loop do
-      res, c, is_done = check_basic_commands(c, &src)
-      return c if !res || is_done
+      # Stop if we hit the next major construct
+      break if %w[enum struct function state c default eof].include?(c[0])
+
+      if c[0] == '.'
+        # Substate marker - skip it and continue
+        c = yield
+      else
+        res, c, is_done = check_basic_commands(c, &src)
+        break if is_done && res
+        c = yield unless res
+      end
     end
+    c
+  end
+
+  def to_rust
+    code = []
+    code << "if self.eof() {"
+    @body.each do |cmd|
+      rust = cmd.to_rust
+      code << "    #{rust}" unless rust.nil? || rust.empty?
+    end
+    code << "}"
+    code.join("\n")
   end
 end
 
@@ -509,7 +530,7 @@ class GMState < GMGenericChild
     # Separate conditionals from match cases
     # Conditionals (|if[...]) go before the match block
     conditionals = @body.select { |obj| obj.is_a?(GMConditional) }
-    match_cases = @body.reject { |obj| obj.is_a?(GMConditional) }
+    match_cases = @body.select { |obj| obj.is_a?(GMCase) }
 
     # Output conditionals first (as prefix guards)
     conditionals.each do |cond|
@@ -520,10 +541,14 @@ class GMState < GMGenericChild
     if @name =~ /^text/ || @name == 'comment'
       code << generate_fast_scan
     elsif match_cases.any?
-      code << "                    match self.peek().unwrap() {"
+      # Use safe peek - if EOF without explicit handler, continue loop
+      # (function-level EOF check at loop top will catch it)
+      code << "                    if let Some(b) = self.peek() {"
+      code << "                        match b {"
       match_cases.each do |case_obj|
         code << case_obj.to_rust(state_names)
       end
+      code << "                        }"
       code << "                    }"
     end
 
