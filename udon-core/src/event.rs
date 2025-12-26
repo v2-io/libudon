@@ -1,53 +1,66 @@
-//! Parser events - the core output of the UDON parser.
+//! Parser events - the core output of the UDON streaming parser.
 //!
-//! The parser emits a stream of events rather than building an AST.
-//! This enables streaming processing and lower memory usage.
+//! This is a SAX-style event model: events are emitted as the parser
+//! encounters syntax, with no accumulation. Structure is represented
+//! by start/end event pairs.
+//!
+//! For arrays: ArrayStart, value events..., ArrayEnd
+//! For attributes: Attribute { key }, then value event(s)
 //!
 //! These types are stable and hand-written (not generated).
 
 use crate::span::Span;
-use crate::value::Value;
 
-/// Core parser events.
+/// Streaming parser events.
 ///
 /// The lifetime `'a` refers to the source buffer - all byte slices
 /// are zero-copy references into the original input.
-#[derive(Debug, Clone)]
+///
+/// ## Event Sequences
+///
+/// Element identity `|foo[myid].bar?` emits:
+/// ```text
+/// ElementStart { name: "foo" }
+/// Attribute { key: "$id" }
+/// StringValue("myid")           // or other value type
+/// Attribute { key: "$class" }
+/// StringValue("bar")
+/// Attribute { key: "?" }
+/// BoolValue(true)
+/// ```
+///
+/// Array value `:tags [a b c]` emits:
+/// ```text
+/// Attribute { key: "tags" }
+/// ArrayStart
+/// StringValue("a")
+/// StringValue("b")
+/// StringValue("c")
+/// ArrayEnd
+/// ```
+#[derive(Debug, Clone, PartialEq)]
 pub enum Event<'a> {
-    /// Element start: `|name[id].class1.class2`
+    // ========== Structure Events ==========
+
+    /// Element start: `|name`
+    ///
+    /// The name is None for anonymous elements (`|[id]` or `|.class`).
+    /// Identity syntax ([id], .class, suffix) emits as subsequent Attribute events.
     ElementStart {
-        /// Element name (None for anonymous elements like `|[id]` or `|.class`)
         name: Option<&'a [u8]>,
-        /// Element identity from `[id]` syntax
-        id: Option<Value<'a>>,
-        /// Class names from `.class` syntax
-        classes: Vec<&'a [u8]>,
-        /// Suffix modifier: `?`, `!`, `*`, or `+`
-        suffix: Option<char>,
-        /// Source span
         span: Span,
     },
 
-    /// Element end (dedent detected)
+    /// Element end (dedent detected or document end)
     ElementEnd {
         span: Span,
     },
 
-    /// Attribute: `:key value`
-    Attribute {
-        /// Attribute key
-        key: &'a [u8],
-        /// Attribute value (None for flag attributes like `:enabled`)
-        value: Option<Value<'a>>,
-        /// Source span
-        span: Span,
-    },
-
     /// Embedded element start: `|{`
+    ///
+    /// Like ElementStart, identity emits as subsequent Attribute events.
     EmbeddedStart {
         name: Option<&'a [u8]>,
-        id: Option<Value<'a>>,
-        classes: Vec<&'a [u8]>,
         span: Span,
     },
 
@@ -56,40 +69,81 @@ pub enum Event<'a> {
         span: Span,
     },
 
-    /// Block directive start: `!name` or `!raw:lang`
-    DirectiveStart {
-        /// Directive name (e.g., "if", "for", "sql" for `!raw:sql`)
-        name: &'a [u8],
-        /// Namespace (e.g., "raw" for `!raw:sql`)
-        namespace: Option<&'a [u8]>,
-        /// Whether this is a raw directive (body captured verbatim)
-        is_raw: bool,
-        /// Source span
+    // ========== Attribute Events ==========
+
+    /// Attribute key: `:key`
+    ///
+    /// The next event(s) are the value:
+    /// - Scalar: one value event (StringValue, IntegerValue, etc.)
+    /// - Array: ArrayStart, value events..., ArrayEnd
+    /// - Flag (no value): BoolValue(true) is implied
+    Attribute {
+        key: &'a [u8],
         span: Span,
     },
 
-    /// Block directive end
-    DirectiveEnd {
+    // ========== Value Events ==========
+
+    /// Array/list start: `[`
+    ArrayStart {
         span: Span,
     },
 
-    /// Inline directive: `!name{content}`
-    InlineDirective {
-        name: &'a [u8],
-        namespace: Option<&'a [u8]>,
-        is_raw: bool,
-        /// Content inside the braces (for raw: verbatim; otherwise: parsed separately)
-        content: &'a [u8],
+    /// Array/list end: `]`
+    ArrayEnd {
         span: Span,
     },
 
-    /// Interpolation: `!{expr}` or `!{expr | filter1 | filter2}`
-    Interpolation {
-        /// The expression (everything inside `!{...}`)
-        expression: &'a [u8],
-        /// Source span
+    /// Nil value: `null`, `nil`, or `~`
+    NilValue {
         span: Span,
     },
+
+    /// Boolean value: `true` or `false`
+    BoolValue {
+        value: bool,
+        span: Span,
+    },
+
+    /// Integer value: `42`, `0xFF`, `0o755`, `0b1010`, `-17`
+    IntegerValue {
+        value: i64,
+        span: Span,
+    },
+
+    /// Float value: `3.14`, `1.5e-3`, `-2.5`
+    FloatValue {
+        value: f64,
+        span: Span,
+    },
+
+    /// Rational value: `1/3r`, `22/7r`
+    RationalValue {
+        numerator: i64,
+        denominator: i64,
+        span: Span,
+    },
+
+    /// Complex value: `3+4i`, `5i`
+    ComplexValue {
+        real: f64,
+        imag: f64,
+        span: Span,
+    },
+
+    /// String value (unquoted bare string)
+    StringValue {
+        value: &'a [u8],
+        span: Span,
+    },
+
+    /// Quoted string value (may need unescaping)
+    QuotedStringValue {
+        value: &'a [u8],
+        span: Span,
+    },
+
+    // ========== Content Events ==========
 
     /// Text/prose content
     Text {
@@ -97,7 +151,7 @@ pub enum Event<'a> {
         span: Span,
     },
 
-    /// Raw content (inside `!raw:` directive)
+    /// Raw content (inside freeform or raw directive)
     RawContent {
         content: &'a [u8],
         span: Span,
@@ -108,6 +162,39 @@ pub enum Event<'a> {
         content: &'a [u8],
         span: Span,
     },
+
+    // ========== Directive Events ==========
+
+    /// Block directive start: `!name` or `!namespace:name`
+    DirectiveStart {
+        name: &'a [u8],
+        namespace: Option<&'a [u8]>,
+        span: Span,
+    },
+
+    /// Block directive end
+    DirectiveEnd {
+        span: Span,
+    },
+
+    /// Inline directive: `!name{content}`
+    ///
+    /// Content is the raw bytes inside braces. For `!raw:lang{...}`,
+    /// content is verbatim. For other directives, content may need parsing.
+    InlineDirective {
+        name: &'a [u8],
+        namespace: Option<&'a [u8]>,
+        content: &'a [u8],
+        span: Span,
+    },
+
+    /// Interpolation: `!{expr}` or `!{expr | filter}`
+    Interpolation {
+        expression: &'a [u8],
+        span: Span,
+    },
+
+    // ========== Reference Events ==========
 
     /// ID reference: `@[id]`
     IdReference {
@@ -121,6 +208,8 @@ pub enum Event<'a> {
         span: Span,
     },
 
+    // ========== Block Events ==========
+
     /// Freeform block start: ``` ` ` ` ```
     FreeformStart {
         span: Span,
@@ -131,7 +220,9 @@ pub enum Event<'a> {
         span: Span,
     },
 
-    /// Parse error (with recovery - parsing continues)
+    // ========== Error Events ==========
+
+    /// Parse error (parser continues after emitting this)
     Error {
         message: &'static str,
         span: Span,
@@ -144,16 +235,26 @@ impl<'a> Event<'a> {
         match self {
             Event::ElementStart { span, .. } => *span,
             Event::ElementEnd { span } => *span,
-            Event::Attribute { span, .. } => *span,
             Event::EmbeddedStart { span, .. } => *span,
             Event::EmbeddedEnd { span } => *span,
+            Event::Attribute { span, .. } => *span,
+            Event::ArrayStart { span } => *span,
+            Event::ArrayEnd { span } => *span,
+            Event::NilValue { span } => *span,
+            Event::BoolValue { span, .. } => *span,
+            Event::IntegerValue { span, .. } => *span,
+            Event::FloatValue { span, .. } => *span,
+            Event::RationalValue { span, .. } => *span,
+            Event::ComplexValue { span, .. } => *span,
+            Event::StringValue { span, .. } => *span,
+            Event::QuotedStringValue { span, .. } => *span,
+            Event::Text { span, .. } => *span,
+            Event::RawContent { span, .. } => *span,
+            Event::Comment { span, .. } => *span,
             Event::DirectiveStart { span, .. } => *span,
             Event::DirectiveEnd { span } => *span,
             Event::InlineDirective { span, .. } => *span,
             Event::Interpolation { span, .. } => *span,
-            Event::Text { span, .. } => *span,
-            Event::RawContent { span, .. } => *span,
-            Event::Comment { span, .. } => *span,
             Event::IdReference { span, .. } => *span,
             Event::AttributeMerge { span, .. } => *span,
             Event::FreeformStart { span } => *span,
@@ -165,5 +266,33 @@ impl<'a> Event<'a> {
     /// Check if this is an error event.
     pub fn is_error(&self) -> bool {
         matches!(self, Event::Error { .. })
+    }
+
+    /// Check if this is a value event (can follow Attribute or be inside Array).
+    pub fn is_value(&self) -> bool {
+        matches!(
+            self,
+            Event::NilValue { .. }
+                | Event::BoolValue { .. }
+                | Event::IntegerValue { .. }
+                | Event::FloatValue { .. }
+                | Event::RationalValue { .. }
+                | Event::ComplexValue { .. }
+                | Event::StringValue { .. }
+                | Event::QuotedStringValue { .. }
+                | Event::ArrayStart { .. }
+        )
+    }
+
+    /// Check if this is a structure start event (has matching end).
+    pub fn is_structure_start(&self) -> bool {
+        matches!(
+            self,
+            Event::ElementStart { .. }
+                | Event::EmbeddedStart { .. }
+                | Event::DirectiveStart { .. }
+                | Event::ArrayStart { .. }
+                | Event::FreeformStart { .. }
+        )
     }
 }

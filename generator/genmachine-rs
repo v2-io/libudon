@@ -860,17 +860,78 @@ class GMCommand < GMGenericChild
       return %{self.emit(Event::Error { message: "#{msg}", span: Span::new(self.pos, self.pos) });}
     end
 
+    # Handle Attribute:$key format (for identity desugaring)
+    if event_type =~ /^attribute:(.+)$/i
+      key = $1
+      return %{self.emit(Event::Attribute { key: b"#{key}", span: self.span_from_mark() });}
+    end
+
     case event_type.downcase
+    # Content events
     when 'comment'
       "self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });"
     when 'text'
       "self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });"
+    when 'rawcontent'
+      "self.emit(Event::RawContent { content: self.term(), span: self.span_from_mark() });"
+
+    # Structure events
+    when 'elementstart'
+      "self.emit(Event::ElementStart { name: Some(self.term()), span: self.span_from_mark() });"
+    when 'elementstartanon'
+      "self.emit(Event::ElementStart { name: None, span: Span::new(self.pos, self.pos) });"
     when 'elementend'
       "self.emit(Event::ElementEnd { span: Span::new(self.pos, self.pos) });"
+    when 'embeddedstart'
+      "self.emit(Event::EmbeddedStart { name: Some(self.term()), span: self.span_from_mark() });"
+    when 'embeddedstartanon'
+      "self.emit(Event::EmbeddedStart { name: None, span: Span::new(self.pos, self.pos) });"
+    when 'embeddedend'
+      "self.emit(Event::EmbeddedEnd { span: Span::new(self.pos, self.pos) });"
+
+    # Attribute events
+    when 'attribute'
+      "self.emit(Event::Attribute { key: self.term(), span: self.span_from_mark() });"
+
+    # Value events
+    when 'arraystart'
+      "self.emit(Event::ArrayStart { span: Span::new(self.pos, self.pos) });"
+    when 'arrayend'
+      "self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });"
+    when 'nilvalue'
+      "self.emit(Event::NilValue { span: self.span_from_mark() });"
+    when 'boolvalue:true'
+      "self.emit(Event::BoolValue { value: true, span: self.span_from_mark() });"
+    when 'boolvalue:false'
+      "self.emit(Event::BoolValue { value: false, span: self.span_from_mark() });"
+    when 'stringvalue'
+      "self.emit(Event::StringValue { value: self.term(), span: self.span_from_mark() });"
+    when 'quotedstringvalue'
+      "self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });"
+    # Integer/Float/etc. require parsing the term - use emit_typed_value helper
+    when 'typedvalue'
+      "self.emit_typed_value();"
+
+    # Reference events
     when 'idreference'
       "self.emit(Event::IdReference { id: self.term(), span: self.span_from_mark() });"
     when 'attributemerge'
       "self.emit(Event::AttributeMerge { id: self.term(), span: self.span_from_mark() });"
+
+    # Directive events
+    when 'directivestart'
+      "self.emit(Event::DirectiveStart { name: self.term(), namespace: None, span: self.span_from_mark() });"
+    when 'directiveend'
+      "self.emit(Event::DirectiveEnd { span: Span::new(self.pos, self.pos) });"
+    when 'interpolation'
+      "self.emit(Event::Interpolation { expression: self.term(), span: self.span_from_mark() });"
+
+    # Block events
+    when 'freeformstart'
+      "self.emit(Event::FreeformStart { span: Span::new(self.pos, self.pos) });"
+    when 'freeformend'
+      "self.emit(Event::FreeformEnd { span: Span::new(self.pos, self.pos) });"
+
     else
       "// TODO: emit #{event_type}"
     end

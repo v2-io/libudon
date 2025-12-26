@@ -1,14 +1,20 @@
-//! Attribute value types with syntactic typing.
+//! Scalar value type detection for UDON parsing.
 //!
 //! UDON uses syntactic typing - the syntax determines the type,
-//! not value sniffing. These types are stable and hand-written.
+//! not value sniffing. This enum is used internally to determine
+//! what event type to emit for a given byte sequence.
+//!
+//! Note: Lists/arrays are NOT represented here. In the streaming
+//! event model, arrays emit ArrayStart, value events, ArrayEnd.
+//! This enum only handles scalar values.
 
-/// Attribute value with syntactic type.
+/// Scalar value type (no arrays - those are streamed).
 ///
+/// Used internally to determine what event to emit for a value.
 /// The lifetime `'a` refers to the source buffer - values are
 /// zero-copy slices into the original input.
 #[derive(Debug, Clone, PartialEq)]
-pub enum Value<'a> {
+pub enum ScalarType<'a> {
     /// Nil value: `null`, `nil`, or `~`
     Nil,
 
@@ -32,10 +38,10 @@ pub enum Value<'a> {
 
     /// Quoted string (needs unescaping)
     QuotedString(&'a [u8]),
-
-    /// List: `[a b c]`
-    List(Vec<Value<'a>>),
 }
+
+// Keep Value as an alias for backwards compatibility during transition
+pub type Value<'a> = ScalarType<'a>;
 
 impl<'a> Value<'a> {
     /// Check if this is a nil value.

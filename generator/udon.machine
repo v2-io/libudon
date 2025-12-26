@@ -143,16 +143,203 @@
     |default    |.skip        | ->                      |>>
 
 ;==============================================================================
-; ELEMENT - Called when we see | at some column
-; Entering = implicit push, returning = implicit pop + ElementEnd
+; ELEMENT FUNCTION
+; SPEC.md:43-105, 645-662
+;
+; Called when we see | at some column. The element function handles:
+;   1. Identity parsing (name, [id], .class, suffix)
+;   2. Inline content (text, nested elements)
+;   3. Indented children (via dedent detection)
+;
+; Entering = implicit stack push
+; Returning = implicit stack pop + ElementEnd event
 ;==============================================================================
 |function[element] :elem_col
   |var[col] = :elem_col
   |var[content_base] = -1
 
+  ;============================================================================
+  ; ELEMENT IDENTITY PARSING
+  ; SPEC.md:654 - element = "|" [ name ] [ suffix ] [ id [ suffix ] ] { class }*
+  ;                         [ SPACE suffix ] { attribute }* { inline_child }*
+  ;
+  ; Key insight: Each piece of identity syntax desugars to attributes:
+  ;   [id]     → :'$id' value      (SPEC.md:60-68)
+  ;   .class   → :'$class' name    (SPEC.md:572-576)
+  ;   ?!*+     → :'<char>' true    (SPEC.md:74-88)
+  ;
+  ; Events are emitted immediately as each piece is parsed - no accumulation.
+  ;============================================================================
+
   |state[:identity]
-    ; Parse element identity - uses helper for unicode label parsing
-    |default               | CALL:parse_element_identity |>> :after_identity
+    ; SPEC.md:645-651 - Element recognition rules
+    ; "|" is element when followed by: letter, [, ., {, ', or suffix
+    ; Otherwise "|" is prose (Markdown table compatibility)
+    ;
+    ; Examples:
+    ;   |foo     → ElementStart("foo")
+    ;   |[id]    → ElementStartAnon, Attribute("$id"), StringValue("id")
+    ;   |.class  → ElementStartAnon, Attribute("$class"), StringValue("class")
+    ;   |?       → ElementStartAnon, Attribute("?"), BoolValue(true)
+    ;   |'name'  → ElementStart("name")
+    |c[LETTER]    |.name     | MARK                              |>> :id_name
+    |c[<L>]       |.bracket  | ->                                |>> :id_anon_bracket
+    |c[.]         |.dot      | emit(ElementStartAnon)            |>> :id_class_start
+    |c[?]         |.q        | emit(ElementStartAnon) | emit(Attribute:?) | emit(BoolValue:true) |>> :id_check_more
+    |c[!]         |.bang     | emit(ElementStartAnon) | emit(Attribute:!) | emit(BoolValue:true) |>> :id_check_more
+    |c[*]         |.star     | emit(ElementStartAnon) | emit(Attribute:*) | emit(BoolValue:true) |>> :id_check_more
+    |c[+]         |.plus     | emit(ElementStartAnon) | emit(Attribute:+) | emit(BoolValue:true) |>> :id_check_more
+    |c[']         |.quote    | ->                                |>> :id_quoted_name
+    |default      |.anon     | emit(ElementStartAnon)            |>> :after_identity
+
+  |state[:id_name]
+    ; SPEC.md:656 - name = LABEL | quoted_label
+    ; LABEL = /[\p{L}_][\p{L}\p{N}_-]*/
+    ;
+    ; Example: |foo-bar → scans "foo-bar", emits ElementStart("foo-bar")
+    |c[LABEL_CONT] |.cont    | ->                                |>>
+    |default       |.done    | emit(ElementStart)                |>> :id_after_name
+
+  |state[:id_after_name]
+    ; After element name - check for suffix, [id], or .class
+    ; SPEC.md:89-98 - Suffix allowed positions
+    ;
+    ; Examples:
+    ;   |foo?      → ..., Attribute("?"), BoolValue(true)
+    ;   |foo[id]   → ..., Attribute("$id"), StringValue("id")
+    ;   |foo.bar   → ..., Attribute("$class"), StringValue("bar")
+    |c[?]         |.q        | emit(Attribute:?) | emit(BoolValue:true) | -> |>> :id_check_bracket
+    |c[!]         |.bang     | emit(Attribute:!) | emit(BoolValue:true) | -> |>> :id_check_bracket
+    |c[*]         |.star     | emit(Attribute:*) | emit(BoolValue:true) | -> |>> :id_check_bracket
+    |c[+]         |.plus     | emit(Attribute:+) | emit(BoolValue:true) | -> |>> :id_check_bracket
+    |c[<L>]       |.bracket  | ->                                |>> :id_bracket_start
+    |c[.]         |.dot      | ->                                |>> :id_class_start
+    |default      |.done     |                                   |>> :after_identity
+
+  |state[:id_check_bracket]
+    ; After name+suffix - can still have [id] or .class
+    ; Example: |foo?[id] → suffix already emitted, now parse [id]
+    |c[<L>]       |.bracket  | ->                                |>> :id_bracket_start
+    |c[.]         |.dot      | ->                                |>> :id_class_start
+    |default      |.done     |                                   |>> :after_identity
+
+  |state[:id_bracket_start]
+    ; SPEC.md:60-68 - [id] syntax desugars to :'$id' value
+    ; Called after ElementStart already emitted
+    ;
+    ; Example: |foo[myid] → Attribute("$id"), StringValue("myid")
+    |c[<R>]       |.empty    | ->                                |>> :id_after_bracket
+    |default      |.value    | emit(Attribute:$id) | MARK        |>> :id_bracket_value
+
+  |state[:id_anon_bracket]
+    ; Anonymous element starting with [
+    ; Must emit ElementStartAnon before the $id attribute
+    ;
+    ; Example: |[myid] → ElementStartAnon, Attribute("$id"), StringValue("myid")
+    |c[<R>]       |.empty    | emit(ElementStartAnon)            |>> :id_after_bracket
+    |default      |.value    | emit(ElementStartAnon) | emit(Attribute:$id) | MARK |>> :id_bracket_value
+
+  |state[:id_bracket_value]
+    ; SPEC.md:657-658 - id_value = typed_value | bare_string
+    ; Collecting bytes until ] - value type determined by content
+    ;
+    ; Example: |foo[123] → StringValue("123") (consumer may parse as int)
+    |c[<R>]       |.close    | emit(StringValue) | ->            |>> :id_after_bracket
+    |default      |.collect  | ->                                |>>
+
+  |state[:id_after_bracket]
+    ; After [id] - check for suffix or .class
+    ; SPEC.md:95 - |name[id]? is valid (suffix after id)
+    |c[?]         |.q        | emit(Attribute:?) | emit(BoolValue:true) | -> |>> :id_check_class
+    |c[!]         |.bang     | emit(Attribute:!) | emit(BoolValue:true) | -> |>> :id_check_class
+    |c[*]         |.star     | emit(Attribute:*) | emit(BoolValue:true) | -> |>> :id_check_class
+    |c[+]         |.plus     | emit(Attribute:+) | emit(BoolValue:true) | -> |>> :id_check_class
+    |c[.]         |.dot      | ->                                |>> :id_class_start
+    |default      |.done     |                                   |>> :after_identity
+
+  |state[:id_check_class]
+    ; After [id]+suffix - can still have .class
+    |c[.]         |.dot      | ->                                |>> :id_class_start
+    |default      |.done     |                                   |>> :after_identity
+
+  |state[:id_class_start]
+    ; SPEC.md:572-576 - Classes desugar to :'$class' [names...]
+    ; Each .class emits: Attribute("$class"), StringValue("classname")
+    ;
+    ; Example: |foo.bar → Attribute("$class"), StringValue("bar")
+    ; Example: |foo.'odd name' → Attribute("$class"), QuotedStringValue("odd name")
+    |c[LETTER]    |.name     | emit(Attribute:$class) | MARK     |>> :id_class_name
+    |c[']         |.quote    | emit(Attribute:$class)            |>> :id_class_quoted
+    |default      |.err      | emit(Error:expected_class_name)   |>> :after_identity
+
+  |state[:id_class_name]
+    ; SPEC.md:659 - class = "." LABEL
+    ; Scanning class name until non-LABEL char
+    |c[LABEL_CONT] |.cont    | ->                                |>>
+    |default       |.done    | emit(StringValue)                 |>> :id_class_check_more
+
+  |state[:id_class_check_more]
+    ; After class name - check for more .class or space+suffix
+    ; SPEC.md:100-105 - suffix on class is reserved (NOT allowed)
+    ;
+    ; Example: |foo.bar.baz → multiple classes, each emits separately
+    |c[.]         |.more     | ->                                |>> :id_class_start
+    |c[ ]         |.space    | ->                                |>> :id_space_suffix
+    |default      |.done     |                                   |>> :after_identity
+
+  |state[:id_space_suffix]
+    ; SPEC.md:97 - |name[id].class ? (space-separated suffix at end)
+    ; Only suffix chars valid here, otherwise back to content parsing
+    |c[?]         |.q        | emit(Attribute:?) | emit(BoolValue:true) | -> |>> :after_identity
+    |c[!]         |.bang     | emit(Attribute:!) | emit(BoolValue:true) | -> |>> :after_identity
+    |c[*]         |.star     | emit(Attribute:*) | emit(BoolValue:true) | -> |>> :after_identity
+    |c[+]         |.plus     | emit(Attribute:+) | emit(BoolValue:true) | -> |>> :after_identity
+    |c[ ]         |.more     | ->                                |>>
+    |default      |.nosuffix |                                   |>> :after_identity
+
+  |state[:id_quoted_name]
+    ; Quoted element name: |'has spaces'
+    ; Allows any characters in element name
+    |c[']         |.close    | emit(ElementStart)                |>> :id_after_name
+    |default      |.collect  | MARK                              |>> :id_quoted_name_content
+
+  |state[:id_quoted_name_content]
+    ; Inside quoted name - collect until closing quote
+    ; Backslash escapes the next character
+    |c[']         |.close    | emit(ElementStart)                |>> :id_after_name
+    |c[\\]        |.escape   | ->                                |>> :id_quoted_name_escape
+    |default      |.collect  | ->                                |>>
+
+  |state[:id_quoted_name_escape]
+    ; After backslash - next char is literal
+    |default      |.char     | ->                                |>> :id_quoted_name_content
+
+  |state[:id_class_quoted]
+    ; Quoted class name: |foo.'has spaces'
+    ; Must see opening quote next
+    |c[']         |.start    | MARK                              |>> :id_class_quoted_content
+    |default      |.err      | emit(Error:expected_quote)        |>> :after_identity
+
+  |state[:id_class_quoted_content]
+    ; Inside quoted class name
+    |c[']         |.close    | emit(QuotedStringValue)           |>> :id_class_check_more
+    |c[\\]        |.escape   | ->                                |>> :id_class_quoted_escape
+    |default      |.collect  | ->                                |>>
+
+  |state[:id_class_quoted_escape]
+    ; After backslash in quoted class
+    |default      |.char     | ->                                |>> :id_class_quoted_content
+
+  |state[:id_check_more]
+    ; After suffix on anonymous element - can still have [id] or .class
+    ; Example: |?[id] → suffix emitted, now parse id
+    |c[<L>]       |.bracket  | ->                                |>> :id_bracket_start
+    |c[.]         |.dot      | ->                                |>> :id_class_start
+    |default      |.done     |                                   |>> :after_identity
+
+  ;============================================================================
+  ; AFTER IDENTITY - Inline content and transition to children
+  ;============================================================================
 
   |state[:after_identity]
     |eof                                   | emit(ElementEnd)  |return
