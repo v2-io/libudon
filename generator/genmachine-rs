@@ -654,6 +654,7 @@ class GMCase < GMGenericChild
     elsif @special_class
       match_expr = case @special_class
       when 'LETTER' then 'b if self.is_label_start(b)'
+      when 'LABEL_CONT' then 'b if self.is_label_continue(b)'
       when 'ELEMENT_START' then 'b if self.is_element_start_byte(b)'
       else "_ /* unknown: #{@special_class} */"
       end
