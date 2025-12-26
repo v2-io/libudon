@@ -802,7 +802,7 @@ impl<'a> Parser<'a> {
         let mut content_base: i32 = -1;
 
         #[derive(Clone, Copy)]
-        enum State { SIdentity, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SElemCommentCheck, SElemInlineComment, SElemLineComment, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildCommentCheck, SChildInlineComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveInterp, SChildDirectiveName, SChildDirectiveBody, SSkipChild, SAttrKey, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine, SArrayValue, SArrayAfterClose, SArrDquote, SArrDquoteContent, SArrDquoteEsc, SArrSquote, SArrSquoteContent, SArrSquoteEsc, SArrBare }
+        enum State { SIdentity, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SElemCommentCheck, SElemInlineComment, SElemLineComment, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildCommentCheck, SChildInlineComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveInterp, SChildDirectiveName, SChildDirectiveBody, SSkipChild, SAttrKey, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine }
 
         let mut state = State::SIdentity;
         loop {
@@ -1967,7 +1967,8 @@ impl<'a> Parser<'a> {
                         b'[' => {
                             self.emit(Event::ArrayStart { span: Span::new(self.pos, self.pos) });
                             self.advance();
-                            state = State::SArrayValue;
+                            self.parse_array();
+                            state = State::SAttrAfterValue;
                         }
                         b'"' => {
                             self.advance();
@@ -2165,43 +2166,21 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                State::SArrayValue => {
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b' ' | b'\t' => {
-                            self.advance();
-                        }
-                        b'\n' => {
-                            self.advance();
-                        }
-                        b']' => {
-                            self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });
-                            self.advance();
-                            state = State::SArrayAfterClose;
-                        }
-                        b'"' => {
-                            self.advance();
-                            state = State::SArrDquote;
-                        }
-                        b'\'' => {
-                            self.advance();
-                            state = State::SArrSquote;
-                        }
-                        b'[' => {
-                            self.emit(Event::ArrayStart { span: Span::new(self.pos, self.pos) });
-                            self.advance();
-                            state = State::SArrayValue;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SArrBare;
-                        }
-                        }
-                    }
-                }
-                State::SArrayAfterClose => {
+            }
+        }
+    }
+
+    fn parse_array(&mut self) {
+        #[derive(Clone, Copy)]
+        enum State { SValues, SDquote, SDquoteContent, SDquoteEsc, SSquote, SSquoteContent, SSquoteEsc, SBare }
+
+        let mut state = State::SValues;
+        loop {
+            match state {
+                State::SValues => {
                     if self.eof() {
-                        state = State::SAttrAfterValue;
+                        self.emit(Event::Error { message: "unclosed array", span: Span::new(self.pos, self.pos) });
+                        return;
                     }
                     if let Some(b) = self.peek() {
                         match b {
@@ -2214,57 +2193,64 @@ impl<'a> Parser<'a> {
                         b']' => {
                             self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });
                             self.advance();
+                            return;
+                        }
+                        b'"' => {
+                            self.advance();
+                            state = State::SDquote;
+                        }
+                        b'\'' => {
+                            self.advance();
+                            state = State::SSquote;
                         }
                         b'[' => {
                             self.emit(Event::ArrayStart { span: Span::new(self.pos, self.pos) });
                             self.advance();
-                            state = State::SArrayValue;
-                        }
-                        b'"' => {
-                            self.advance();
-                            state = State::SArrDquote;
-                        }
-                        b'\'' => {
-                            self.advance();
-                            state = State::SArrSquote;
+                            self.parse_array();
+                            state = State::SValues;
                         }
                         _ => {
-                            state = State::SAttrAfterValue;
+                            self.mark();
+                            state = State::SBare;
                         }
                         }
                     }
                 }
-                State::SArrDquote => {
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'"' => {
-                            self.mark();
-                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
-                            self.advance();
-                            state = State::SArrayValue;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SArrDquoteContent;
-                        }
-                        }
-                    }
-                }
-                State::SArrDquoteContent => {
+                State::SDquote => {
                     if self.eof() {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
-                        state = State::SChildren;
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'"' => {
+                            self.mark();
+                            self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
+                            self.advance();
+                            state = State::SValues;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SDquoteContent;
+                        }
+                        }
+                    }
+                }
+                State::SDquoteContent => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        return;
                     }
                     if let Some(b) = self.peek() {
                         match b {
                         b'"' => {
                             self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
                             self.advance();
-                            state = State::SArrayValue;
+                            state = State::SValues;
                         }
                         b'\\' => {
                             self.advance();
-                            state = State::SArrDquoteEsc;
+                            state = State::SDquoteEsc;
                         }
                         _ => {
                             self.advance();
@@ -2272,51 +2258,55 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                State::SArrDquoteEsc => {
+                State::SDquoteEsc => {
                     if self.eof() {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
-                        state = State::SChildren;
+                        return;
                     }
                     if let Some(b) = self.peek() {
                         match b {
                         _ => {
                             self.advance();
-                            state = State::SArrDquoteContent;
+                            state = State::SDquoteContent;
                         }
                         }
                     }
                 }
-                State::SArrSquote => {
+                State::SSquote => {
+                    if self.eof() {
+                        self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
+                        return;
+                    }
                     if let Some(b) = self.peek() {
                         match b {
                         b'\'' => {
                             self.mark();
                             self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
                             self.advance();
-                            state = State::SArrayValue;
+                            state = State::SValues;
                         }
                         _ => {
                             self.mark();
-                            state = State::SArrSquoteContent;
+                            state = State::SSquoteContent;
                         }
                         }
                     }
                 }
-                State::SArrSquoteContent => {
+                State::SSquoteContent => {
                     if self.eof() {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
-                        state = State::SChildren;
+                        return;
                     }
                     if let Some(b) = self.peek() {
                         match b {
                         b'\'' => {
                             self.emit(Event::QuotedStringValue { value: self.term(), span: self.span_from_mark() });
                             self.advance();
-                            state = State::SArrayValue;
+                            state = State::SValues;
                         }
                         b'\\' => {
                             self.advance();
-                            state = State::SArrSquoteEsc;
+                            state = State::SSquoteEsc;
                         }
                         _ => {
                             self.advance();
@@ -2324,36 +2314,37 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                State::SArrSquoteEsc => {
+                State::SSquoteEsc => {
                     if self.eof() {
                         self.emit(Event::Error { message: "unclosed string", span: Span::new(self.pos, self.pos) });
-                        state = State::SChildren;
+                        return;
                     }
                     if let Some(b) = self.peek() {
                         match b {
                         _ => {
                             self.advance();
-                            state = State::SArrSquoteContent;
+                            state = State::SSquoteContent;
                         }
                         }
                     }
                 }
-                State::SArrBare => {
+                State::SBare => {
                     if self.eof() {
                         self.emit_typed_value();
-                        state = State::SChildren;
+                        self.emit(Event::Error { message: "unclosed array", span: Span::new(self.pos, self.pos) });
+                        return;
                     }
                     if let Some(b) = self.peek() {
                         match b {
                         b' ' | b'\t' | b'\n' => {
                             self.emit_typed_value();
-                            state = State::SArrayValue;
+                            state = State::SValues;
                         }
                         b']' => {
                             self.emit_typed_value();
                             self.emit(Event::ArrayEnd { span: Span::new(self.pos, self.pos) });
                             self.advance();
-                            state = State::SArrayAfterClose;
+                            return;
                         }
                         _ => {
                             self.advance();

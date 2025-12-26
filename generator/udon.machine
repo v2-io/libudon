@@ -574,7 +574,7 @@
     |eof                      | emit(BoolValue:true)            |>> :children
     |c[\n]        |.flag     | emit(BoolValue:true) | col=0     |>> :children
     |c[;]         |.flag     | emit(BoolValue:true)             |>> :attr_comment
-    |c[<L>]       |.array    | emit(ArrayStart) | ->            |>> :array_value
+    |c[<L>]       |.array    | emit(ArrayStart) | ->            |>> /array :attr_after_value
     |c["]         |.dquote   | ->                               |>> :attr_dquote
     |c[']         |.squote   | ->                               |>> :attr_squote
     |default      |.bare     | MARK                             |>> :attr_bare
@@ -641,71 +641,64 @@
     |c[\n]        |.done     | col=0                            |>> :children
     |default      |.skip     | ->                               |>>
 
-  ;============================================================================
-  ; ARRAY VALUE PARSING - [value value ...]
-  ; SPEC.md:696-700 - list = "[" { value }* "]"
-  ;
-  ; Recursive - arrays can contain arrays.
-  ; Each value emits immediately, ArrayEnd when ] seen.
-  ;============================================================================
+;==============================================================================
+; ARRAY FUNCTION - [value value ...]
+; SPEC.md:696-700 - list = "[" { value }* "]"
+;
+; Proper recursive descent: /array is called after seeing [, returns after ].
+; Nested [ calls /array recursively - the call stack handles depth naturally.
+;==============================================================================
+|function[array]
 
-  |state[:array_value]
+  |state[:values]
     ; Inside array - looking for values or ]
     ; Example: [a b c] → StringValue(a), StringValue(b), StringValue(c), ArrayEnd
+    |eof                     | emit(Error:unclosed_array)       |return
     |c[ \t]       |.space    | ->                               |>>
     |c[\n]        |.newline  | ->                               |>>
-    |c[<R>]       |.close    | emit(ArrayEnd) | ->              |>> :array_after_close
-    |c["]         |.dquote   | ->                               |>> :arr_dquote
-    |c[']         |.squote   | ->                               |>> :arr_squote
-    |c[<L>]       |.nested   | emit(ArrayStart) | ->            |>> :array_value
-    |default      |.bare     | MARK                             |>> :arr_bare
+    |c[<R>]       |.close    | emit(ArrayEnd) | ->              |return
+    |c["]         |.dquote   | ->                               |>> :dquote
+    |c[']         |.squote   | ->                               |>> :squote
+    |c[<L>]       |.nested   | emit(ArrayStart) | ->            |>> /array :values
+    |default      |.bare     | MARK                             |>> :bare
 
-  |state[:array_after_close]
-    ; After ] - check if there are more values (nested array case) or we're done
-    |eof                     |                                  |>> :attr_after_value
-    |c[ \t]       |.space    | ->                               |>>
-    |c[\n]        |.newline  | ->                               |>>
-    |c[<R>]       |.close    | emit(ArrayEnd) | ->              |>>
-    |c[<L>]       |.nested   | emit(ArrayStart) | ->            |>> :array_value
-    |c["]         |.dquote   | ->                               |>> :arr_dquote
-    |c[']         |.squote   | ->                               |>> :arr_squote
-    |default      |.done     |                                  |>> :attr_after_value
-
-  |state[:arr_dquote]
+  |state[:dquote]
     ; Double-quoted string in array
     ; After opening " consumed - now at content
-    |c["]         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :array_value
-    |default      |.content  | MARK                             |>> :arr_dquote_content
+    |eof                      | emit(Error:unclosed_string)     |return
+    |c["]         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :values
+    |default      |.content  | MARK                             |>> :dquote_content
 
-  |state[:arr_dquote_content]
-    |eof                      | emit(Error:unclosed_string)     |>> :children
-    |c["]         |.close    | emit(QuotedStringValue) | ->     |>> :array_value
-    |c[\\]        |.escape   | ->                               |>> :arr_dquote_esc
+  |state[:dquote_content]
+    |eof                      | emit(Error:unclosed_string)     |return
+    |c["]         |.close    | emit(QuotedStringValue) | ->     |>> :values
+    |c[\\]        |.escape   | ->                               |>> :dquote_esc
     |default      |.collect  | ->                               |>>
 
-  |state[:arr_dquote_esc]
-    |eof                      | emit(Error:unclosed_string)     |>> :children
-    |default      |.char     | ->                               |>> :arr_dquote_content
+  |state[:dquote_esc]
+    |eof                      | emit(Error:unclosed_string)     |return
+    |default      |.char     | ->                               |>> :dquote_content
 
-  |state[:arr_squote]
+  |state[:squote]
     ; Single-quoted string in array
     ; After opening ' consumed - now at content
-    |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :array_value
-    |default      |.content  | MARK                             |>> :arr_squote_content
+    |eof                      | emit(Error:unclosed_string)     |return
+    |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :values
+    |default      |.content  | MARK                             |>> :squote_content
 
-  |state[:arr_squote_content]
-    |eof                      | emit(Error:unclosed_string)     |>> :children
-    |c[']         |.close    | emit(QuotedStringValue) | ->     |>> :array_value
-    |c[\\]        |.escape   | ->                               |>> :arr_squote_esc
+  |state[:squote_content]
+    |eof                      | emit(Error:unclosed_string)     |return
+    |c[']         |.close    | emit(QuotedStringValue) | ->     |>> :values
+    |c[\\]        |.escape   | ->                               |>> :squote_esc
     |default      |.collect  | ->                               |>>
 
-  |state[:arr_squote_esc]
-    |eof                      | emit(Error:unclosed_string)     |>> :children
-    |default      |.char     | ->                               |>> :arr_squote_content
+  |state[:squote_esc]
+    |eof                      | emit(Error:unclosed_string)     |return
+    |default      |.char     | ->                               |>> :squote_content
 
-  |state[:arr_bare]
+  |state[:bare]
     ; Bare value in array - collect until whitespace or ]
-    |eof                      | emit(TypedValue)                |>> :children
-    |c[ \t\n]     |.done     | emit(TypedValue)                 |>> :array_value
-    |c[<R>]       |.done     | emit(TypedValue) | emit(ArrayEnd) | -> |>> :array_after_close
+    |eof                      | emit(TypedValue) | emit(Error:unclosed_array) |return
+    |c[ \t\n]     |.done     | emit(TypedValue)                 |>> :values
+    |c[<R>]       |.done     | emit(TypedValue) | emit(ArrayEnd) | -> |return
     |default      |.collect  | ->                               |>>

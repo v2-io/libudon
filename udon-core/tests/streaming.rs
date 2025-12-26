@@ -559,6 +559,200 @@ mod arrays {
             E::ElementEnd,
         ]);
     }
+
+    // =========================================================================
+    // Comprehensive array tests - stress nesting and edge cases
+    // =========================================================================
+
+    #[test]
+    fn deeply_nested_arrays_5_levels() {
+        // [[[[[1]]]]]
+        let events = parse(b"|foo\n  :deep [[[[[1]]]]]");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"foo"))),
+            E::Attr(s(b"deep")),
+            E::ArrayStart,  // level 1
+            E::ArrayStart,  // level 2
+            E::ArrayStart,  // level 3
+            E::ArrayStart,  // level 4
+            E::ArrayStart,  // level 5
+            E::Int(1),
+            E::ArrayEnd,    // close level 5
+            E::ArrayEnd,    // close level 4
+            E::ArrayEnd,    // close level 3
+            E::ArrayEnd,    // close level 2
+            E::ArrayEnd,    // close level 1
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn deeply_nested_empty_arrays() {
+        // [[[[[]]]]]
+        let events = parse(b"|foo\n  :empty [[[[[]]]]]");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"foo"))),
+            E::Attr(s(b"empty")),
+            E::ArrayStart,
+            E::ArrayStart,
+            E::ArrayStart,
+            E::ArrayStart,
+            E::ArrayStart,
+            E::ArrayEnd,
+            E::ArrayEnd,
+            E::ArrayEnd,
+            E::ArrayEnd,
+            E::ArrayEnd,
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn mixed_nesting_with_values_at_each_level() {
+        // [1 [2 [3 [4 [5]]] 6] 7]
+        let events = parse(b"|foo\n  :mix [1 [2 [3 [4 [5]]] 6] 7]");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"foo"))),
+            E::Attr(s(b"mix")),
+            E::ArrayStart,
+            E::Int(1),
+            E::ArrayStart,
+            E::Int(2),
+            E::ArrayStart,
+            E::Int(3),
+            E::ArrayStart,
+            E::Int(4),
+            E::ArrayStart,
+            E::Int(5),
+            E::ArrayEnd,
+            E::ArrayEnd,
+            E::ArrayEnd,
+            E::Int(6),
+            E::ArrayEnd,
+            E::Int(7),
+            E::ArrayEnd,
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn array_with_all_value_types() {
+        // [42 3.14 true false null "quoted" bare]
+        let events = parse(b"|foo\n  :types [42 3.14 true false null \"quoted\" bare]");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"foo"))),
+            E::Attr(s(b"types")),
+            E::ArrayStart,
+            E::Int(42),
+            E::Float("3.14".to_string()),
+            E::Bool(true),
+            E::Bool(false),
+            E::Nil,
+            E::QuotedStr(s(b"quoted")),
+            E::Str(s(b"bare")),
+            E::ArrayEnd,
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn array_siblings_at_multiple_levels() {
+        // [[a b] [c d] [e f]]
+        let events = parse(b"|foo\n  :grid [[a b] [c d] [e f]]");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"foo"))),
+            E::Attr(s(b"grid")),
+            E::ArrayStart,
+            E::ArrayStart, E::Str(s(b"a")), E::Str(s(b"b")), E::ArrayEnd,
+            E::ArrayStart, E::Str(s(b"c")), E::Str(s(b"d")), E::ArrayEnd,
+            E::ArrayStart, E::Str(s(b"e")), E::Str(s(b"f")), E::ArrayEnd,
+            E::ArrayEnd,
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn array_with_quoted_strings_containing_brackets() {
+        // ["[not an array]" "]" "["]
+        let events = parse(b"|foo\n  :tricky [\"[not an array]\" \"]\" \"[\"]");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"foo"))),
+            E::Attr(s(b"tricky")),
+            E::ArrayStart,
+            E::QuotedStr(s(b"[not an array]")),
+            E::QuotedStr(s(b"]")),
+            E::QuotedStr(s(b"[")),
+            E::ArrayEnd,
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn complex_nested_structure() {
+        // [[[1 2] [3 4]] [[5 6] [7 8]]]
+        let events = parse(b"|foo\n  :cube [[[1 2] [3 4]] [[5 6] [7 8]]]");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"foo"))),
+            E::Attr(s(b"cube")),
+            E::ArrayStart,                                          // outer
+            E::ArrayStart,                                          // first mid
+            E::ArrayStart, E::Int(1), E::Int(2), E::ArrayEnd,       // [1 2]
+            E::ArrayStart, E::Int(3), E::Int(4), E::ArrayEnd,       // [3 4]
+            E::ArrayEnd,                                            // close first mid
+            E::ArrayStart,                                          // second mid
+            E::ArrayStart, E::Int(5), E::Int(6), E::ArrayEnd,       // [5 6]
+            E::ArrayStart, E::Int(7), E::Int(8), E::ArrayEnd,       // [7 8]
+            E::ArrayEnd,                                            // close second mid
+            E::ArrayEnd,                                            // close outer
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn array_with_single_quoted_strings() {
+        let events = parse(b"|foo\n  :names ['Alice' 'Bob']");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"foo"))),
+            E::Attr(s(b"names")),
+            E::ArrayStart,
+            E::QuotedStr(s(b"Alice")),
+            E::QuotedStr(s(b"Bob")),
+            E::ArrayEnd,
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn array_multiline() {
+        // Arrays can span multiple lines
+        let events = parse(b"|foo\n  :items [\n    a\n    b\n    c\n  ]");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"foo"))),
+            E::Attr(s(b"items")),
+            E::ArrayStart,
+            E::Str(s(b"a")),
+            E::Str(s(b"b")),
+            E::Str(s(b"c")),
+            E::ArrayEnd,
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn empty_arrays_at_various_depths() {
+        // [[] [[]] [[[]]]]
+        let events = parse(b"|foo\n  :empties [[] [[]] [[[]]]]");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"foo"))),
+            E::Attr(s(b"empties")),
+            E::ArrayStart,
+            E::ArrayStart, E::ArrayEnd,                             // []
+            E::ArrayStart, E::ArrayStart, E::ArrayEnd, E::ArrayEnd, // [[]]
+            E::ArrayStart, E::ArrayStart, E::ArrayStart, E::ArrayEnd, E::ArrayEnd, E::ArrayEnd, // [[[]]]
+            E::ArrayEnd,
+            E::ElementEnd,
+        ]);
+    }
 }
 
 // =============================================================================
