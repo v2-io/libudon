@@ -1,5 +1,5 @@
 [workspace]
-members = ["udon-core", "udon-ffi"]
+members = ["udon-core"]
 resolver = "2"
 
 [workspace.package]

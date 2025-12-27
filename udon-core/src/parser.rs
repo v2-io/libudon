@@ -2942,32 +2942,6 @@ impl StreamingParser {
     }
 }
 
-// ========== Batch Parser (DEPRECATED) ==========
-//
-// TODO: Remove this once all tests migrate to StreamingParser.
-// The old Parser<'a> API with borrowed events is no longer generated.
-// Tests should use StreamingParser directly.
-
-/// Deprecated batch parser - use StreamingParser instead.
-#[deprecated(note = "Use StreamingParser directly")]
-pub struct Parser<'a> {
-    _phantom: std::marker::PhantomData<&'a ()>,
-}
-
-impl<'a> Parser<'a> {
-    /// Create a new parser - DEPRECATED, use StreamingParser::new() instead.
-    #[deprecated(note = "Use StreamingParser::new() instead")]
-    pub fn new(_input: &'a [u8]) -> Self {
-        Self { _phantom: std::marker::PhantomData }
-    }
-
-    /// Parse - DEPRECATED, use StreamingParser::feed() + finish() + read() instead.
-    #[deprecated(note = "Use StreamingParser feed/finish/read API instead")]
-    pub fn parse(&mut self) -> Vec<crate::event::Event<'a>> {
-        panic!("Parser is deprecated. Use StreamingParser instead. See tests/parsing.rs for examples.")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

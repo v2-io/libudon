@@ -5,20 +5,17 @@
 //!
 //! # Architecture
 //!
-//! - **event.rs** - Event enum for batch parsing (borrows from input)
-//! - **streaming.rs** - Streaming infrastructure (ring buffer, chunk arena)
+//! - **streaming.rs** - Ring buffer, chunk arena, StreamingEvent enum
+//! - **parser.rs** - Generated streaming state machine from .machine DSL
 //! - **span.rs** - Span/Location types
-//! - **value.rs** - Attribute value types
-//! - **parser.rs** - Generated from .machine DSL
+//! - **value.rs** - Scalar value types
 
-pub mod event;
 pub mod parser;
 pub mod span;
 pub mod streaming;
 pub mod value;
 
-pub use event::Event;
-pub use parser::{Parser, StreamingParser, ParserState, FunctionId};
+pub use parser::{StreamingParser, ParserState, FunctionId};
 pub use span::{Location, Span};
 pub use streaming::{ChunkArena, ChunkSlice, EventRing, FeedResult, InlineDirectiveData, ParseErrorCode, StreamingEvent};
 pub use value::Value;
