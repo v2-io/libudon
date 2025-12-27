@@ -87,7 +87,7 @@ impl E {
             StreamingEvent::RawContent { content, .. } => E::Raw(
                 parser.arena().resolve(content).unwrap_or(&[]).to_vec()
             ),
-            StreamingEvent::Error { message, .. } => E::Error(message.to_string()),
+            StreamingEvent::Error { code, .. } => E::Error(code.message().to_string()),
             other => E::Other(format!("{:?}", other)),
         }
     }

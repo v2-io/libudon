@@ -954,10 +954,11 @@ class GMCommand < GMGenericChild
   end
 
   def emit_rust(event_type)
-    # Handle Error:message format
+    # Handle Error:message format - convert to ParseErrorCode enum
     if event_type =~ /^error:(.+)$/i
-      msg = $1.gsub('_', ' ')
-      return %{self.emit(StreamingEvent::Error { message: "#{msg}".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });}
+      # Convert snake_case error name to PascalCase enum variant
+      error_name = $1.split('_').map(&:capitalize).join
+      return %{self.emit(StreamingEvent::Error { code: ParseErrorCode::#{error_name}, span: self.span_from_mark() });}
     end
 
     # Handle Attribute:$key format (for identity desugaring)

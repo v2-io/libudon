@@ -25,6 +25,73 @@
 
 use crate::span::Span;
 
+/// Error codes for parse errors.
+///
+/// Using an enum instead of String eliminates the 24-byte String overhead
+/// and removes heap allocation for error messages.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ParseErrorCode {
+    /// Unexpected end of input (generic)
+    Unclosed = 0,
+    /// Unclosed string literal
+    UnclosedString,
+    /// Unclosed quoted content
+    UnclosedQuote,
+    /// Unclosed array
+    UnclosedArray,
+    /// Unclosed bracket (e.g., in identity)
+    UnclosedBracket,
+    /// Unclosed block comment
+    UnclosedComment,
+    /// Unclosed directive
+    UnclosedDirective,
+    /// Unclosed freeform block
+    UnclosedFreeform,
+    /// Incomplete directive (missing required parts)
+    IncompleteDirective,
+    /// Expected attribute key after ':'
+    ExpectedAttrKey,
+    /// Expected class name after '.'
+    ExpectedClassName,
+    /// Unexpected content after value
+    UnexpectedAfterValue,
+    /// Tab characters not allowed (use spaces)
+    NoTabs,
+}
+
+impl ParseErrorCode {
+    /// Get a human-readable message for this error code.
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::Unclosed => "unclosed",
+            Self::UnclosedString => "unclosed string",
+            Self::UnclosedQuote => "unclosed quote",
+            Self::UnclosedArray => "unclosed array",
+            Self::UnclosedBracket => "unclosed bracket",
+            Self::UnclosedComment => "unclosed comment",
+            Self::UnclosedDirective => "unclosed directive",
+            Self::UnclosedFreeform => "unclosed freeform",
+            Self::IncompleteDirective => "incomplete directive",
+            Self::ExpectedAttrKey => "expected attr key",
+            Self::ExpectedClassName => "expected class name",
+            Self::UnexpectedAfterValue => "unexpected after value",
+            Self::NoTabs => "no tabs",
+        }
+    }
+}
+
+/// Data for an inline directive event.
+///
+/// Boxed in StreamingEvent to reduce enum size from 48 to 32 bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InlineDirectiveData {
+    pub name: ChunkSlice,
+    pub namespace: Option<ChunkSlice>,
+    pub content: ChunkSlice,
+    pub span: Span,
+}
+
 /// A reference to a slice of bytes within a chunk.
 ///
 /// This is 12 bytes: chunk_idx (u32) + start (u32) + end (u32).
@@ -242,12 +309,8 @@ pub enum StreamingEvent {
     },
     DirectiveEnd { span: Span },
 
-    InlineDirective {
-        name: ChunkSlice,
-        namespace: Option<ChunkSlice>,
-        content: ChunkSlice,
-        span: Span,
-    },
+    /// Boxed to reduce enum size (this variant is ~48 bytes unboxed)
+    InlineDirective(Box<InlineDirectiveData>),
 
     Interpolation { expression: ChunkSlice, span: Span },
 
@@ -263,7 +326,7 @@ pub enum StreamingEvent {
 
     // ========== Error ==========
 
-    Error { message: String, span: Span },
+    Error { code: ParseErrorCode, span: Span },
 }
 
 impl StreamingEvent {
@@ -290,7 +353,7 @@ impl StreamingEvent {
             Self::RawContent { span, .. } => *span,
             Self::DirectiveStart { span, .. } => *span,
             Self::DirectiveEnd { span } => *span,
-            Self::InlineDirective { span, .. } => *span,
+            Self::InlineDirective(data) => data.span,
             Self::Interpolation { span, .. } => *span,
             Self::IdReference { span, .. } => *span,
             Self::AttributeMerge { span, .. } => *span,
@@ -313,7 +376,7 @@ impl StreamingEvent {
             Self::Comment { content, .. } => Some(content.chunk_idx),
             Self::RawContent { content, .. } => Some(content.chunk_idx),
             Self::DirectiveStart { name, .. } => Some(name.chunk_idx),
-            Self::InlineDirective { name, .. } => Some(name.chunk_idx),
+            Self::InlineDirective(data) => Some(data.name.chunk_idx),
             Self::Interpolation { expression, .. } => Some(expression.chunk_idx),
             Self::IdReference { id, .. } => Some(id.chunk_idx),
             Self::AttributeMerge { id, .. } => Some(id.chunk_idx),

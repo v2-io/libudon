@@ -114,7 +114,7 @@ impl EventKind {
             ),
 
             // Error
-            StreamingEvent::Error { message, .. } => EventKind::Error(message),
+            StreamingEvent::Error { code, .. } => EventKind::Error(code.message().to_string()),
 
             // Map other events as needed
             _ => EventKind::Error("Unexpected event type".to_string()),

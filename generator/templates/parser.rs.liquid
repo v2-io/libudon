@@ -10,7 +10,7 @@
 //! - Chunk arena for zero-copy string references
 
 use crate::span::Span;
-use crate::streaming::{ChunkArena, ChunkSlice, EventRing, FeedResult, StreamingEvent};
+use crate::streaming::{ChunkArena, ChunkSlice, EventRing, FeedResult, ParseErrorCode, StreamingEvent};
 
 /// Parser state enum - persists across feed() calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

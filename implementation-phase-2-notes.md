@@ -294,12 +294,47 @@ fn scan_to3(&mut self, b1: u8, b2: u8, b3: u8) -> Option<u8> {
 - Inline attrs: `inline_attr_dquote_content`, `inline_attr_squote_content`
 - Identity: `id_bracket_value`, `id_quoted_name_content`, `id_class_quoted_content`
 
-**Final Results (2024-12-27):**
+**SCAN-first Results (2024-12-27):**
 
 | Test | Old Parser | Streaming + SCAN-first | Speedup |
 |------|------------|------------------------|---------|
 | comprehensive.udon | 32.8 µs / 444 MiB/s | **18.7 µs / 778 MiB/s** | **1.75x** |
 | minimal.udon | 112.6 ns / 457 MiB/s | **74.8 ns / 688 MiB/s** | **1.51x** |
+
+### Event Size Optimization (2024-12-27)
+
+**Problem:** StreamingEvent was 48 bytes due to large variants (InlineDirective, Error with String).
+
+**Fix 1: Error codes instead of String**
+```rust
+// Before: Error { message: String, span: Span }  // String = 24 bytes
+// After:  Error { code: ParseErrorCode, span: Span }  // enum = 1 byte
+
+#[repr(u8)]
+pub enum ParseErrorCode {
+    Unclosed,
+    UnclosedString,
+    UnclosedQuote,
+    // ... 13 error types total
+}
+```
+
+**Fix 2: Box large variants**
+```rust
+// Before: InlineDirective { name, namespace, content, span }  // ~48 bytes
+// After:  InlineDirective(Box<InlineDirectiveData>)  // 8 bytes (pointer)
+```
+
+**Results:**
+- StreamingEvent size: 48 → 40 bytes (16.7% reduction)
+- Error variant: eliminated 24-byte String allocation
+
+**Final Results (2024-12-27):**
+
+| Test | Old Parser | Streaming Optimized | Speedup |
+|------|------------|---------------------|---------|
+| comprehensive.udon | 32.8 µs / 444 MiB/s | **17.9 µs / 813 MiB/s** | **1.83x** |
+| minimal.udon | 112.6 ns / 457 MiB/s | **73.5 ns / 700 MiB/s** | **1.53x** |
 
 ## Remaining Optimization Opportunities
 

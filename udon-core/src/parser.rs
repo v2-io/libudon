@@ -10,7 +10,7 @@
 //! - Chunk arena for zero-copy string references
 
 use crate::span::Span;
-use crate::streaming::{ChunkArena, ChunkSlice, EventRing, FeedResult, StreamingEvent};
+use crate::streaming::{ChunkArena, ChunkSlice, EventRing, FeedResult, ParseErrorCode, StreamingEvent};
 
 /// Parser state enum - persists across feed() calls.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -634,7 +634,7 @@ impl StreamingParser {
                         }
                         b'\t' => {
                             self.advance();
-                            self.emit(StreamingEvent::Error { message: "no tabs".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
                             state = State::SSkipLine;
                         }
                         b'\'' => {
@@ -742,7 +742,7 @@ impl StreamingParser {
                 }
                 State::SInlineComment => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed comment".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedComment, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -763,7 +763,7 @@ impl StreamingParser {
                 }
                 State::SInlineCommentNested => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed comment".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedComment, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -844,7 +844,7 @@ impl StreamingParser {
                 }
                 State::SFreeform => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed freeform".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedFreeform, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -861,7 +861,7 @@ impl StreamingParser {
                 }
                 State::SFreeformEnd1 => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed freeform".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedFreeform, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -879,7 +879,7 @@ impl StreamingParser {
                 }
                 State::SFreeformEnd2 => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed freeform".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedFreeform, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -897,7 +897,7 @@ impl StreamingParser {
                 }
                 State::SDirective => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "incomplete directive".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -915,7 +915,7 @@ impl StreamingParser {
                 }
                 State::SDirectiveInterp => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed directive".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -957,7 +957,7 @@ impl StreamingParser {
                 }
                 State::SDirectiveBody => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed directive".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -1170,7 +1170,7 @@ impl StreamingParser {
                 }
                 State::SIdBracketStart => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed bracket".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedBracket, span: self.span_from_mark() });
                         state = State::SAfterIdentity;
                     }
                     if let Some(b) = self.peek() {
@@ -1190,7 +1190,7 @@ impl StreamingParser {
                 State::SIdAnonBracket => {
                     if self.eof() {
                         self.emit(StreamingEvent::ElementStart { name: None, span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        self.emit(StreamingEvent::Error { message: "unclosed bracket".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedBracket, span: self.span_from_mark() });
                         state = State::SAfterIdentity;
                     }
                     if let Some(b) = self.peek() {
@@ -1217,7 +1217,7 @@ impl StreamingParser {
                             state = State::SIdAfterBracket;
                         }
                         None => {
-                            self.emit(StreamingEvent::Error { message: "unclosed bracket".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedBracket, span: self.span_from_mark() });
                             state = State::SAfterIdentity;
                         }
                         _ => {} // Other bytes not possible after SCAN
@@ -1281,7 +1281,7 @@ impl StreamingParser {
                 }
                 State::SIdClassStart => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "expected class name".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::ExpectedClassName, span: self.span_from_mark() });
                         state = State::SAfterIdentity;
                     }
                     if let Some(b) = self.peek() {
@@ -1297,7 +1297,7 @@ impl StreamingParser {
                             state = State::SIdClassQuoted;
                         }
                         _ => {
-                            self.emit(StreamingEvent::Error { message: "expected class name".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::ExpectedClassName, span: self.span_from_mark() });
                             state = State::SAfterIdentity;
                         }
                         }
@@ -1382,7 +1382,7 @@ impl StreamingParser {
                 State::SIdQuotedName => {
                     if self.eof() {
                         { let name = Some(self.term()); let span = self.span_from_mark(); self.emit(StreamingEvent::ElementStart { name, span }); }
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                         state = State::SAfterIdentity;
                     }
                     if let Some(b) = self.peek() {
@@ -1414,7 +1414,7 @@ impl StreamingParser {
                         }
                         None => {
                             { let name = Some(self.term()); let span = self.span_from_mark(); self.emit(StreamingEvent::ElementStart { name, span }); }
-                            self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                             state = State::SAfterIdentity;
                         }
                         _ => {} // Other bytes not possible after SCAN
@@ -1423,7 +1423,7 @@ impl StreamingParser {
                 State::SIdQuotedNameEscape => {
                     if self.eof() {
                         { let name = Some(self.term()); let span = self.span_from_mark(); self.emit(StreamingEvent::ElementStart { name, span }); }
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                         state = State::SAfterIdentity;
                     }
                     if let Some(b) = self.peek() {
@@ -1437,7 +1437,7 @@ impl StreamingParser {
                 }
                 State::SIdClassQuoted => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                         state = State::SAfterIdentity;
                     }
                     if let Some(b) = self.peek() {
@@ -1468,7 +1468,7 @@ impl StreamingParser {
                             state = State::SIdClassQuotedEscape;
                         }
                         None => {
-                            self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                             state = State::SAfterIdentity;
                         }
                         _ => {} // Other bytes not possible after SCAN
@@ -1476,7 +1476,7 @@ impl StreamingParser {
                 }
                 State::SIdClassQuotedEscape => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                         state = State::SAfterIdentity;
                     }
                     if let Some(b) = self.peek() {
@@ -1657,7 +1657,7 @@ impl StreamingParser {
                 }
                 State::SInlineAttrKey => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "expected attr key".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::ExpectedAttrKey, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -1672,7 +1672,7 @@ impl StreamingParser {
                             state = State::SInlineAttrKeyQuoted;
                         }
                         _ => {
-                            self.emit(StreamingEvent::Error { message: "expected attr key".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::ExpectedAttrKey, span: self.span_from_mark() });
                             state = State::SInlineContent;
                         }
                         }
@@ -1697,7 +1697,7 @@ impl StreamingParser {
                 }
                 State::SInlineAttrKeyQuoted => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -1718,7 +1718,7 @@ impl StreamingParser {
                 }
                 State::SInlineAttrKeyQuotedContent => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -1740,7 +1740,7 @@ impl StreamingParser {
                 }
                 State::SInlineAttrKeyQuotedEsc => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -1810,7 +1810,7 @@ impl StreamingParser {
                 }
                 State::SInlineAttrDquote => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -1842,7 +1842,7 @@ impl StreamingParser {
                             state = State::SInlineAttrDquoteEsc;
                         }
                         None => {
-                            self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                             state = State::SInlineContent;
                         }
                         _ => {} // Other bytes not possible after SCAN
@@ -1850,7 +1850,7 @@ impl StreamingParser {
                 }
                 State::SInlineAttrDquoteEsc => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         state = State::SInlineContent;
                     }
                     if let Some(b) = self.peek() {
@@ -1864,7 +1864,7 @@ impl StreamingParser {
                 }
                 State::SInlineAttrSquote => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -1896,7 +1896,7 @@ impl StreamingParser {
                             state = State::SInlineAttrSquoteEsc;
                         }
                         None => {
-                            self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                             state = State::SInlineContent;
                         }
                         _ => {} // Other bytes not possible after SCAN
@@ -1904,7 +1904,7 @@ impl StreamingParser {
                 }
                 State::SInlineAttrSquoteEsc => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         state = State::SInlineContent;
                     }
                     if let Some(b) = self.peek() {
@@ -1996,7 +1996,7 @@ impl StreamingParser {
                         }
                         b'\t' => {
                             self.advance();
-                            self.emit(StreamingEvent::Error { message: "no tabs".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
                             state = State::SSkipChild;
                         }
                         _ => {
@@ -2066,7 +2066,7 @@ impl StreamingParser {
                         }
                         b'\t' => {
                             self.advance();
-                            self.emit(StreamingEvent::Error { message: "no tabs".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
                             state = State::SSkipChild;
                         }
                         _ => {
@@ -2092,7 +2092,7 @@ impl StreamingParser {
                         }
                         b'\t' => {
                             self.advance();
-                            self.emit(StreamingEvent::Error { message: "no tabs".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
                             state = State::SSkipChild;
                         }
                         _ => {
@@ -2271,7 +2271,7 @@ impl StreamingParser {
                 }
                 State::SChildFreeform => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed freeform".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedFreeform, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2289,7 +2289,7 @@ impl StreamingParser {
                 }
                 State::SChildFreeformEnd1 => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed freeform".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedFreeform, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2308,7 +2308,7 @@ impl StreamingParser {
                 }
                 State::SChildFreeformEnd2 => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed freeform".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedFreeform, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2346,7 +2346,7 @@ impl StreamingParser {
                 }
                 State::SChildDirectiveInterp => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2391,7 +2391,7 @@ impl StreamingParser {
                 }
                 State::SChildDirectiveBody => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2426,7 +2426,7 @@ impl StreamingParser {
                 }
                 State::SAttrKey => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "expected attr key".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::ExpectedAttrKey, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2441,7 +2441,7 @@ impl StreamingParser {
                             state = State::SAttrKeyQuoted;
                         }
                         _ => {
-                            self.emit(StreamingEvent::Error { message: "expected attr key".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::ExpectedAttrKey, span: self.span_from_mark() });
                             state = State::SChildren;
                         }
                         }
@@ -2466,7 +2466,7 @@ impl StreamingParser {
                 }
                 State::SAttrKeyQuoted => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2487,7 +2487,7 @@ impl StreamingParser {
                 }
                 State::SAttrKeyQuotedContent => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2509,7 +2509,7 @@ impl StreamingParser {
                 }
                 State::SAttrKeyQuotedEsc => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedQuote, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2590,7 +2590,7 @@ impl StreamingParser {
                 }
                 State::SAttrDquote => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2622,7 +2622,7 @@ impl StreamingParser {
                             state = State::SAttrDquoteEsc;
                         }
                         None => {
-                            self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                             state = State::SChildren;
                         }
                         _ => {} // Other bytes not possible after SCAN
@@ -2630,7 +2630,7 @@ impl StreamingParser {
                 }
                 State::SAttrDquoteEsc => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         state = State::SChildren;
                     }
                     if let Some(b) = self.peek() {
@@ -2644,7 +2644,7 @@ impl StreamingParser {
                 }
                 State::SAttrSquote => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
@@ -2676,7 +2676,7 @@ impl StreamingParser {
                             state = State::SAttrSquoteEsc;
                         }
                         None => {
-                            self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                             state = State::SChildren;
                         }
                         _ => {} // Other bytes not possible after SCAN
@@ -2684,7 +2684,7 @@ impl StreamingParser {
                 }
                 State::SAttrSquoteEsc => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         state = State::SChildren;
                     }
                     if let Some(b) = self.peek() {
@@ -2730,7 +2730,7 @@ impl StreamingParser {
                             self.advance();
                         }
                         _ => {
-                            self.emit(StreamingEvent::Error { message: "unexpected after value".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::UnexpectedAfterValue, span: self.span_from_mark() });
                             state = State::SAttrSkipLine;
                         }
                         }
@@ -2764,7 +2764,7 @@ impl StreamingParser {
             match state {
                 State::SValues => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed array".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedArray, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -2803,7 +2803,7 @@ impl StreamingParser {
                 }
                 State::SDquote => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -2823,7 +2823,7 @@ impl StreamingParser {
                 }
                 State::SDquoteContent => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -2845,7 +2845,7 @@ impl StreamingParser {
                 }
                 State::SDquoteEsc => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -2859,7 +2859,7 @@ impl StreamingParser {
                 }
                 State::SSquote => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -2879,7 +2879,7 @@ impl StreamingParser {
                 }
                 State::SSquoteContent => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -2901,7 +2901,7 @@ impl StreamingParser {
                 }
                 State::SSquoteEsc => {
                     if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedString, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {
@@ -2916,7 +2916,7 @@ impl StreamingParser {
                 State::SBare => {
                     if self.eof() {
                         self.emit_typed_value();
-                        self.emit(StreamingEvent::Error { message: "unclosed array".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedArray, span: self.span_from_mark() });
                         return;
                     }
                     if let Some(b) = self.peek() {

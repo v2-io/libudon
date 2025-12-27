@@ -20,5 +20,5 @@ pub mod value;
 pub use event::Event;
 pub use parser::{Parser, StreamingParser, ParserState, FunctionId};
 pub use span::{Location, Span};
-pub use streaming::{ChunkArena, ChunkSlice, EventRing, FeedResult, StreamingEvent};
+pub use streaming::{ChunkArena, ChunkSlice, EventRing, FeedResult, InlineDirectiveData, ParseErrorCode, StreamingEvent};
 pub use value::Value;
