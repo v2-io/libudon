@@ -418,16 +418,15 @@ impl StreamingParser {
     }
 
     /// Emit special attribute for identity parsing ($id, $class, suffixes).
-    /// These are synthetic keys that don't come from the input.
-    fn emit_special_attribute(&mut self, _key: &str) {
-        // For special attributes, we need to handle them differently
-        // since the key is a static string, not from input.
-        // We'll create a synthetic ChunkSlice pointing to the current position.
-        // For now, use the actual term (which contains the value, e.g. "#id-name")
-        // TODO: Better solution for static attribute keys
-        let key = self.term();
+    /// The key is a static string (not from input), pushed to arena as synthetic chunk.
+    fn emit_special_attribute(&mut self, key: &str) {
+        // Push static key string to arena as synthetic chunk
+        let key_bytes = key.as_bytes().to_vec();
+        let chunk_idx = self.chunks.push(key_bytes);
+        let len = key.len() as u32;
+        let key_slice = ChunkSlice::new(chunk_idx, 0, len);
         let span = self.span_from_mark();
-        self.emit(StreamingEvent::Attribute { key, span });
+        self.emit(StreamingEvent::Attribute { key: key_slice, span });
     }
 
     /// Check if byte can start a LABEL.
