@@ -3,36 +3,49 @@
 //! Run with: cargo bench
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
-use udon_core::Parser;
+use udon_core::StreamingParser;
 
-/// Benchmark parsing the comprehensive example.
-fn bench_comprehensive(c: &mut Criterion) {
+/// Benchmark streaming parser with comprehensive example.
+fn bench_streaming_comprehensive(c: &mut Criterion) {
     let input = include_bytes!("../../examples/comprehensive.udon");
 
-    let mut group = c.benchmark_group("parse");
+    let mut group = c.benchmark_group("streaming");
     group.throughput(Throughput::Bytes(input.len() as u64));
 
     group.bench_function("comprehensive.udon", |b| {
         b.iter(|| {
-            let mut parser = Parser::new(black_box(input));
-            parser.parse()
+            let mut parser = StreamingParser::new(2048);
+            parser.feed(black_box(input));
+            parser.finish();
+            // Drain events to simulate real usage
+            let mut count = 0;
+            while parser.read().is_some() {
+                count += 1;
+            }
+            count
         })
     });
 
     group.finish();
 }
 
-/// Benchmark parsing the minimal example.
-fn bench_minimal(c: &mut Criterion) {
+/// Benchmark streaming parser with minimal example.
+fn bench_streaming_minimal(c: &mut Criterion) {
     let input = include_bytes!("../../examples/minimal.udon");
 
-    let mut group = c.benchmark_group("parse");
+    let mut group = c.benchmark_group("streaming");
     group.throughput(Throughput::Bytes(input.len() as u64));
 
     group.bench_function("minimal.udon", |b| {
         b.iter(|| {
-            let mut parser = Parser::new(black_box(input));
-            parser.parse()
+            let mut parser = StreamingParser::new(64);
+            parser.feed(black_box(input));
+            parser.finish();
+            let mut count = 0;
+            while parser.read().is_some() {
+                count += 1;
+            }
+            count
         })
     });
 
@@ -40,14 +53,20 @@ fn bench_minimal(c: &mut Criterion) {
 }
 
 /// Benchmark simple cases for baseline measurements.
-fn bench_simple(c: &mut Criterion) {
-    let mut group = c.benchmark_group("simple");
+fn bench_streaming_simple(c: &mut Criterion) {
+    let mut group = c.benchmark_group("streaming_simple");
 
     // Empty input
     group.bench_function("empty", |b| {
         b.iter(|| {
-            let mut parser = Parser::new(black_box(b""));
-            parser.parse()
+            let mut parser = StreamingParser::new(16);
+            parser.feed(black_box(b""));
+            parser.finish();
+            let mut count = 0;
+            while parser.read().is_some() {
+                count += 1;
+            }
+            count
         })
     });
 
@@ -56,8 +75,14 @@ fn bench_simple(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(comments.len() as u64));
     group.bench_function("comments_only", |b| {
         b.iter(|| {
-            let mut parser = Parser::new(black_box(comments));
-            parser.parse()
+            let mut parser = StreamingParser::new(16);
+            parser.feed(black_box(comments));
+            parser.finish();
+            let mut count = 0;
+            while parser.read().is_some() {
+                count += 1;
+            }
+            count
         })
     });
 
@@ -66,13 +91,19 @@ fn bench_simple(c: &mut Criterion) {
     group.throughput(Throughput::Bytes(text.len() as u64));
     group.bench_function("text_only", |b| {
         b.iter(|| {
-            let mut parser = Parser::new(black_box(text));
-            parser.parse()
+            let mut parser = StreamingParser::new(16);
+            parser.feed(black_box(text));
+            parser.finish();
+            let mut count = 0;
+            while parser.read().is_some() {
+                count += 1;
+            }
+            count
         })
     });
 
     group.finish();
 }
 
-criterion_group!(benches, bench_comprehensive, bench_minimal, bench_simple);
+criterion_group!(benches, bench_streaming_comprehensive, bench_streaming_minimal, bench_streaming_simple);
 criterion_main!(benches);

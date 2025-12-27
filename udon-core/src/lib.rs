@@ -18,7 +18,7 @@ pub mod streaming;
 pub mod value;
 
 pub use event::Event;
-pub use parser::Parser;
+pub use parser::{Parser, StreamingParser, ParserState, FunctionId};
 pub use span::{Location, Span};
 pub use streaming::{ChunkArena, ChunkSlice, EventRing, FeedResult, StreamingEvent};
 pub use value::Value;
