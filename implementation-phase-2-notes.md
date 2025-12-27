@@ -174,12 +174,83 @@ a borrowed reference directly. The arena is only needed when:
 - Multiple chunks are fed (true streaming)
 - Events need to outlive the input
 
-## Optimization Opportunities
+### Right-Sized Buffer Capacity
 
-1. **Zero-copy feed** - Borrow input directly for single-chunk case
-2. **Parser reuse** - Amortize allocation costs across multiple parses
-3. **Pre-allocated ring buffer** - Avoid per-parse allocation
-4. **SIMD scanning** - Fast search for special characters (memchr)
+**Problem:** Fixed 1024-slot ring buffer for all inputs wasted memory and time initializing.
+
+**Fix:** Size buffer based on input length:
+```rust
+fn estimate_capacity(input_len: usize) -> usize {
+    (input_len / 50).max(16)  // EventRing rounds up to power of 2
+}
+```
+
+### Parser Reuse with reset()
+
+**Problem:** Allocating parser on every parse dominated small file times.
+
+**Fix:** Add `reset()` method that clears state but keeps allocated capacity:
+```rust
+pub fn reset(&mut self) {
+    self.state = ParserState::Document;
+    self.chunks.clear();    // Keeps capacity
+    self.events.clear();    // Keeps capacity
+    // ... reset other fields
+}
+```
+
+**Results with parser reuse:**
+
+| Test | Before | After | vs Old Parser |
+|------|--------|-------|---------------|
+| comprehensive.udon | 32.9 µs / 443 MiB/s | 32.7 µs / 446 MiB/s | ~same |
+| minimal.udon | 180 ns / 285 MiB/s | **113 ns / 454 MiB/s** | ~same |
+
+Parser reuse eliminated all allocation overhead.
+
+### SIMD Scanning with memchr
+
+**Problem:** Character-by-character scanning in prose states is slow.
+
+**Solution:** Use memchr for bulk SIMD-accelerated scanning:
+```rust
+fn scan_prose(&mut self) -> Option<u8> {
+    let remaining = unsafe {
+        std::slice::from_raw_parts(
+            self.current_ptr.add(self.pos),
+            self.current_len - self.pos
+        )
+    };
+    match memchr::memchr3(b'\n', b';', b'|', remaining) {
+        Some(offset) => {
+            self.pos += offset;
+            self.column += offset as u32;
+            self.global_offset += offset as u64;
+            Some(remaining[offset])
+        }
+        None => { /* EOF handling */ }
+    }
+}
+```
+
+Applied to:
+- `SProse`, `SChildProse`, `SInlineText` - scan until `\n`, `;`, `|`
+- `SLineComment`, `SBlockComment`, `SEscapedText`, `SChildEscapedText` - scan until `\n`
+
+**Final Results:**
+
+| Test | Old Parser | Streaming + SIMD | Speedup |
+|------|------------|------------------|---------|
+| comprehensive.udon | 32.8 µs / 444 MiB/s | **22.6 µs / 644 MiB/s** | **1.45x** |
+| minimal.udon | 112.6 ns / 457 MiB/s | **73.8 ns / 698 MiB/s** | **1.53x** |
+
+**Note:** Manual state optimization is not sustainable. Need to automate SIMD emission via generator.
+
+## Remaining Optimization Opportunities
+
+1. **Generator automation** - Emit SIMD scan code for all prose-like states automatically
+2. **Zero-copy feed** - Borrow input directly for single-chunk case (avoid arena copy)
+3. **More SIMD states** - Quoted strings, label scanning, raw content
 
 ## Architecture Decisions
 
