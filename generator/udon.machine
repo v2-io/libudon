@@ -383,12 +383,12 @@
     |c[<P>]     |.nested   | ->                                |>> /element(ACTUAL_COL) :inline_content
     |default    |.text     | MARK                              |>> :inline_text
 
-  |state[:inline_text]
+  |state[:inline_text] SCAN(\n;<P>)
+    ; SCAN-first: bulk scan to newline, semicolon, or pipe
     |eof                   | emit(Text) | emit(ElementEnd)     |return
     |c[\n]      |.done     | emit(Text) | ->            |>> :children
     |c[;]       |.semi     | emit(Text) | ->                   |>> :elem_comment_check
     |c[<P>]     |.pipe     | emit(Text) | ->                   |>> /element(ACTUAL_COL) :inline_content
-    |default    |.collect  | ->                                |>>
 
   |state[:elem_comment_check]
     |eof                   | emit(ElementEnd)                  |return
@@ -400,10 +400,10 @@
     |c[}]       |.close    | ->                                |>> :inline_content
     |default    |.collect  | ->                                |>>
 
-  |state[:elem_line_comment]
+  |state[:elem_line_comment] SCAN(\n)
+    ; SCAN-first: bulk scan to newline
     |eof                   | emit(Comment) | emit(ElementEnd)  |return
     |c[\n]      |.done     | emit(Comment) | ->         |>> :children
-    |default    |.collect  | ->                                |>>
 
   ;============================================================================
   ; INLINE ATTRIBUTE PARSING - Inline attributes on same line as element
@@ -557,18 +557,18 @@
     |c[\n]      |.done     | emit(Text) | ->            |>> :children
     |default    |.first    | MARK                              |>> :child_escaped_text
 
-  |state[:child_escaped_text]
+  |state[:child_escaped_text] SCAN(\n)
     ; Collect escaped text - no special char handling (| ; ! are literal)
+    ; SCAN-first: bulk scan to newline
     |eof                   | emit(Text) | emit(ElementEnd)     |return
     |c[\n]      |.done     | emit(Text) | ->            |>> :children
-    |default    |.collect  | ->                                |>>
 
-  |state[:child_prose]
+  |state[:child_prose] SCAN(\n;<P>)
+    ; SCAN-first: bulk scan to newline, semicolon, or pipe
     |eof                   | emit(Text) | emit(ElementEnd)     |return
     |c[\n]      |.done     | emit(Text) | ->            |>> :children
     |c[;]       |.semi     | emit(Text) | ->                   |>> :child_comment_check
     |c[<P>]     |.pipe     | emit(Text) | ->                   |>> /element(ACTUAL_COL) :children_after_element
-    |default    |.collect  | ->                                |>>
 
   |state[:child_comment_check]
     |eof                   | emit(ElementEnd)                  |return
@@ -580,15 +580,15 @@
     |c[}]       |.close    | ->                                |>> :child_prose
     |default    |.collect  | ->                                |>>
 
-  |state[:child_line_comment]
+  |state[:child_line_comment] SCAN(\n)
+    ; SCAN-first: bulk scan to newline
     |eof                   | emit(Comment) | emit(ElementEnd)  |return
     |c[\n]      |.done     | emit(Comment) | ->         |>> :children
-    |default    |.collect  | ->                                |>>
 
-  |state[:child_block_comment]
+  |state[:child_block_comment] SCAN(\n)
+    ; SCAN-first: bulk scan to newline
     |eof                   | emit(Comment) | emit(ElementEnd)  |return
     |c[\n]      |.done     | emit(Comment) | ->         |>> :children
-    |default    |.collect  | ->                                |>>
 
   |state[:child_freeform_check]
     |eof                   | emit(Text) | emit(ElementEnd)     |return
@@ -719,11 +719,11 @@
     |c["]         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :attr_after_value
     |default      |.content  | MARK                             |>> :attr_dquote_content
 
-  |state[:attr_dquote_content]
+  |state[:attr_dquote_content] SCAN("<BS>)
+    ; SCAN-first: bulk scan to quote or escape
     |eof                      | emit(Error:unclosed_string)     |>> :children
     |c["]         |.close    | emit(QuotedStringValue) | ->     |>> :attr_after_value
-    |c[\\]        |.escape   | ->                               |>> :attr_dquote_esc
-    |default      |.collect  | ->                               |>>
+    |c[<BS>]      |.escape   | ->                               |>> :attr_dquote_esc
 
   |state[:attr_dquote_esc]
     |eof                      | emit(Error:unclosed_string)     |>> :children
@@ -736,24 +736,24 @@
     |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :attr_after_value
     |default      |.content  | MARK                             |>> :attr_squote_content
 
-  |state[:attr_squote_content]
+  |state[:attr_squote_content] SCAN('<BS>)
+    ; SCAN-first: bulk scan to quote or escape
     |eof                      | emit(Error:unclosed_string)     |>> :children
     |c[']         |.close    | emit(QuotedStringValue) | ->     |>> :attr_after_value
-    |c[\\]        |.escape   | ->                               |>> :attr_squote_esc
-    |default      |.collect  | ->                               |>>
+    |c[<BS>]      |.escape   | ->                               |>> :attr_squote_esc
 
   |state[:attr_squote_esc]
     |eof                      | emit(Error:unclosed_string)     |>> :children
     |default      |.char     | ->                               |>> :attr_squote_content
 
-  |state[:attr_bare]
+  |state[:attr_bare] SCAN(\n;)
     ; Bare (unquoted) value - collect until ; or newline
+    ; SCAN-first: bulk scan to newline or semicolon
     ; Type determined by content: true/false/null/nil/~/number/string
     ; Example: :count 42 → TypedValue(emits IntegerValue or StringValue)
     |eof                      | emit(TypedValue)                |>> :children
     |c[\n]        |.done     | emit(TypedValue)          |>> :children
     |c[;]         |.done     | emit(TypedValue)                 |>> :attr_comment
-    |default      |.collect  | ->                               |>>
 
   |state[:attr_after_value]
     ; After quoted value - skip to end of attribute

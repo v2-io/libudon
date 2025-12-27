@@ -1587,33 +1587,30 @@ impl StreamingParser {
                     }
                 }
                 State::SInlineText => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to3(b'\n', b';', b'|') {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             state = State::SChildren;
                         }
-                        b';' => {
+                        Some(b';') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             state = State::SElemCommentCheck;
                         }
-                        b'|' => {
+                        Some(b'|') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             self.parse_element(self.current_column());
                             state = State::SInlineContent;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SElemCommentCheck => {
@@ -1652,22 +1649,19 @@ impl StreamingParser {
                     }
                 }
                 State::SElemLineComment => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                             self.advance();
                             state = State::SChildren;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
+                            self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SInlineAttrKey => {
@@ -2143,52 +2137,46 @@ impl StreamingParser {
                     }
                 }
                 State::SChildEscapedText => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             state = State::SChildren;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SChildProse => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to3(b'\n', b';', b'|') {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             state = State::SChildren;
                         }
-                        b';' => {
+                        Some(b';') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             state = State::SChildCommentCheck;
                         }
-                        b'|' => {
+                        Some(b'|') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             self.parse_element(self.current_column());
                             state = State::SChildrenAfterElement;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SChildCommentCheck => {
@@ -2227,41 +2215,35 @@ impl StreamingParser {
                     }
                 }
                 State::SChildLineComment => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                             self.advance();
                             state = State::SChildren;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
+                            self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SChildBlockComment => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                             self.advance();
                             state = State::SChildren;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
+                            self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SChildFreeformCheck => {
@@ -2643,25 +2625,22 @@ impl StreamingParser {
                     }
                 }
                 State::SAttrDquoteContent => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        state = State::SChildren;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'"' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to2(b'"', b'\\') {
+                        Some(b'"') => {
                             { let value = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::QuotedStringValue { value, span }); }
                             self.advance();
                             state = State::SAttrAfterValue;
                         }
-                        b'\\' => {
+                        Some(b'\\') => {
                             self.advance();
                             state = State::SAttrDquoteEsc;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            state = State::SChildren;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SAttrDquoteEsc => {
@@ -2700,25 +2679,22 @@ impl StreamingParser {
                     }
                 }
                 State::SAttrSquoteContent => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        state = State::SChildren;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\'' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to2(b'\'', b'\\') {
+                        Some(b'\'') => {
                             { let value = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::QuotedStringValue { value, span }); }
                             self.advance();
                             state = State::SAttrAfterValue;
                         }
-                        b'\\' => {
+                        Some(b'\\') => {
                             self.advance();
                             state = State::SAttrSquoteEsc;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            state = State::SChildren;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SAttrSquoteEsc => {
@@ -2736,24 +2712,21 @@ impl StreamingParser {
                     }
                 }
                 State::SAttrBare => {
-                    if self.eof() {
-                        self.emit_typed_value();
-                        state = State::SChildren;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to2(b'\n', b';') {
+                        Some(b'\n') => {
                             self.emit_typed_value();
                             state = State::SChildren;
                         }
-                        b';' => {
+                        Some(b';') => {
                             self.emit_typed_value();
                             state = State::SAttrComment;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            self.emit_typed_value();
+                            state = State::SChildren;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SAttrAfterValue => {
