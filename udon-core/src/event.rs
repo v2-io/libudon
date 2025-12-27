@@ -296,3 +296,9 @@ impl<'a> Event<'a> {
         )
     }
 }
+
+#[test]
+fn test_old_event_size() {
+    use std::mem::size_of;
+    println!("Event<'static>: {} bytes", size_of::<Event<'static>>());
+}

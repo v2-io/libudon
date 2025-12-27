@@ -165,6 +165,14 @@ impl ChunkArena {
     pub fn total_bytes(&self) -> u64 {
         self.total_bytes
     }
+
+    /// Clear all chunks, resetting for reuse.
+    /// Keeps allocated capacity.
+    pub fn clear(&mut self) {
+        self.chunks.clear();
+        self.total_bytes = 0;
+        self.min_referenced = 0;
+    }
 }
 
 impl Default for ChunkArena {
@@ -316,10 +324,11 @@ impl StreamingEvent {
 
 /// Fixed-size ring buffer for events.
 ///
+/// Uses power-of-2 sizing for fast modulo via bitmask.
 /// Provides backpressure when full - producer must wait for consumer to read.
 #[derive(Debug)]
 pub struct EventRing {
-    /// The actual event storage
+    /// The actual event storage (power-of-2 sized)
     events: Vec<Option<StreamingEvent>>,
     /// Read position (consumer)
     read_pos: usize,
@@ -327,14 +336,18 @@ pub struct EventRing {
     write_pos: usize,
     /// Number of events currently in buffer
     count: usize,
-    /// Capacity (fixed at creation)
+    /// Capacity (power of 2) - stored directly for fast full check
     capacity: usize,
+    /// Bitmask for fast modulo (capacity - 1)
+    mask: usize,
 }
 
 impl EventRing {
-    /// Create a new ring buffer with the given capacity.
-    pub fn new(capacity: usize) -> Self {
-        let capacity = capacity.max(1); // Minimum size of 1
+    /// Create a new ring buffer with at least the given capacity.
+    /// Actual capacity will be rounded up to the next power of 2.
+    pub fn new(min_capacity: usize) -> Self {
+        // Round up to power of 2 for fast modulo via bitmask
+        let capacity = min_capacity.max(2).next_power_of_two();
         let mut events = Vec::with_capacity(capacity);
         events.resize_with(capacity, || None);
         Self {
@@ -343,12 +356,19 @@ impl EventRing {
             write_pos: 0,
             count: 0,
             capacity,
+            mask: capacity - 1,
         }
     }
 
     /// Create with default capacity (1024 events).
     pub fn with_default_capacity() -> Self {
         Self::new(1024)
+    }
+
+    /// Actual capacity (power of 2).
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.capacity
     }
 
     /// Check if the buffer is full.
@@ -376,12 +396,16 @@ impl EventRing {
     }
 
     /// Try to push an event. Returns Err if buffer is full.
+    #[inline]
     pub fn try_push(&mut self, event: StreamingEvent) -> Result<(), StreamingEvent> {
-        if self.is_full() {
+        if self.count == self.capacity {
             return Err(event);
         }
-        self.events[self.write_pos] = Some(event);
-        self.write_pos = (self.write_pos + 1) % self.capacity;
+        // SAFETY: write_pos is always < capacity due to masking
+        unsafe {
+            *self.events.get_unchecked_mut(self.write_pos) = Some(event);
+        }
+        self.write_pos = (self.write_pos + 1) & self.mask;  // Fast modulo
         self.count += 1;
         Ok(())
     }
@@ -392,38 +416,51 @@ impl EventRing {
     }
 
     /// Pop an event from the front. Returns None if empty.
+    #[inline]
     pub fn pop(&mut self) -> Option<StreamingEvent> {
-        if self.is_empty() {
+        if self.count == 0 {
             return None;
         }
-        let event = self.events[self.read_pos].take();
-        self.read_pos = (self.read_pos + 1) % self.capacity;
+        // SAFETY: read_pos is always < capacity due to masking
+        let event = unsafe { self.events.get_unchecked_mut(self.read_pos).take() };
+        self.read_pos = (self.read_pos + 1) & self.mask;  // Fast modulo
         self.count -= 1;
         event
     }
 
     /// Peek at the front event without removing it.
+    #[inline]
     pub fn peek(&self) -> Option<&StreamingEvent> {
-        if self.is_empty() {
+        if self.count == 0 {
             return None;
         }
-        self.events[self.read_pos].as_ref()
+        // SAFETY: read_pos is always < capacity due to masking
+        unsafe { self.events.get_unchecked(self.read_pos).as_ref() }
     }
 
     /// Iterate over available events without consuming them.
     pub fn iter(&self) -> impl Iterator<Item = &StreamingEvent> {
-        let capacity = self.capacity;
+        let mask = self.mask;
         let read_pos = self.read_pos;
         let count = self.count;
+        let events = &self.events;
         (0..count).filter_map(move |i| {
-            let idx = (read_pos + i) % capacity;
-            self.events[idx].as_ref()
+            let idx = (read_pos + i) & mask;  // Fast modulo
+            events[idx].as_ref()
         })
     }
 
     /// Clear all events from the buffer.
+    /// Fast reset - just resets pointers, doesn't drop individual events.
     pub fn clear(&mut self) {
-        while self.pop().is_some() {}
+        // Clear any events that might have data
+        for i in 0..self.count {
+            let idx = (self.read_pos + i) & self.mask;
+            self.events[idx] = None;
+        }
+        self.read_pos = 0;
+        self.write_pos = 0;
+        self.count = 0;
     }
 }
 
@@ -513,4 +550,13 @@ mod tests {
         assert!(matches!(ring.pop(), Some(StreamingEvent::IntegerValue { value: 101, .. })));
         assert!(ring.is_empty());
     }
+}
+
+#[test]
+fn test_event_sizes() {
+    use std::mem::size_of;
+    println!("StreamingEvent: {} bytes", size_of::<StreamingEvent>());
+    println!("ChunkSlice: {} bytes", size_of::<ChunkSlice>());
+    println!("Span: {} bytes", size_of::<crate::Span>());
+    println!("String: {} bytes", size_of::<String>());
 }

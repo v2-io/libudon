@@ -5,16 +5,28 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use udon_core::StreamingParser;
 
+/// Estimate appropriate ring buffer capacity for input size.
+/// Uses input_len / 50 (rough events-per-byte estimate), min 16.
+/// EventRing will round up to next power of 2.
+#[inline]
+fn estimate_capacity(input_len: usize) -> usize {
+    (input_len / 50).max(16)
+}
+
 /// Benchmark streaming parser with comprehensive example.
 fn bench_streaming_comprehensive(c: &mut Criterion) {
     let input = include_bytes!("../../examples/comprehensive.udon");
+    let capacity = estimate_capacity(input.len());
 
     let mut group = c.benchmark_group("streaming");
     group.throughput(Throughput::Bytes(input.len() as u64));
 
+    // Reuse parser across iterations (amortizes allocation cost)
+    let mut parser = StreamingParser::new(capacity);
+
     group.bench_function("comprehensive.udon", |b| {
         b.iter(|| {
-            let mut parser = StreamingParser::new(2048);
+            parser.reset();
             parser.feed(black_box(input));
             parser.finish();
             // Drain events to simulate real usage
@@ -32,13 +44,17 @@ fn bench_streaming_comprehensive(c: &mut Criterion) {
 /// Benchmark streaming parser with minimal example.
 fn bench_streaming_minimal(c: &mut Criterion) {
     let input = include_bytes!("../../examples/minimal.udon");
+    let capacity = estimate_capacity(input.len());
 
     let mut group = c.benchmark_group("streaming");
     group.throughput(Throughput::Bytes(input.len() as u64));
 
+    // Reuse parser across iterations (amortizes allocation cost)
+    let mut parser = StreamingParser::new(capacity);
+
     group.bench_function("minimal.udon", |b| {
         b.iter(|| {
-            let mut parser = StreamingParser::new(64);
+            parser.reset();
             parser.feed(black_box(input));
             parser.finish();
             let mut count = 0;

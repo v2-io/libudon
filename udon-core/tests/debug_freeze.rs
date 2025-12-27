@@ -1,10 +1,15 @@
-use udon_core::Parser;
+use udon_core::StreamingParser;
 
 fn test_input(name: &str, input: &[u8]) {
     println!("Testing {}: {:?}", name, input);
-    let mut parser = Parser::new(input);
-    let events = parser.parse();
-    println!("  -> {} events", events.len());
+    let mut parser = StreamingParser::new(1024);
+    parser.feed(input);
+    parser.finish();
+    let mut count = 0;
+    while parser.read().is_some() {
+        count += 1;
+    }
+    println!("  -> {} events", count);
 }
 
 #[test]

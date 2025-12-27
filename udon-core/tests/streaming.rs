@@ -8,7 +8,7 @@
 //! - Attribute { key } followed by value event(s)
 //! - ArrayStart, value events..., ArrayEnd for list values
 
-use udon_core::{Event, Parser};
+use udon_core::{StreamingEvent, StreamingParser};
 
 // =============================================================================
 // Test Helper - Simplified event representation
@@ -45,28 +45,49 @@ enum E {
 }
 
 fn parse(input: &[u8]) -> Vec<E> {
-    let mut parser = Parser::new(input);
-    parser.parse().into_iter().map(E::from).collect()
+    let mut parser = StreamingParser::new(1024);
+    parser.feed(input);
+    parser.finish();
+
+    let mut events = Vec::new();
+    while let Some(event) = parser.read() {
+        events.push(E::from_streaming(event, &parser));
+    }
+    events
 }
 
-impl From<Event<'_>> for E {
-    fn from(event: Event<'_>) -> Self {
+impl E {
+    fn from_streaming(event: StreamingEvent, parser: &StreamingParser) -> Self {
         match event {
-            Event::ElementStart { name, .. } => E::ElementStart(name.map(|n| n.to_vec())),
-            Event::ElementEnd { .. } => E::ElementEnd,
-            Event::Attribute { key, .. } => E::Attr(key.to_vec()),
-            Event::ArrayStart { .. } => E::ArrayStart,
-            Event::ArrayEnd { .. } => E::ArrayEnd,
-            Event::NilValue { .. } => E::Nil,
-            Event::BoolValue { value, .. } => E::Bool(value),
-            Event::IntegerValue { value, .. } => E::Int(value),
-            Event::FloatValue { value, .. } => E::Float(format!("{}", value)),
-            Event::StringValue { value, .. } => E::Str(value.to_vec()),
-            Event::QuotedStringValue { value, .. } => E::QuotedStr(value.to_vec()),
-            Event::Text { content, .. } => E::Text(content.to_vec()),
-            Event::Comment { content, .. } => E::Comment(content.to_vec()),
-            Event::RawContent { content, .. } => E::Raw(content.to_vec()),
-            Event::Error { message, .. } => E::Error(message.to_string()),
+            StreamingEvent::ElementStart { name, .. } => E::ElementStart(
+                name.map(|cs| parser.arena().resolve(cs).unwrap_or(&[]).to_vec())
+            ),
+            StreamingEvent::ElementEnd { .. } => E::ElementEnd,
+            StreamingEvent::Attribute { key, .. } => E::Attr(
+                parser.arena().resolve(key).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::ArrayStart { .. } => E::ArrayStart,
+            StreamingEvent::ArrayEnd { .. } => E::ArrayEnd,
+            StreamingEvent::NilValue { .. } => E::Nil,
+            StreamingEvent::BoolValue { value, .. } => E::Bool(value),
+            StreamingEvent::IntegerValue { value, .. } => E::Int(value),
+            StreamingEvent::FloatValue { value, .. } => E::Float(format!("{}", value)),
+            StreamingEvent::StringValue { value, .. } => E::Str(
+                parser.arena().resolve(value).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::QuotedStringValue { value, .. } => E::QuotedStr(
+                parser.arena().resolve(value).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::Text { content, .. } => E::Text(
+                parser.arena().resolve(content).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::Comment { content, .. } => E::Comment(
+                parser.arena().resolve(content).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::RawContent { content, .. } => E::Raw(
+                parser.arena().resolve(content).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::Error { message, .. } => E::Error(message.to_string()),
             other => E::Other(format!("{:?}", other)),
         }
     }

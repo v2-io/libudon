@@ -5,8 +5,8 @@
 //! of random inputs and shrink failures to minimal cases.
 
 use proptest::prelude::*;
-use udon_core::event::Event;
-use udon_core::Parser;
+use udon_core::StreamingEvent;
+use udon_core::StreamingParser;
 
 // Limit test cases for debugging - increase once stable
 fn config() -> ProptestConfig {
@@ -22,22 +22,28 @@ fn config() -> ProptestConfig {
 // Test Helpers
 // =============================================================================
 
-fn parse(input: &[u8]) -> Vec<Event<'_>> {
-    let mut parser = Parser::new(input);
-    parser.parse()
+fn parse(input: &[u8]) -> Vec<StreamingEvent> {
+    let mut parser = StreamingParser::new(1024);
+    parser.feed(input);
+    parser.finish();
+    let mut events = Vec::new();
+    while let Some(e) = parser.read() {
+        events.push(e);
+    }
+    events
 }
 
 /// Count event types in a parse result
-fn count_events(events: &[Event<'_>]) -> EventCounts {
+fn count_events(events: &[StreamingEvent]) -> EventCounts {
     let mut counts = EventCounts::default();
     for event in events {
         match event {
-            Event::ElementStart { .. } => counts.element_start += 1,
-            Event::ElementEnd { .. } => counts.element_end += 1,
-            Event::ArrayStart { .. } => counts.array_start += 1,
-            Event::ArrayEnd { .. } => counts.array_end += 1,
-            Event::Attribute { .. } => counts.attribute += 1,
-            Event::Error { .. } => counts.error += 1,
+            StreamingEvent::ElementStart { .. } => counts.element_start += 1,
+            StreamingEvent::ElementEnd { .. } => counts.element_end += 1,
+            StreamingEvent::ArrayStart { .. } => counts.array_start += 1,
+            StreamingEvent::ArrayEnd { .. } => counts.array_end += 1,
+            StreamingEvent::Attribute { .. } => counts.attribute += 1,
+            StreamingEvent::Error { .. } => counts.error += 1,
             _ => counts.other += 1,
         }
     }
@@ -125,10 +131,10 @@ proptest! {
 
         for (i, event) in events.iter().enumerate() {
             match event {
-                Event::ElementStart { .. } => element_depth += 1,
-                Event::ElementEnd { .. } => element_depth -= 1,
-                Event::ArrayStart { .. } => array_depth += 1,
-                Event::ArrayEnd { .. } => array_depth -= 1,
+                StreamingEvent::ElementStart { .. } => element_depth += 1,
+                StreamingEvent::ElementEnd { .. } => element_depth -= 1,
+                StreamingEvent::ArrayStart { .. } => array_depth += 1,
+                StreamingEvent::ArrayEnd { .. } => array_depth -= 1,
                 _ => {}
             }
 
@@ -160,11 +166,11 @@ proptest! {
 
         prop_assert!(events.len() >= 2, "Expected at least 2 events, got {}", events.len());
         prop_assert!(
-            matches!(events[0], Event::ElementStart { .. }),
+            matches!(events[0], StreamingEvent::ElementStart { .. }),
             "First event should be ElementStart, got {:?}", events[0]
         );
         prop_assert!(
-            matches!(events.last(), Some(Event::ElementEnd { .. })),
+            matches!(events.last(), Some(StreamingEvent::ElementEnd { .. })),
             "Last event should be ElementEnd, got {:?}", events.last()
         );
     }
@@ -234,26 +240,26 @@ proptest! {
         let events = parse(&input);
 
         for (i, event) in events.iter().enumerate() {
-            if matches!(event, Event::Attribute { .. }) {
+            if matches!(event, StreamingEvent::Attribute { .. }) {
                 // There should be a next event
                 if i + 1 < events.len() {
                     let next = &events[i + 1];
                     // Next should be a value, another attribute, array, or end
                     let valid_next = matches!(
                         next,
-                        Event::NilValue { .. }
-                        | Event::BoolValue { .. }
-                        | Event::IntegerValue { .. }
-                        | Event::FloatValue { .. }
-                        | Event::RationalValue { .. }
-                        | Event::ComplexValue { .. }
-                        | Event::StringValue { .. }
-                        | Event::QuotedStringValue { .. }
-                        | Event::Attribute { .. }
-                        | Event::ArrayStart { .. }
-                        | Event::ElementEnd { .. }
-                        | Event::ElementStart { .. }
-                        | Event::Error { .. }
+                        StreamingEvent::NilValue { .. }
+                        | StreamingEvent::BoolValue { .. }
+                        | StreamingEvent::IntegerValue { .. }
+                        | StreamingEvent::FloatValue { .. }
+                        | StreamingEvent::RationalValue { .. }
+                        | StreamingEvent::ComplexValue { .. }
+                        | StreamingEvent::StringValue { .. }
+                        | StreamingEvent::QuotedStringValue { .. }
+                        | StreamingEvent::Attribute { .. }
+                        | StreamingEvent::ArrayStart { .. }
+                        | StreamingEvent::ElementEnd { .. }
+                        | StreamingEvent::ElementStart { .. }
+                        | StreamingEvent::Error { .. }
                     );
                     prop_assert!(
                         valid_next,
@@ -279,7 +285,7 @@ proptest! {
         let events = parse(input.as_bytes());
 
         prop_assert!(
-            events.iter().any(|e| matches!(e, Event::Comment { .. })),
+            events.iter().any(|e| matches!(e, StreamingEvent::Comment { .. })),
             "Expected a Comment event for input starting with ;"
         );
     }
@@ -292,7 +298,7 @@ proptest! {
             let events = parse(text.as_bytes());
 
             prop_assert!(
-                events.iter().any(|e| matches!(e, Event::Text { .. })),
+                events.iter().any(|e| matches!(e, StreamingEvent::Text { .. })),
                 "Expected a Text event for plain text input"
             );
         }

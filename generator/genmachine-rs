@@ -930,24 +930,27 @@ class GMCommand < GMGenericChild
       return %{self.emit_special_attribute("#{key}");}
     end
 
+    # Note: We extract self.term() into a local variable before emit() because
+    # term() now takes &mut self (for cross-chunk token handling), and we can't
+    # have two mutable borrows (emit also takes &mut self).
     case event_type.downcase
     # Content events
     when 'comment'
-      "self.emit(StreamingEvent::Comment { content: self.term(), span: self.span_from_mark() });"
+      "{ let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }"
     when 'text'
-      "self.emit(StreamingEvent::Text { content: self.term(), span: self.span_from_mark() });"
+      "{ let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }"
     when 'rawcontent'
-      "self.emit(StreamingEvent::RawContent { content: self.term(), span: self.span_from_mark() });"
+      "{ let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::RawContent { content, span }); }"
 
     # Structure events
     when 'elementstart'
-      "self.emit(StreamingEvent::ElementStart { name: Some(self.term()), span: self.span_from_mark() });"
+      "{ let name = Some(self.term()); let span = self.span_from_mark(); self.emit(StreamingEvent::ElementStart { name, span }); }"
     when 'elementstartanon'
       "self.emit(StreamingEvent::ElementStart { name: None, span: Span::new(self.global_offset as usize, self.global_offset as usize) });"
     when 'elementend'
       "self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });"
     when 'embeddedstart'
-      "self.emit(StreamingEvent::EmbeddedStart { name: Some(self.term()), span: self.span_from_mark() });"
+      "{ let name = Some(self.term()); let span = self.span_from_mark(); self.emit(StreamingEvent::EmbeddedStart { name, span }); }"
     when 'embeddedstartanon'
       "self.emit(StreamingEvent::EmbeddedStart { name: None, span: Span::new(self.global_offset as usize, self.global_offset as usize) });"
     when 'embeddedend'
@@ -955,7 +958,7 @@ class GMCommand < GMGenericChild
 
     # Attribute events
     when 'attribute'
-      "self.emit(StreamingEvent::Attribute { key: self.term(), span: self.span_from_mark() });"
+      "{ let key = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Attribute { key, span }); }"
 
     # Value events
     when 'arraystart'
@@ -963,32 +966,32 @@ class GMCommand < GMGenericChild
     when 'arrayend'
       "self.emit(StreamingEvent::ArrayEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });"
     when 'nilvalue'
-      "self.emit(StreamingEvent::NilValue { span: self.span_from_mark() });"
+      "{ let span = self.span_from_mark(); self.emit(StreamingEvent::NilValue { span }); }"
     when 'boolvalue:true'
-      "self.emit(StreamingEvent::BoolValue { value: true, span: self.span_from_mark() });"
+      "{ let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }"
     when 'boolvalue:false'
-      "self.emit(StreamingEvent::BoolValue { value: false, span: self.span_from_mark() });"
+      "{ let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: false, span }); }"
     when 'stringvalue'
-      "self.emit(StreamingEvent::StringValue { value: self.term(), span: self.span_from_mark() });"
+      "{ let value = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::StringValue { value, span }); }"
     when 'quotedstringvalue'
-      "self.emit(StreamingEvent::QuotedStringValue { value: self.term(), span: self.span_from_mark() });"
+      "{ let value = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::QuotedStringValue { value, span }); }"
     # Integer/Float/etc. require parsing the term - use emit_typed_value helper
     when 'typedvalue'
       "self.emit_typed_value();"
 
     # Reference events
     when 'idreference'
-      "self.emit(StreamingEvent::IdReference { id: self.term(), span: self.span_from_mark() });"
+      "{ let id = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::IdReference { id, span }); }"
     when 'attributemerge'
-      "self.emit(StreamingEvent::AttributeMerge { id: self.term(), span: self.span_from_mark() });"
+      "{ let id = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::AttributeMerge { id, span }); }"
 
     # Directive events
     when 'directivestart'
-      "self.emit(StreamingEvent::DirectiveStart { name: self.term(), namespace: None, span: self.span_from_mark() });"
+      "{ let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, namespace: None, span }); }"
     when 'directiveend'
       "self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });"
     when 'interpolation'
-      "self.emit(StreamingEvent::Interpolation { expression: self.term(), span: self.span_from_mark() });"
+      "{ let expression = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Interpolation { expression, span }); }"
 
     # Block events
     when 'freeformstart'

@@ -70,26 +70,116 @@ Rejected because:
 
 ## Benchmark Results (2024-12-26)
 
-First implementation comparison:
+### Initial Implementation
 
 | Test | Old Parser | Streaming | Overhead |
 |------|------------|-----------|----------|
 | comprehensive.udon (15KB) | 32.8 µs / 444 MiB/s | 40.0 µs / 365 MiB/s | +22% |
 | minimal.udon (52 bytes) | 112.6 ns / 457 MiB/s | 219.7 ns / 234 MiB/s | +95% |
 
-Overhead sources:
-- ChunkArena allocation
-- Copying input bytes into arena (could be ref-counted later)
-- Ring buffer setup
+### Hot Path Fix: Cached Chunk Pointer
 
-Small input overhead is fixed costs; amortizes with parser reuse.
+**Problem identified:** Every `peek()` and `eof()` call went through arena lookup:
+```rust
+// SLOW: 3 levels of indirection per character
+fn peek(&self) -> Option<u8> {
+    self.current_chunk_data().get(self.pos).copied()
+}
+fn current_chunk_data(&self) -> &[u8] {
+    self.chunks.get(self.current_chunk)  // Vec lookup
+        .map(|c| c.data())                // method call
+        .unwrap_or(&[])                   // Option unwrap
+}
+```
+
+**Fix:** Cache raw pointer to current chunk data:
+```rust
+struct StreamingParser {
+    current_ptr: *const u8,  // Cached on feed()
+    current_len: usize,
+    // ...
+}
+
+#[inline(always)]
+fn peek(&self) -> Option<u8> {
+    if self.pos < self.current_len {
+        Some(unsafe { *self.current_ptr.add(self.pos) })
+    } else {
+        None
+    }
+}
+```
+
+**Results after fix:**
+
+| Test | Before Fix | After Fix | Improvement |
+|------|------------|-----------|-------------|
+| comprehensive.udon | 40.0 µs / 365 MiB/s | 39.2 µs / 372 MiB/s | +2% |
+| minimal.udon | 219.7 ns / 234 MiB/s | 203.5 ns / 253 MiB/s | +8% |
+
+Still ~19% slower than old parser on large files, ~80% on small files.
+
+### Ring Buffer Optimization: Power-of-2 Bitmask
+
+**Problem identified:** Ring buffer `try_push()` had expensive modulo operation:
+```rust
+// SLOW: modulo is expensive, and capacity() computed mask + 1
+self.write_pos = (self.write_pos + 1) % self.capacity();
+```
+
+**Fix:** Power-of-2 sizing with bitmask and stored capacity:
+```rust
+struct EventRing {
+    events: Vec<Option<StreamingEvent>>,
+    read_pos: usize,
+    write_pos: usize,
+    count: usize,
+    capacity: usize,  // Stored directly for fast full check
+    mask: usize,      // capacity - 1, for fast wrap
+}
+
+#[inline]
+pub fn try_push(&mut self, event: StreamingEvent) -> Result<(), StreamingEvent> {
+    if self.count == self.capacity {  // Direct field access
+        return Err(event);
+    }
+    unsafe {
+        *self.events.get_unchecked_mut(self.write_pos) = Some(event);
+    }
+    self.write_pos = (self.write_pos + 1) & self.mask;  // Bitmask, not modulo
+    self.count += 1;
+    Ok(())
+}
+```
+
+**Results after fix:**
+
+| Test | Before Bitmask | After Bitmask | Improvement | vs Old Parser |
+|------|----------------|---------------|-------------|---------------|
+| comprehensive.udon | 39.2 µs / 372 MiB/s | 35.9 µs / 407 MiB/s | +9% | **+9% overhead** |
+| minimal.udon | 203.5 ns / 253 MiB/s | 202 ns / 254 MiB/s | ~same | +79% (fixed costs) |
+
+The comprehensive file overhead dropped from 22% to just 9%. Small files still dominated by fixed allocation costs.
+
+### Remaining Overhead Sources
+
+1. **`feed()` copies input** - `chunk.to_vec()` copies all bytes into arena
+2. **Fixed allocation costs** - arena, ring buffer, element stack (dominates small files)
+3. **StreamingEvent size** - 48 bytes vs Event 64 bytes (actually smaller, not an issue)
+
+### Next: Zero-Copy Feed
+
+For single-chunk parsing (common case), we can avoid the copy by storing
+a borrowed reference directly. The arena is only needed when:
+- Multiple chunks are fed (true streaming)
+- Events need to outlive the input
 
 ## Optimization Opportunities
 
-1. **Parser reuse** - Amortize allocation costs
-2. **Reference-counted chunks** - Avoid copying in feed()
+1. **Zero-copy feed** - Borrow input directly for single-chunk case
+2. **Parser reuse** - Amortize allocation costs across multiple parses
 3. **Pre-allocated ring buffer** - Avoid per-parse allocation
-4. **SIMD scanning** - Fast search for special characters
+4. **SIMD scanning** - Fast search for special characters (memchr)
 
 ## Architecture Decisions
 

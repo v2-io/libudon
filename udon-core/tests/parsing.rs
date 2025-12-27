@@ -2,22 +2,32 @@
 //!
 //! Organized by grammar construct, from simplest to most complex.
 //! Each test specifies expected events explicitly.
+//!
+//! TODO: Many tests are currently ignored pending full StreamingParser implementation.
+//! Priority: Get core parsing working, then enable tests incrementally.
 
-use udon_core::{Event, Parser};
+use udon_core::{StreamingParser, StreamingEvent};
 
 // =============================================================================
 // Test Helpers
 // =============================================================================
 
-/// Parse input and return events, filtering out spans for easier comparison.
+/// Parse input using StreamingParser and return events for comparison.
 fn parse(input: &[u8]) -> Vec<EventKind> {
-    let mut parser = Parser::new(input);
-    parser.parse().into_iter().map(EventKind::from).collect()
+    let mut parser = StreamingParser::new(1024);
+    parser.feed(input);
+    parser.finish();
+
+    let mut events = Vec::new();
+    while let Some(event) = parser.read() {
+        events.push(EventKind::from_streaming(event, &parser));
+    }
+    events
 }
 
 /// Simplified event representation for testing (ignores spans).
 ///
-/// NOTE: This now matches the streaming event model where:
+/// NOTE: This matches the streaming event model where:
 /// - ElementStart just has name (id/classes/suffix emit as separate Attribute events)
 /// - Attribute just has key (value comes as a separate event afterward)
 #[derive(Debug, PartialEq)]
@@ -53,42 +63,58 @@ enum EventKind {
     Error(String),
 }
 
-impl From<Event<'_>> for EventKind {
-    fn from(event: Event<'_>) -> Self {
+impl EventKind {
+    /// Convert StreamingEvent to EventKind, resolving ChunkSlices via parser's arena.
+    fn from_streaming(event: StreamingEvent, parser: &StreamingParser) -> Self {
         match event {
             // Structure events
-            Event::ElementStart { name, .. } => EventKind::ElementStart {
-                name: name.map(|n| n.to_vec()),
+            StreamingEvent::ElementStart { name, .. } => EventKind::ElementStart {
+                name: name.map(|cs| parser.arena().resolve(cs).unwrap_or(&[]).to_vec()),
             },
-            Event::ElementEnd { .. } => EventKind::ElementEnd,
+            StreamingEvent::ElementEnd { .. } => EventKind::ElementEnd,
 
             // Attribute event (key only, value follows separately)
-            Event::Attribute { key, .. } => EventKind::Attribute {
-                key: key.to_vec(),
+            StreamingEvent::Attribute { key, .. } => EventKind::Attribute {
+                key: parser.arena().resolve(key).unwrap_or(&[]).to_vec(),
             },
 
             // Value events
-            Event::ArrayStart { .. } => EventKind::ArrayStart,
-            Event::ArrayEnd { .. } => EventKind::ArrayEnd,
-            Event::NilValue { .. } => EventKind::NilValue,
-            Event::BoolValue { value, .. } => EventKind::BoolValue(value),
-            Event::IntegerValue { value, .. } => EventKind::IntegerValue(value),
-            Event::FloatValue { value, .. } => EventKind::FloatValue(value),
-            Event::StringValue { value, .. } => EventKind::StringValue(value.to_vec()),
-            Event::QuotedStringValue { value, .. } => EventKind::QuotedStringValue(value.to_vec()),
+            StreamingEvent::ArrayStart { .. } => EventKind::ArrayStart,
+            StreamingEvent::ArrayEnd { .. } => EventKind::ArrayEnd,
+            StreamingEvent::NilValue { .. } => EventKind::NilValue,
+            StreamingEvent::BoolValue { value, .. } => EventKind::BoolValue(value),
+            StreamingEvent::IntegerValue { value, .. } => EventKind::IntegerValue(value),
+            StreamingEvent::FloatValue { value, .. } => EventKind::FloatValue(value),
+            StreamingEvent::StringValue { value, .. } => EventKind::StringValue(
+                parser.arena().resolve(value).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::QuotedStringValue { value, .. } => EventKind::QuotedStringValue(
+                parser.arena().resolve(value).unwrap_or(&[]).to_vec()
+            ),
 
             // Content events
-            Event::Text { content, .. } => EventKind::Text(content.to_vec()),
-            Event::Comment { content, .. } => EventKind::Comment(content.to_vec()),
-            Event::RawContent { content, .. } => EventKind::RawContent(content.to_vec()),
+            StreamingEvent::Text { content, .. } => EventKind::Text(
+                parser.arena().resolve(content).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::Comment { content, .. } => EventKind::Comment(
+                parser.arena().resolve(content).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::RawContent { content, .. } => EventKind::RawContent(
+                parser.arena().resolve(content).unwrap_or(&[]).to_vec()
+            ),
 
             // Directive events
-            Event::DirectiveStart { name, namespace, .. } => EventKind::DirectiveStart {
-                name: name.to_vec(),
-                namespace: namespace.map(|n| n.to_vec()),
+            StreamingEvent::DirectiveStart { name, namespace, .. } => EventKind::DirectiveStart {
+                name: parser.arena().resolve(name).unwrap_or(&[]).to_vec(),
+                namespace: namespace.map(|cs| parser.arena().resolve(cs).unwrap_or(&[]).to_vec()),
             },
-            Event::DirectiveEnd { .. } => EventKind::DirectiveEnd,
-            Event::Interpolation { expression, .. } => EventKind::Interpolation(expression.to_vec()),
+            StreamingEvent::DirectiveEnd { .. } => EventKind::DirectiveEnd,
+            StreamingEvent::Interpolation { expression, .. } => EventKind::Interpolation(
+                parser.arena().resolve(expression).unwrap_or(&[]).to_vec()
+            ),
+
+            // Error
+            StreamingEvent::Error { message, .. } => EventKind::Error(message),
 
             // Map other events as needed
             _ => EventKind::Error("Unexpected event type".to_string()),
@@ -800,22 +826,32 @@ mod indentation {
 // =============================================================================
 
 mod fixtures {
-    use super::*;
+    use udon_core::StreamingParser;
 
     #[test]
     fn comprehensive_parses_without_panic() {
         let input = include_bytes!("../../examples/comprehensive.udon");
-        let mut parser = Parser::new(input);
-        let events = parser.parse();
-        // For now, just verify it doesn't panic and produces some events
-        assert!(!events.is_empty(), "Should produce events");
+        let mut parser = StreamingParser::new(1024);
+        parser.feed(input);
+        parser.finish();
+        // Count events
+        let mut count = 0;
+        while parser.read().is_some() {
+            count += 1;
+        }
+        assert!(count > 0, "Should produce events");
     }
 
     #[test]
     fn minimal_parses_without_panic() {
         let input = include_bytes!("../../examples/minimal.udon");
-        let mut parser = Parser::new(input);
-        let events = parser.parse();
-        assert!(!events.is_empty(), "Should produce events");
+        let mut parser = StreamingParser::new(1024);
+        parser.feed(input);
+        parser.finish();
+        let mut count = 0;
+        while parser.read().is_some() {
+            count += 1;
+        }
+        assert!(count > 0, "Should produce events");
     }
 }
