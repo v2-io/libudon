@@ -378,7 +378,6 @@ mod attributes {
     use super::*;
 
     #[test]
-    #[ignore = "attribute parsing not yet implemented"]
     fn simple_attribute() {
         let events = parse(b"|div :class container\n");
         assert_eq!(
@@ -397,7 +396,6 @@ mod attributes {
     }
 
     #[test]
-    #[ignore = "attribute parsing not yet implemented"]
     fn flag_attribute() {
         let events = parse(b"|button :disabled\n");
         assert_eq!(
@@ -416,7 +414,6 @@ mod attributes {
     }
 
     #[test]
-    #[ignore = "attribute parsing not yet implemented"]
     fn quoted_string_value() {
         let events = parse(b"|div :title \"Hello World\"\n");
         assert_eq!(
@@ -435,7 +432,6 @@ mod attributes {
     }
 
     #[test]
-    #[ignore = "attribute parsing not yet implemented"]
     fn indented_attributes() {
         // Attributes can appear on indented lines after an element
         let events = parse(b"|div\n  :title Hello\n  :author Joseph\n");
@@ -459,7 +455,6 @@ mod attributes {
     }
 
     #[test]
-    #[ignore = "attribute parsing not yet implemented"]
     fn indented_flag_attribute() {
         let events = parse(b"|button\n  :disabled\n");
         assert_eq!(
@@ -478,7 +473,6 @@ mod attributes {
     }
 
     #[test]
-    #[ignore = "attribute parsing not yet implemented"]
     fn list_attribute_inline() {
         // Test list parsing in inline attributes with streaming events
         let events = parse(b"|server :ports [8080 8443 9000]\n");
@@ -502,7 +496,6 @@ mod attributes {
     }
 
     #[test]
-    #[ignore = "attribute parsing not yet implemented"]
     fn list_attribute_indented() {
         // Test list parsing in indented attributes with streaming events
         let events = parse(b"|config\n  :tags [api public internal]\n");
@@ -526,7 +519,6 @@ mod attributes {
     }
 
     #[test]
-    #[ignore = "attribute parsing not yet implemented"]
     fn list_with_quoted_strings() {
         // Test array with quoted strings in streaming model
         let events = parse(b"|app :env [\"production\" \"staging\" \"dev\"]\n");
@@ -550,7 +542,6 @@ mod attributes {
     }
 
     #[test]
-    #[ignore = "attribute parsing not yet implemented"]
     fn list_with_mixed_types() {
         // Test array with mixed types in streaming model
         let events = parse(b"|data :values [42 true hello 3.14]\n");

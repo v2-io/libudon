@@ -369,6 +369,7 @@
     |c[\n]      |.newline  | ->                         |>> :children
     |c[ \t]     |.space    | ->                        |>> :inline_content
     |c[;]       |.comment  | ->                                |>> :elem_comment_check
+    |c[:]       |.attr     | ->                                |>> :inline_attr_key
     |c[<P>]     |.nested   | ->                                |>> /element(ACTUAL_COL) :inline_content
     |default    |.text     | MARK                              |>> :inline_text
 
@@ -376,7 +377,9 @@
     ; Inline content after element identity
     |eof                   | emit(ElementEnd)                  |return
     |c[\n]      |.newline  | ->                         |>> :children
+    |c[ \t]     |.space    | ->                                |>>
     |c[;]       |.comment  | ->                                |>> :elem_comment_check
+    |c[:]       |.attr     | ->                                |>> :inline_attr_key
     |c[<P>]     |.nested   | ->                                |>> /element(ACTUAL_COL) :inline_content
     |default    |.text     | MARK                              |>> :inline_text
 
@@ -401,6 +404,112 @@
     |eof                   | emit(Comment) | emit(ElementEnd)  |return
     |c[\n]      |.done     | emit(Comment) | ->         |>> :children
     |default    |.collect  | ->                                |>>
+
+  ;============================================================================
+  ; INLINE ATTRIBUTE PARSING - Inline attributes on same line as element
+  ; Same as indented attributes but returns to :inline_content instead of :children
+  ;============================================================================
+
+  |state[:inline_attr_key]
+    ; Parse inline attribute key (LABEL or quoted)
+    ; Example: |div :foo-bar value → Attribute("foo-bar"), then value
+    |eof                     | emit(Error:expected_attr_key) | emit(ElementEnd) |return
+    |c[LETTER]    |.name    | MARK                              |>> :inline_attr_key_scan
+    |c[']         |.quoted  | ->                                |>> :inline_attr_key_quoted
+    |default      |.err     | emit(Error:expected_attr_key)     |>> :inline_content
+
+  |state[:inline_attr_key_scan]
+    ; Scanning inline attribute key label
+    |eof           |.done   | emit(Attribute)                   |>> :inline_attr_ws
+    |c[LABEL_CONT] |.cont   | ->                                |>>
+    |default       |.done   | emit(Attribute)                   |>> :inline_attr_ws
+
+  |state[:inline_attr_key_quoted]
+    ; Quoted inline attribute key: :'odd key'
+    |eof                     | emit(Error:unclosed_quote) | emit(ElementEnd) |return
+    |c[']         |.empty   | MARK | emit(Attribute) | ->       |>> :inline_attr_ws
+    |default      |.content | MARK                              |>> :inline_attr_key_quoted_content
+
+  |state[:inline_attr_key_quoted_content]
+    |eof                     | emit(Error:unclosed_quote) | emit(ElementEnd) |return
+    |c[']         |.close   | emit(Attribute)                   |>> :inline_attr_ws
+    |c[\\]        |.escape  | ->                                |>> :inline_attr_key_quoted_esc
+    |default      |.collect | ->                                |>>
+
+  |state[:inline_attr_key_quoted_esc]
+    |eof                     | emit(Error:unclosed_quote) | emit(ElementEnd) |return
+    |default      |.char    | ->                                |>> :inline_attr_key_quoted_content
+
+  |state[:inline_attr_ws]
+    ; Skip whitespace before value
+    |eof                                                        |>> :inline_attr_value
+    |c[ \t]       |.space   | ->                                |>>
+    |default      |.done    |                                   |>> :inline_attr_value
+
+  |state[:inline_attr_value]
+    ; Dispatch on value type for inline attributes
+    ; Flag attribute (no value) → emit BoolValue(true)
+    |eof                      | emit(BoolValue:true)            |>> :inline_content
+    |c[\n]        |.flag     | emit(BoolValue:true)      |>> :children
+    |c[;]         |.flag     | emit(BoolValue:true)             |>> :elem_comment_check
+    |c[:]         |.flag     | emit(BoolValue:true)             |>> :inline_attr_key
+    |c[<L>]       |.array    | emit(ArrayStart) | ->            |>> /array :inline_attr_after_value
+    |c["]         |.dquote   | ->                               |>> :inline_attr_dquote
+    |c[']         |.squote   | ->                               |>> :inline_attr_squote
+    |default      |.bare     | MARK                             |>> :inline_attr_bare
+
+  |state[:inline_attr_dquote]
+    ; Double-quoted string value in inline attribute
+    |eof                      | emit(Error:unclosed_string) | emit(ElementEnd) |return
+    |c["]         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :inline_attr_after_value
+    |default      |.content  | MARK                             |>> :inline_attr_dquote_content
+
+  |state[:inline_attr_dquote_content]
+    |eof                      | emit(Error:unclosed_string)     |>> :inline_content
+    |c["]         |.close    | emit(QuotedStringValue) | ->     |>> :inline_attr_after_value
+    |c[\\]        |.escape   | ->                               |>> :inline_attr_dquote_esc
+    |default      |.collect  | ->                               |>>
+
+  |state[:inline_attr_dquote_esc]
+    |eof                      | emit(Error:unclosed_string)     |>> :inline_content
+    |default      |.char     | ->                               |>> :inline_attr_dquote_content
+
+  |state[:inline_attr_squote]
+    ; Single-quoted string value in inline attribute
+    |eof                      | emit(Error:unclosed_string) | emit(ElementEnd) |return
+    |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :inline_attr_after_value
+    |default      |.content  | MARK                             |>> :inline_attr_squote_content
+
+  |state[:inline_attr_squote_content]
+    |eof                      | emit(Error:unclosed_string)     |>> :inline_content
+    |c[']         |.close    | emit(QuotedStringValue) | ->     |>> :inline_attr_after_value
+    |c[\\]        |.escape   | ->                               |>> :inline_attr_squote_esc
+    |default      |.collect  | ->                               |>>
+
+  |state[:inline_attr_squote_esc]
+    |eof                      | emit(Error:unclosed_string)     |>> :inline_content
+    |default      |.char     | ->                               |>> :inline_attr_squote_content
+
+  |state[:inline_attr_bare]
+    ; Bare (unquoted) value for inline attribute
+    ; Collect until space, newline, semicolon, colon, or pipe
+    |eof                      | emit(TypedValue)                |>> :inline_content
+    |c[\n]        |.done     | emit(TypedValue)          |>> :children
+    |c[ \t]       |.done     | emit(TypedValue)                 |>> :inline_attr_after_value
+    |c[;]         |.done     | emit(TypedValue)                 |>> :elem_comment_check
+    |c[:]         |.done     | emit(TypedValue)                 |>> :inline_attr_key
+    |c[<P>]       |.done     | emit(TypedValue)                 |>> /element(ACTUAL_COL) :inline_content
+    |default      |.collect  | ->                               |>>
+
+  |state[:inline_attr_after_value]
+    ; After quoted/array value - continue inline content
+    |eof                      |                                 |>> :inline_content
+    |c[\n]        |.done                                 |>> :children
+    |c[;]         |.comment  |                                  |>> :elem_comment_check
+    |c[:]         |.attr     |                                  |>> :inline_attr_key
+    |c[ \t]       |.space    | ->                               |>>
+    |c[<P>]       |.pipe     |                                  |>> /element(ACTUAL_COL) :inline_content
+    |default      |.text     | MARK                             |>> :inline_text
 
   ;----------------------------------------------------------------------------
   ; CHILDREN - indented content after element

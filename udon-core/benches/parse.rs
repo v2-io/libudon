@@ -7,7 +7,7 @@ use udon_core::Parser;
 
 /// Benchmark parsing the comprehensive example.
 fn bench_comprehensive(c: &mut Criterion) {
-    let input = include_bytes!("../../../examples/comprehensive.udon");
+    let input = include_bytes!("../../examples/comprehensive.udon");
 
     let mut group = c.benchmark_group("parse");
     group.throughput(Throughput::Bytes(input.len() as u64));
@@ -24,7 +24,7 @@ fn bench_comprehensive(c: &mut Criterion) {
 
 /// Benchmark parsing the minimal example.
 fn bench_minimal(c: &mut Criterion) {
-    let input = include_bytes!("../../../examples/minimal.udon");
+    let input = include_bytes!("../../examples/minimal.udon");
 
     let mut group = c.benchmark_group("parse");
     group.throughput(Throughput::Bytes(input.len() as u64));
