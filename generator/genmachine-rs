@@ -571,10 +571,7 @@ class GMState < GMGenericChild
       code << "                    #{cond.to_rust(state_names)}"
     end
 
-    # Check if this is a fast-scan state (text or comment)
-    if @name =~ /^text/ || @name == 'comment'
-      code << generate_fast_scan
-    elsif match_cases.any?
+    if match_cases.any?
       # Use safe peek - if EOF without explicit handler, continue loop
       # (function-level EOF check at loop top will catch it)
       code << "                    if let Some(b) = self.peek() {"
@@ -590,66 +587,6 @@ class GMState < GMGenericChild
     code.join("\n")
   end
 
-  def generate_fast_scan
-    if @name == 'comment'
-      <<~RUST.lines.map { |l| "                    #{l.rstrip}" }.join("\n")
-        // Fast scan to newline
-        let scan_start = self.pos;
-        if self.scan_to(b'\\n').is_some() {
-            self.column += (self.pos - scan_start) as u32;
-            self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
-            self.advance();
-            state = State::SLineStart;
-        } else {
-            self.column += (self.pos - scan_start) as u32;
-            if self.pos > self.mark_start {
-                self.emit(Event::Comment { content: self.term(), span: self.span_from_mark() });
-            }
-            return;
-        }
-      RUST
-    else
-      <<~RUST.lines.map { |l| "                    #{l.rstrip}" }.join("\n")
-        // Fast scan to special characters
-        let scan_start = self.pos;
-        match self.scan_to3(b'\\n', b'|', b';') {
-            Some(b'\\n') => {
-                if self.pos > self.mark_start {
-                    self.column += (self.pos - scan_start) as u32;
-                    self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-                }
-                self.advance();
-                state = State::SLineStart;
-            }
-            Some(b'|') => {
-                if self.pos > self.mark_start {
-                    self.column += (self.pos - scan_start) as u32;
-                    self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-                }
-                self.advance();
-                state = State::SAfterPipe;
-            }
-            Some(b';') => {
-                if self.pos > self.mark_start {
-                    self.column += (self.pos - scan_start) as u32;
-                    self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-                }
-                self.advance();
-                self.mark();
-                state = State::SComment;
-            }
-            None => {
-                if self.pos > self.mark_start {
-                    self.column += (self.pos - scan_start) as u32;
-                    self.emit(Event::Text { content: self.term(), span: self.span_from_mark() });
-                }
-                return;
-            }
-            _ => {}
-        }
-      RUST
-    end
-  end
 end
 
 class GMCase < GMGenericChild
@@ -820,15 +757,22 @@ class GMCommand < GMGenericChild
       return
     end
 
-    # Handle SCAN:type - SIMD-accelerated scanning
-    # SCAN:prose - scan until \n, ;, or |
-    # SCAN:newline - scan until \n
-    # SCAN:quote(") - scan until quote or escape
-    # SCAN:label - scan label characters
-    if cmd =~ /SCAN:(\w+)(?:\(([^)]*)\))?/i
+    # Handle SCAN(chars) - SIMD-accelerated scanning until any of the specified characters
+    # Uses parentheses to avoid confusion with DSL's [] id syntax
+    # Examples:
+    #   SCAN(\n)     - scan until newline (uses memchr)
+    #   SCAN(\n;)    - scan until newline or semicolon (uses memchr2)
+    #   SCAN(\n;<P>) - scan until newline, semicolon, or pipe (uses memchr3)
+    # Returns the found character or None if EOF
+    if cmd =~ /SCAN\(([^)]+)\)/i
       @type = :scan
-      @scan_type = $1.downcase
-      @scan_arg = $2
+      # Parse the character set, handling escapes
+      @scan_chars = $1
+        .gsub('\\n', "\n")
+        .gsub('\\t', "\t")
+        .gsub('<P>', '|')
+        .gsub('<BS>', '\\')
+        .chars
       return
     end
 
@@ -888,18 +832,78 @@ class GMCommand < GMGenericChild
     when :call_method
       "self.#{@method_name}();"
     when :scan
-      case @scan_type
-      when 'prose'
-        "self.scan_prose();"
-      when 'newline'
-        "self.scan_until_newline();"
-      when 'quote'
-        quote_char = @scan_arg || '"'
-        "self.scan_quoted(b'#{quote_char}');"
-      when 'label'
-        "self.scan_label();"
+      # Generate SIMD scan code based on character count
+      # The scan advances position to the found character (or EOF) and returns it
+      chars = @scan_chars.map { |c| format_char_literal(c) }
+      case chars.size
+      when 1
+        # Single character: memchr
+        <<~RUST.strip
+          {
+              let remaining = unsafe {
+                  std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
+              };
+              match memchr::memchr(#{chars[0]}, remaining) {
+                  Some(offset) => {
+                      self.pos += offset;
+                      self.column += offset as u32;
+                      self.global_offset += offset as u64;
+                  }
+                  None => {
+                      let len = remaining.len();
+                      self.pos += len;
+                      self.column += len as u32;
+                      self.global_offset += len as u64;
+                  }
+              }
+          }
+        RUST
+      when 2
+        # Two characters: memchr2
+        <<~RUST.strip
+          {
+              let remaining = unsafe {
+                  std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
+              };
+              match memchr::memchr2(#{chars[0]}, #{chars[1]}, remaining) {
+                  Some(offset) => {
+                      self.pos += offset;
+                      self.column += offset as u32;
+                      self.global_offset += offset as u64;
+                  }
+                  None => {
+                      let len = remaining.len();
+                      self.pos += len;
+                      self.column += len as u32;
+                      self.global_offset += len as u64;
+                  }
+              }
+          }
+        RUST
+      when 3
+        # Three characters: memchr3
+        <<~RUST.strip
+          {
+              let remaining = unsafe {
+                  std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
+              };
+              match memchr::memchr3(#{chars[0]}, #{chars[1]}, #{chars[2]}, remaining) {
+                  Some(offset) => {
+                      self.pos += offset;
+                      self.column += offset as u32;
+                      self.global_offset += offset as u64;
+                  }
+                  None => {
+                      let len = remaining.len();
+                      self.pos += len;
+                      self.column += len as u32;
+                      self.global_offset += len as u64;
+                  }
+              }
+          }
+        RUST
       else
-        "// Unknown scan type: #{@scan_type}"
+        "// SCAN with #{chars.size} chars not supported (max 3 for memchr)"
       end
     when :call
       args = @call_args ? @call_args.map { |a| map_value(a) }.join(", ") : ""

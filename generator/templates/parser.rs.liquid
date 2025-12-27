@@ -63,7 +63,7 @@ pub struct StreamingParser {
 
     // ========== Input Management ==========
 
-    /// Arena storing input chunks
+    /// Arena storing input chunks (used for multi-chunk streaming and synthetic chunks)
     chunks: ChunkArena,
 
     /// Current chunk index being parsed
@@ -163,17 +163,16 @@ impl StreamingParser {
             };
         }
 
-        // Add chunk to arena
+        // Copy chunk to arena and update cached pointer
         let chunk_idx = self.chunks.push(chunk.to_vec());
-        self.current_chunk = chunk_idx;
-        self.pos = 0;
-
-        // Cache pointer to chunk data for hot path (avoids repeated arena lookups)
-        if let Some(chunk) = self.chunks.get(chunk_idx) {
-            let data = chunk.data();
+        if let Some(c) = self.chunks.get(chunk_idx) {
+            let data = c.data();
             self.current_ptr = data.as_ptr();
             self.current_len = data.len();
         }
+
+        self.current_chunk = chunk_idx;
+        self.pos = 0;
 
         let events_before = self.events.available();
 
@@ -467,168 +466,6 @@ impl StreamingParser {
             }
         }
         false
-    }
-
-    // ========== SIMD-Accelerated Scanning ==========
-    //
-    // These functions use memchr for fast SIMD-based scanning through content.
-    // They advance position and line/column tracking in bulk.
-
-    /// Scan prose until newline, semicolon, or pipe (prose terminators).
-    /// Returns the terminating byte, or None if EOF.
-    /// Advances position to the terminator (does not consume it).
-    #[inline]
-    fn scan_prose(&mut self) -> Option<u8> {
-        // Use raw pointer to avoid borrow issues
-        if self.current_ptr.is_null() || self.pos >= self.current_len {
-            return None;
-        }
-
-        let remaining = unsafe {
-            std::slice::from_raw_parts(
-                self.current_ptr.add(self.pos),
-                self.current_len - self.pos
-            )
-        };
-
-        // Use memchr3 to find next prose terminator
-        match memchr::memchr3(b'\n', b';', b'|', remaining) {
-            Some(offset) => {
-                // Advance position (no newlines in scanned range)
-                self.pos += offset;
-                self.column += offset as u32;
-                self.global_offset += offset as u64;
-                Some(remaining[offset])
-            }
-            None => {
-                // No terminator found, consume rest of chunk
-                let len = remaining.len();
-                self.pos += len;
-                self.column += len as u32;
-                self.global_offset += len as u64;
-                None
-            }
-        }
-    }
-
-    /// Scan until newline (for comments, escaped text, etc.).
-    /// Returns true if newline found, false if EOF.
-    /// Advances position to the newline (does not consume it).
-    #[inline]
-    fn scan_until_newline(&mut self) -> bool {
-        if self.current_ptr.is_null() || self.pos >= self.current_len {
-            return false;
-        }
-
-        let remaining = unsafe {
-            std::slice::from_raw_parts(
-                self.current_ptr.add(self.pos),
-                self.current_len - self.pos
-            )
-        };
-
-        match memchr::memchr(b'\n', remaining) {
-            Some(offset) => {
-                self.pos += offset;
-                self.column += offset as u32;
-                self.global_offset += offset as u64;
-                true
-            }
-            None => {
-                let len = remaining.len();
-                self.pos += len;
-                self.column += len as u32;
-                self.global_offset += len as u64;
-                false
-            }
-        }
-    }
-
-    /// Scan quoted string content until closing quote or backslash escape.
-    /// Returns the terminating byte (quote or backslash), or None if EOF.
-    #[inline]
-    fn scan_quoted(&mut self, quote: u8) -> Option<u8> {
-        if self.current_ptr.is_null() || self.pos >= self.current_len {
-            return None;
-        }
-
-        let remaining = unsafe {
-            std::slice::from_raw_parts(
-                self.current_ptr.add(self.pos),
-                self.current_len - self.pos
-            )
-        };
-
-        // Look for quote or escape
-        match memchr::memchr2(quote, b'\\', remaining) {
-            Some(offset) => {
-                // Check for newlines in scanned content (rare, but need accurate line tracking)
-                let scanned = &remaining[..offset];
-                let newlines = memchr::memchr_iter(b'\n', scanned).count();
-                if newlines > 0 {
-                    // Find last newline for column calculation
-                    let last_nl = memchr::memrchr(b'\n', scanned).unwrap();
-                    self.line += newlines as u32;
-                    self.column = (offset - last_nl) as u32;
-                    self.line_start = self.pos + last_nl + 1;
-                } else {
-                    self.column += offset as u32;
-                }
-                self.pos += offset;
-                self.global_offset += offset as u64;
-                Some(remaining[offset])
-            }
-            None => {
-                // Handle newlines in remaining content
-                let newlines = memchr::memchr_iter(b'\n', remaining).count();
-                if newlines > 0 {
-                    if let Some(last_nl) = memchr::memrchr(b'\n', remaining) {
-                        self.line += newlines as u32;
-                        self.column = (remaining.len() - last_nl - 1) as u32;
-                        self.line_start = self.pos + last_nl + 1;
-                    }
-                } else {
-                    self.column += remaining.len() as u32;
-                }
-                let len = remaining.len();
-                self.pos += len;
-                self.global_offset += len as u64;
-                None
-            }
-        }
-    }
-
-    /// Scan label/identifier characters (ASCII fast path).
-    /// Stops at first non-label character.
-    #[inline]
-    fn scan_label(&mut self) {
-        while self.pos < self.current_len {
-            // SAFETY: pos < current_len, current_ptr valid
-            let b = unsafe { *self.current_ptr.add(self.pos) };
-            if matches!(b, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-') {
-                self.pos += 1;
-                self.column += 1;
-                self.global_offset += 1;
-            } else if b >= 0x80 {
-                // Unicode - need to check via helper
-                if self.is_unicode_letter_or_number_at(self.pos) {
-                    // Get UTF-8 char width
-                    let data = self.current_chunk_data();
-                    if let Ok(s) = std::str::from_utf8(&data[self.pos..]) {
-                        if let Some(c) = s.chars().next() {
-                            let width = c.len_utf8();
-                            self.pos += width;
-                            self.column += 1;
-                            self.global_offset += width as u64;
-                            continue;
-                        }
-                    }
-                }
-                break;
-            } else {
-                break;
-            }
-        }
     }
 
     /// Emit a typed value based on accumulated content.

@@ -35,16 +35,18 @@
 
   |state[:escaped_text]
     ; Collect escaped text - no special char handling (| ; ! are literal)
+    ; SIMD: scan ahead to newline instead of byte-by-byte
     |eof                       | emit(Text)             |return
     |c[\n]      |.done        | emit(Text)      |>> :start
-    |default    |.collect     | ->                      |>>
+    |default    |.collect     | SCAN(\n)                |>>
 
   |state[:prose]
+    ; SIMD: scan ahead to newline, semicolon, or pipe instead of byte-by-byte
     |eof                       | emit(Text)             |return
     |c[\n]      |.done        | emit(Text)      |>> :start
     |c[;]       |.semi        | emit(Text) | ->         |>> :check_inline_comment
     |c[<P>]     |.pipe        | emit(Text) | ->         |>> /element(ACTUAL_COL) :start
-    |default    |.collect     | ->                      |>>
+    |default    |.collect     | SCAN(\n;<P>)            |>>
 
   |state[:check_inline_comment]
     ; After ; in prose - is it ;{...} or rest-of-line comment?
@@ -67,15 +69,17 @@
 
   |state[:line_comment]
     ; Rest of line after ; (not ;{)
+    ; SIMD: scan ahead to newline instead of byte-by-byte
     |eof                       | emit(Comment)          |return
     |c[\n]      |.done        | emit(Comment)   |>> :start
-    |default    |.collect     | ->                      |>>
+    |default    |.collect     | SCAN(\n)                |>>
 
   |state[:block_comment]
     ; Full line comment starting with ;
+    ; SIMD: scan ahead to newline instead of byte-by-byte
     |eof                       | emit(Comment)          |return
     |c[\n]      |.done        | emit(Comment)   |>> :start
-    |default    |.collect     | ->                      |>>
+    |default    |.collect     | SCAN(\n)                |>>
 
   |state[:maybe_freeform]
     ; Saw one ` - check for ```
