@@ -1209,21 +1209,18 @@ impl StreamingParser {
                     }
                 }
                 State::SIdBracketValue => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed bracket".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        state = State::SAfterIdentity;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b']' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b']') {
+                        Some(b']') => {
                             { let value = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::StringValue { value, span }); }
                             self.advance();
                             state = State::SIdAfterBracket;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            self.emit(StreamingEvent::Error { message: "unclosed bracket".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            state = State::SAfterIdentity;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SIdAfterBracket => {
@@ -1404,26 +1401,23 @@ impl StreamingParser {
                     }
                 }
                 State::SIdQuotedNameContent => {
-                    if self.eof() {
-                        { let name = Some(self.term()); let span = self.span_from_mark(); self.emit(StreamingEvent::ElementStart { name, span }); }
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        state = State::SAfterIdentity;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\'' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to2(b'\'', b'\\') {
+                        Some(b'\'') => {
                             { let name = Some(self.term()); let span = self.span_from_mark(); self.emit(StreamingEvent::ElementStart { name, span }); }
                             self.advance();
                             state = State::SIdAfterName;
                         }
-                        b'\\' => {
+                        Some(b'\\') => {
                             self.advance();
                             state = State::SIdQuotedNameEscape;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            { let name = Some(self.term()); let span = self.span_from_mark(); self.emit(StreamingEvent::ElementStart { name, span }); }
+                            self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            state = State::SAfterIdentity;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SIdQuotedNameEscape => {
@@ -1462,25 +1456,22 @@ impl StreamingParser {
                     }
                 }
                 State::SIdClassQuotedContent => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        state = State::SAfterIdentity;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\'' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to2(b'\'', b'\\') {
+                        Some(b'\'') => {
                             { let value = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::QuotedStringValue { value, span }); }
                             self.advance();
                             state = State::SIdClassCheckMore;
                         }
-                        b'\\' => {
+                        Some(b'\\') => {
                             self.advance();
                             state = State::SIdClassQuotedEscape;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            self.emit(StreamingEvent::Error { message: "unclosed quote".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            state = State::SAfterIdentity;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SIdClassQuotedEscape => {
@@ -1839,25 +1830,22 @@ impl StreamingParser {
                     }
                 }
                 State::SInlineAttrDquoteContent => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        state = State::SInlineContent;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'"' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to2(b'"', b'\\') {
+                        Some(b'"') => {
                             { let value = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::QuotedStringValue { value, span }); }
                             self.advance();
                             state = State::SInlineAttrAfterValue;
                         }
-                        b'\\' => {
+                        Some(b'\\') => {
                             self.advance();
                             state = State::SInlineAttrDquoteEsc;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            state = State::SInlineContent;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SInlineAttrDquoteEsc => {
@@ -1896,25 +1884,22 @@ impl StreamingParser {
                     }
                 }
                 State::SInlineAttrSquoteContent => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        state = State::SInlineContent;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\'' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to2(b'\'', b'\\') {
+                        Some(b'\'') => {
                             { let value = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::QuotedStringValue { value, span }); }
                             self.advance();
                             state = State::SInlineAttrAfterValue;
                         }
-                        b'\\' => {
+                        Some(b'\\') => {
                             self.advance();
                             state = State::SInlineAttrSquoteEsc;
                         }
-                        _ => {
-                            self.advance();
+                        None => {
+                            self.emit(StreamingEvent::Error { message: "unclosed string".to_string(), span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            state = State::SInlineContent;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SInlineAttrSquoteEsc => {

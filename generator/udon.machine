@@ -245,14 +245,13 @@
     |c[<R>]       |.empty    | emit(ElementStartAnon)            |>> :id_after_bracket
     |default      |.value    | emit(ElementStartAnon) | emit(Attribute:$id) | MARK |>> :id_bracket_value
 
-  |state[:id_bracket_value]
+  |state[:id_bracket_value] SCAN(<R>)
     ; SPEC.md:657-658 - id_value = typed_value | bare_string
-    ; Collecting bytes until ] - value type determined by content
+    ; SCAN-first: bulk scan to closing bracket
     ;
     ; Example: |foo[123] → StringValue("123") (consumer may parse as int)
     |eof                     | emit(Error:unclosed_bracket)      |>> :after_identity
     |c[<R>]       |.close    | emit(StringValue) | ->            |>> :id_after_bracket
-    |default      |.collect  | ->                                |>>
 
   |state[:id_after_bracket]
     ; After [id] - check for suffix or .class
@@ -318,14 +317,13 @@
     |c[']         |.empty    | MARK | emit(ElementStart) | ->     |>> :id_after_name
     |default      |.content  | MARK                               |>> :id_quoted_name_content
 
-  |state[:id_quoted_name_content]
+  |state[:id_quoted_name_content] SCAN('<BS>)
     ; Inside quoted name - collect until closing quote
-    ; Backslash escapes the next character
+    ; SCAN-first: bulk scan to quote or escape
     ; On error, still emit ElementStart (with partial name) to maintain balance
     |eof                     | emit(ElementStart) | emit(Error:unclosed_quote) |>> :after_identity
     |c[']         |.close    | emit(ElementStart) | ->           |>> :id_after_name
-    |c[\\]        |.escape   | ->                                |>> :id_quoted_name_escape
-    |default      |.collect  | ->                                |>>
+    |c[<BS>]      |.escape   | ->                                |>> :id_quoted_name_escape
 
   |state[:id_quoted_name_escape]
     ; After backslash - next char is literal
@@ -340,12 +338,12 @@
     |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :id_class_check_more
     |default      |.content  | MARK                               |>> :id_class_quoted_content
 
-  |state[:id_class_quoted_content]
+  |state[:id_class_quoted_content] SCAN('<BS>)
     ; Inside quoted class name
+    ; SCAN-first: bulk scan to quote or escape
     |eof                     | emit(Error:unclosed_quote)        |>> :after_identity
     |c[']         |.close    | emit(QuotedStringValue) | ->      |>> :id_class_check_more
-    |c[\\]        |.escape   | ->                                |>> :id_class_quoted_escape
-    |default      |.collect  | ->                                |>>
+    |c[<BS>]      |.escape   | ->                                |>> :id_class_quoted_escape
 
   |state[:id_class_quoted_escape]
     ; After backslash in quoted class
@@ -464,11 +462,11 @@
     |c["]         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :inline_attr_after_value
     |default      |.content  | MARK                             |>> :inline_attr_dquote_content
 
-  |state[:inline_attr_dquote_content]
+  |state[:inline_attr_dquote_content] SCAN("<BS>)
+    ; SCAN-first: bulk scan to quote or escape
     |eof                      | emit(Error:unclosed_string)     |>> :inline_content
     |c["]         |.close    | emit(QuotedStringValue) | ->     |>> :inline_attr_after_value
-    |c[\\]        |.escape   | ->                               |>> :inline_attr_dquote_esc
-    |default      |.collect  | ->                               |>>
+    |c[<BS>]      |.escape   | ->                               |>> :inline_attr_dquote_esc
 
   |state[:inline_attr_dquote_esc]
     |eof                      | emit(Error:unclosed_string)     |>> :inline_content
@@ -480,11 +478,11 @@
     |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :inline_attr_after_value
     |default      |.content  | MARK                             |>> :inline_attr_squote_content
 
-  |state[:inline_attr_squote_content]
+  |state[:inline_attr_squote_content] SCAN('<BS>)
+    ; SCAN-first: bulk scan to quote or escape
     |eof                      | emit(Error:unclosed_string)     |>> :inline_content
     |c[']         |.close    | emit(QuotedStringValue) | ->     |>> :inline_attr_after_value
-    |c[\\]        |.escape   | ->                               |>> :inline_attr_squote_esc
-    |default      |.collect  | ->                               |>>
+    |c[<BS>]      |.escape   | ->                               |>> :inline_attr_squote_esc
 
   |state[:inline_attr_squote_esc]
     |eof                      | emit(Error:unclosed_string)     |>> :inline_content

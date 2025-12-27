@@ -838,6 +838,8 @@ class GMCommand < GMGenericChild
         .gsub('\\t', "\t")
         .gsub('<P>', '|')
         .gsub('<BS>', '\\')
+        .gsub('<L>', '[')
+        .gsub('<R>', ']')
         .chars
       return
     end
