@@ -237,20 +237,75 @@ Applied to:
 - `SProse`, `SChildProse`, `SInlineText` - scan until `\n`, `;`, `|`
 - `SLineComment`, `SBlockComment`, `SEscapedText`, `SChildEscapedText` - scan until `\n`
 
-**Final Results:**
-
-| Test | Old Parser | Streaming + SIMD | Speedup |
-|------|------------|------------------|---------|
-| comprehensive.udon | 32.8 µs / 444 MiB/s | **22.6 µs / 644 MiB/s** | **1.45x** |
-| minimal.udon | 112.6 ns / 457 MiB/s | **73.8 ns / 698 MiB/s** | **1.53x** |
-
 **Note:** Manual state optimization is not sustainable. Need to automate SIMD emission via generator.
+
+### SCAN-First DSL Command (2024-12-27)
+
+**Problem:** Manual SIMD edits get overwritten when regenerating parser.
+
+**Solution:** Added generic `SCAN(chars)` DSL command and SCAN-first state optimization:
+
+```
+; DSL syntax - SCAN on state line triggers SCAN-first mode
+|state[:prose] SCAN(\n;<P>)
+  |eof         | emit(Text) |return
+  |c[\n]       | emit(Text) |>> :start
+  |c[;]        | emit(Text) | -> |>> :check_inline_comment
+  |c[<P>]      | emit(Text) | -> |>> /element :start
+```
+
+**Generator emits:**
+```rust
+State::SProse => {
+    // SCAN-first: bulk scan and match result
+    match self.scan_to3(b'\n', b';', b'|') {
+        Some(b'\n') => { emit(Text); state = State::SStart; }
+        Some(b';') => { emit(Text); advance(); state = State::SCheckInlineComment; }
+        Some(b'|') => { emit(Text); advance(); parse_element(); state = State::SStart; }
+        None => { emit(Text); return; }
+        _ => {}
+    }
+}
+```
+
+**Template provides `scan_to1/2/3` methods:**
+```rust
+fn scan_to3(&mut self, b1: u8, b2: u8, b3: u8) -> Option<u8> {
+    let remaining = unsafe {
+        std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
+    };
+    match memchr::memchr3(b1, b2, b3, remaining) {
+        Some(offset) => {
+            self.pos += offset;
+            self.column += offset as u32;
+            self.global_offset += offset as u64;
+            Some(remaining[offset])
+        }
+        None => { /* advance to EOF */ None }
+    }
+}
+```
+
+**States using SCAN-first:**
+- Document: `prose`, `escaped_text`, `line_comment`, `block_comment`
+- Element: `inline_text`, `elem_line_comment`
+- Children: `child_prose`, `child_escaped_text`, `child_line_comment`, `child_block_comment`
+- Attributes: `attr_dquote_content`, `attr_squote_content`, `attr_bare`
+- Inline attrs: `inline_attr_dquote_content`, `inline_attr_squote_content`
+- Identity: `id_bracket_value`, `id_quoted_name_content`, `id_class_quoted_content`
+
+**Final Results (2024-12-27):**
+
+| Test | Old Parser | Streaming + SCAN-first | Speedup |
+|------|------------|------------------------|---------|
+| comprehensive.udon | 32.8 µs / 444 MiB/s | **18.7 µs / 778 MiB/s** | **1.75x** |
+| minimal.udon | 112.6 ns / 457 MiB/s | **74.8 ns / 688 MiB/s** | **1.51x** |
 
 ## Remaining Optimization Opportunities
 
-1. **Generator automation** - Emit SIMD scan code for all prose-like states automatically
-2. **Zero-copy feed** - Borrow input directly for single-chunk case (avoid arena copy)
-3. **More SIMD states** - Quoted strings, label scanning, raw content
+1. **Event emission optimization** - Ring buffer push may have overhead
+2. **State machine dispatch** - Match on enum has some cost
+3. **Zero-copy feed** - Borrow input directly for single-chunk case (attempted, had issues)
 
 ## Architecture Decisions
 
