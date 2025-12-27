@@ -429,6 +429,89 @@ impl StreamingParser {
         self.emit(StreamingEvent::Attribute { key: key_slice, span });
     }
 
+    // ========== SIMD-Accelerated Scanning ==========
+    //
+    // These methods use memchr for fast bulk scanning. They advance position
+    // and return the terminating byte (or None for EOF).
+
+    /// Scan until one of the target bytes. Returns the found byte or None for EOF.
+    #[inline]
+    fn scan_to1(&mut self, b1: u8) -> Option<u8> {
+        if self.pos >= self.current_len {
+            return None;
+        }
+        let remaining = unsafe {
+            std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
+        };
+        match memchr::memchr(b1, remaining) {
+            Some(offset) => {
+                self.pos += offset;
+                self.column += offset as u32;
+                self.global_offset += offset as u64;
+                Some(remaining[offset])
+            }
+            None => {
+                let len = remaining.len();
+                self.pos += len;
+                self.column += len as u32;
+                self.global_offset += len as u64;
+                None
+            }
+        }
+    }
+
+    /// Scan until one of two target bytes. Returns the found byte or None for EOF.
+    #[inline]
+    fn scan_to2(&mut self, b1: u8, b2: u8) -> Option<u8> {
+        if self.pos >= self.current_len {
+            return None;
+        }
+        let remaining = unsafe {
+            std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
+        };
+        match memchr::memchr2(b1, b2, remaining) {
+            Some(offset) => {
+                self.pos += offset;
+                self.column += offset as u32;
+                self.global_offset += offset as u64;
+                Some(remaining[offset])
+            }
+            None => {
+                let len = remaining.len();
+                self.pos += len;
+                self.column += len as u32;
+                self.global_offset += len as u64;
+                None
+            }
+        }
+    }
+
+    /// Scan until one of three target bytes. Returns the found byte or None for EOF.
+    #[inline]
+    fn scan_to3(&mut self, b1: u8, b2: u8, b3: u8) -> Option<u8> {
+        if self.pos >= self.current_len {
+            return None;
+        }
+        let remaining = unsafe {
+            std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
+        };
+        match memchr::memchr3(b1, b2, b3, remaining) {
+            Some(offset) => {
+                self.pos += offset;
+                self.column += offset as u32;
+                self.global_offset += offset as u64;
+                Some(remaining[offset])
+            }
+            None => {
+                let len = remaining.len();
+                self.pos += len;
+                self.column += len as u32;
+                self.global_offset += len as u64;
+                None
+            }
+        }
+    }
+
     /// Check if byte can start a LABEL.
     #[inline]
     fn is_label_start(&self, b: u8) -> bool {
@@ -602,82 +685,42 @@ impl StreamingParser {
                     }
                 }
                 State::SEscapedText => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             state = State::SStart;
                         }
-                        _ => {
-                            {
-    let remaining = unsafe {
-        std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
-    };
-    match memchr::memchr(b'\n', remaining) {
-        Some(offset) => {
-            self.pos += offset;
-            self.column += offset as u32;
-            self.global_offset += offset as u64;
-        }
-        None => {
-            let len = remaining.len();
-            self.pos += len;
-            self.column += len as u32;
-            self.global_offset += len as u64;
-        }
-    }
-}
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            return;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SProse => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to3(b'\n', b';', b'|') {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             state = State::SStart;
                         }
-                        b';' => {
+                        Some(b';') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             state = State::SCheckInlineComment;
                         }
-                        b'|' => {
+                        Some(b'|') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             self.parse_element(self.current_column());
                             state = State::SStart;
                         }
-                        _ => {
-                            {
-    let remaining = unsafe {
-        std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
-    };
-    match memchr::memchr3(b'\n', b';', b'|', remaining) {
-        Some(offset) => {
-            self.pos += offset;
-            self.column += offset as u32;
-            self.global_offset += offset as u64;
-        }
-        None => {
-            let len = remaining.len();
-            self.pos += len;
-            self.column += len as u32;
-            self.global_offset += len as u64;
-        }
-    }
-}
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            return;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SCheckInlineComment => {
@@ -736,71 +779,31 @@ impl StreamingParser {
                     }
                 }
                 State::SLineComment => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                             state = State::SStart;
                         }
-                        _ => {
-                            {
-    let remaining = unsafe {
-        std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
-    };
-    match memchr::memchr(b'\n', remaining) {
-        Some(offset) => {
-            self.pos += offset;
-            self.column += offset as u32;
-            self.global_offset += offset as u64;
-        }
-        None => {
-            let len = remaining.len();
-            self.pos += len;
-            self.column += len as u32;
-            self.global_offset += len as u64;
-        }
-    }
-}
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
+                            return;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SBlockComment => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                             state = State::SStart;
                         }
-                        _ => {
-                            {
-    let remaining = unsafe {
-        std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
-    };
-    match memchr::memchr(b'\n', remaining) {
-        Some(offset) => {
-            self.pos += offset;
-            self.column += offset as u32;
-            self.global_offset += offset as u64;
-        }
-        None => {
-            let len = remaining.len();
-            self.pos += len;
-            self.column += len as u32;
-            self.global_offset += len as u64;
-        }
-    }
-}
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
+                            return;
                         }
-                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SMaybeFreeform => {

@@ -33,20 +33,18 @@
     |c[\n]      |.done        | emit(Text)      |>> :start
     |default    |.first       | MARK                    |>> :escaped_text
 
-  |state[:escaped_text]
+  |state[:escaped_text] SCAN(\n)
     ; Collect escaped text - no special char handling (| ; ! are literal)
-    ; SIMD: scan ahead to newline instead of byte-by-byte
+    ; SCAN-first: bulk scan to newline before checking
     |eof                       | emit(Text)             |return
     |c[\n]      |.done        | emit(Text)      |>> :start
-    |default    |.collect     | SCAN(\n)                |>>
 
-  |state[:prose]
-    ; SIMD: scan ahead to newline, semicolon, or pipe instead of byte-by-byte
+  |state[:prose] SCAN(\n;<P>)
+    ; SCAN-first: bulk scan to newline, semicolon, or pipe before checking
     |eof                       | emit(Text)             |return
     |c[\n]      |.done        | emit(Text)      |>> :start
     |c[;]       |.semi        | emit(Text) | ->         |>> :check_inline_comment
     |c[<P>]     |.pipe        | emit(Text) | ->         |>> /element(ACTUAL_COL) :start
-    |default    |.collect     | SCAN(\n;<P>)            |>>
 
   |state[:check_inline_comment]
     ; After ; in prose - is it ;{...} or rest-of-line comment?
@@ -67,19 +65,17 @@
     |c[}]       |.close       | ->                      |>> :inline_comment
     |default    |.collect     | ->                      |>>
 
-  |state[:line_comment]
+  |state[:line_comment] SCAN(\n)
     ; Rest of line after ; (not ;{)
-    ; SIMD: scan ahead to newline instead of byte-by-byte
+    ; SCAN-first: bulk scan to newline before checking
     |eof                       | emit(Comment)          |return
     |c[\n]      |.done        | emit(Comment)   |>> :start
-    |default    |.collect     | SCAN(\n)                |>>
 
-  |state[:block_comment]
+  |state[:block_comment] SCAN(\n)
     ; Full line comment starting with ;
-    ; SIMD: scan ahead to newline instead of byte-by-byte
+    ; SCAN-first: bulk scan to newline before checking
     |eof                       | emit(Comment)          |return
     |c[\n]      |.done        | emit(Comment)   |>> :start
-    |default    |.collect     | SCAN(\n)                |>>
 
   |state[:maybe_freeform]
     ; Saw one ` - check for ```
