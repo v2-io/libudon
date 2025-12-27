@@ -864,37 +864,25 @@ impl StreamingParser {
                     }
                 }
                 State::SLineComment => {
-                    if self.eof() {
+                    // SIMD-optimized: scan to newline in bulk
+                    if self.scan_until_newline() {
+                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
+                        state = State::SStart;
+                    } else {
+                        // EOF
                         { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                         return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
-                            state = State::SStart;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
                     }
                 }
                 State::SBlockComment => {
-                    if self.eof() {
+                    // SIMD-optimized: scan to newline in bulk
+                    if self.scan_until_newline() {
+                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
+                        state = State::SStart;
+                    } else {
+                        // EOF
                         { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                         return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
-                            state = State::SStart;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
                     }
                 }
                 State::SMaybeFreeform => {
@@ -1678,32 +1666,29 @@ impl StreamingParser {
                     }
                 }
                 State::SInlineText => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
+                    // SIMD-optimized: scan to next terminator in bulk
+                    match self.scan_prose() {
+                        Some(b'\n') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             state = State::SChildren;
                         }
-                        b';' => {
+                        Some(b';') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             state = State::SElemCommentCheck;
                         }
-                        b'|' => {
+                        Some(b'|') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
                             self.advance();
                             self.parse_element(self.current_column());
                             state = State::SInlineContent;
                         }
-                        _ => {
-                            self.advance();
-                        }
+                        Some(_) => unreachable!(),
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
                         }
                     }
                 }
