@@ -820,6 +820,18 @@ class GMCommand < GMGenericChild
       return
     end
 
+    # Handle SCAN:type - SIMD-accelerated scanning
+    # SCAN:prose - scan until \n, ;, or |
+    # SCAN:newline - scan until \n
+    # SCAN:quote(") - scan until quote or escape
+    # SCAN:label - scan label characters
+    if cmd =~ /SCAN:(\w+)(?:\(([^)]*)\))?/i
+      @type = :scan
+      @scan_type = $1.downcase
+      @scan_arg = $2
+      return
+    end
+
     # Handle += and -=
     if cmd =~ /^(\w+)\s*\+=\s*(.+)$/
       @type = :add_assign
@@ -875,6 +887,20 @@ class GMCommand < GMGenericChild
       emit_rust(@event_type)
     when :call_method
       "self.#{@method_name}();"
+    when :scan
+      case @scan_type
+      when 'prose'
+        "self.scan_prose();"
+      when 'newline'
+        "self.scan_until_newline();"
+      when 'quote'
+        quote_char = @scan_arg || '"'
+        "self.scan_quoted(b'#{quote_char}');"
+      when 'label'
+        "self.scan_label();"
+      else
+        "// Unknown scan type: #{@scan_type}"
+      end
     when :call
       args = @call_args ? @call_args.map { |a| map_value(a) }.join(", ") : ""
       "self.parse_#{@call_target}(#{args});"
