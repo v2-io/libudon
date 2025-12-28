@@ -11,8 +11,24 @@ library that language bindings (Ruby, Python, etc.) link against.
 Current state (streaming-parser branch):
 - Streaming parser with ring buffer architecture
 - 1.83x faster than old batch parser (17.9 µs vs 32.8 µs for comprehensive.udon)
-- 56 passing tests in udon-core
+- 238 tests in udon-core (142 passing, 96 TDD placeholders for unimplemented features)
 - FFI code needs updating to use new StreamingEvent API
+
+## Unified Inline Syntax (NEW - Dec 2025)
+
+All prefixes support bracket-delimited inline forms:
+
+| Syntax | Description |
+|--------|-------------|
+| `\|{element ...}` | Embedded element |
+| `!{{expr}}` | Interpolation (double-brace) |
+| `!{directive ...}` | Inline directive |
+| `;{comment}` | Inline comment |
+
+Key rules:
+- **Bracket mode stays bracket mode**: Inside `|{...}`, use `|{nested}` not `|nested`
+- **Brace-counting**: All inline forms use brace-counting for balanced `{}`
+- **Parser emits comments**: Comments are events, consumer decides to keep/strip
 
 ## Critical: Use SPEC.md as Authority
 
@@ -197,7 +213,22 @@ Key optimizations:
 - ParseErrorCode enum instead of String
 - Boxed InlineDirective to reduce event size (48 → 40 bytes)
 
-## What Needs Fixing
+## What Needs Implementation (TDD)
+
+Tests exist for all these features; implement to make tests pass.
+
+### Parser Features (in udon.machine)
+| Feature | Tests | Priority |
+|---------|-------|----------|
+| Embedded elements `\|{...}` | 20 tests | HIGH |
+| Indentation edge cases | 15 tests | HIGH |
+| Interpolation `!{{...}}` | 13 tests | MEDIUM |
+| Block directives (`!if`, `!for`) | 16 tests | MEDIUM |
+| Inline comments `;{...}` | 7 tests | MEDIUM |
+| Raw block `!raw:lang` | 6 tests | MEDIUM |
+| Raw inline `!{raw:kind ...}` | 5 tests | LOW |
+| Freeform blocks ``` | 3 tests | LOW |
+| References `@[id]`, `:[id]` | 2 tests | LOW |
 
 ### FFI (udon-ffi/src/lib.rs) - BROKEN
 The FFI code uses the old Event enum and deprecated Parser API:
