@@ -1570,7 +1570,7 @@ impl StreamingParser {
         let mut content_base: i32 = -1;
 
         #[derive(Clone, Copy)]
-        enum State { SIdentity, SEmbedIdentity, SEmbedName, SEmbedAfterNameSuffix, SEmbedAnonBracket, SEmbedBracketStart, SEmbedBracketValue, SEmbedAfterBracket, SEmbedClassStart, SEmbedClassName, SEmbedClassQuoted, SEmbedClassQuotedContent, SEmbedClassQuotedEsc, SEmbedClassCheck, SEmbedAfterIdentity, SEmbedAttrKey, SEmbedAttrKeyScan, SEmbedAttrKeyQuoted, SEmbedAttrKeyQuotedContent, SEmbedAttrKeyQuotedEsc, SEmbedAttrValue, SEmbedAttrDquote, SEmbedAttrDquoteContent, SEmbedAttrDquoteEsc, SEmbedAttrSquote, SEmbedAttrSquoteContent, SEmbedAttrSquoteEsc, SEmbedAttrBare, SEmbedAttrAfterValue, SEmbedCheckNested, SEmbedAfterNested, SEmbedContent, SEmbedContentNested, SEmbedContentNested2, SEmbedContentNested3, SEmbedCommentCheck, SEmbedInlineComment, SEmbedInlineCommentNested, SEmbedContentAfterComment, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdSpaceClassOrSuffix, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SInlineDirective, SInlineDirBrace, SInlineInterp, SInlineInterpClose, SInlineInterpClose2, SInlineInterpNested, SInlineInterpNested2, SInlineAfterInterp, SInlineInlineDirName, SInlineInlineDirNs, SInlineInlineDirKind, SInlineInlineDirBody, SInlineInlineDirNested, SInlineInlineDirNested2, SInlineCheckPipe, SInlineAfterElement, SElemCommentCheck, SElemInlineComment, SElemInlineCommentNested, SElemInlineCommentNested2, SElemLineComment, SInlineAttrKey, SInlineAttrMerge, SInlineAttrAfterMerge, SInlineAttrKeyScan, SInlineAttrKeyQuoted, SInlineAttrKeyQuotedContent, SInlineAttrKeyQuotedEsc, SInlineAttrWs, SInlineAttrValue, SInlineAttrDquote, SInlineAttrDquoteContent, SInlineAttrDquoteEsc, SInlineAttrSquote, SInlineAttrSquoteContent, SInlineAttrSquoteEsc, SInlineAttrBare, SInlineAttrAfterValue, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildIdRef, SChildIdRefValue, SChildCommentCheck, SChildInlineComment, SChildInlineCommentNested, SChildInlineCommentNested2, SChildProseAfterComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeformStart, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveBrace, SChildDirectiveInterp, SChildDirectiveInterpClose, SChildDirectiveInterpClose2, SChildInterpNested, SChildInterpNested2, SChildInlineDirectiveName, SChildInlineDirectiveNs, SChildInlineDirectiveKind, SChildInlineDirectiveBody, SChildInlineDirectiveContent, SChildInlineDirNested, SChildInlineDirNested2, SChildInlineDirectiveSkip, SChildDirectiveName, SChildDirectiveBody, SChildDirBodyNested, SChildDirBodyNested2, SSkipChild, SAttrKey, SAttrMerge, SAttrAfterMerge, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine }
+        enum State { SIdentity, SEmbedIdentity, SEmbedName, SEmbedAfterNameSuffix, SEmbedAnonBracket, SEmbedBracketStart, SEmbedBracketValue, SEmbedAfterBracket, SEmbedClassStart, SEmbedClassName, SEmbedClassQuoted, SEmbedClassQuotedContent, SEmbedClassQuotedEsc, SEmbedClassCheck, SEmbedAfterIdentity, SEmbedAttrKey, SEmbedAttrKeyScan, SEmbedAttrKeyQuoted, SEmbedAttrKeyQuotedContent, SEmbedAttrKeyQuotedEsc, SEmbedAttrValue, SEmbedAttrDquote, SEmbedAttrDquoteContent, SEmbedAttrDquoteEsc, SEmbedAttrSquote, SEmbedAttrSquoteContent, SEmbedAttrSquoteEsc, SEmbedAttrBare, SEmbedAttrAfterValue, SEmbedCheckNested, SEmbedAfterNested, SEmbedContent, SEmbedContentNested, SEmbedContentNested2, SEmbedContentNested3, SEmbedCommentCheck, SEmbedInlineComment, SEmbedInlineCommentNested, SEmbedContentAfterComment, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdSpaceClassOrSuffix, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SInlineDirective, SInlineDirBrace, SInlineInterp, SInlineInterpClose, SInlineInterpClose2, SInlineInterpNested, SInlineInterpNested2, SInlineAfterInterp, SInlineInlineDirName, SInlineInlineDirNs, SInlineInlineDirKind, SInlineInlineDirBody, SInlineInlineDirNested, SInlineInlineDirNested2, SInlineCheckPipe, SInlineAfterElement, SElemCommentCheck, SElemInlineComment, SElemInlineCommentNested, SElemInlineCommentNested2, SElemLineComment, SInlineAttrKey, SInlineAttrMerge, SInlineAttrAfterMerge, SInlineAttrKeyScan, SInlineAttrKeyQuoted, SInlineAttrKeyQuotedContent, SInlineAttrKeyQuotedEsc, SInlineAttrWs, SInlineAttrValue, SInlineAttrDquote, SInlineAttrDquoteContent, SInlineAttrDquoteEsc, SInlineAttrSquote, SInlineAttrSquoteContent, SInlineAttrSquoteEsc, SInlineAttrBare, SInlineAttrAfterValue, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildIdRef, SChildIdRefValue, SChildCommentStart, SChildCommentCheck, SChildInlineComment, SChildInlineCommentNested, SChildInlineCommentNested2, SChildProseAfterComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeformStart, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveBrace, SChildDirectiveInterp, SChildDirectiveInterpClose, SChildDirectiveInterpClose2, SChildProseAfterInterp, SChildProseInline, SChildInterpNested, SChildInterpNested2, SChildInlineDirectiveName, SChildInlineDirectiveNs, SChildInlineDirectiveKind, SChildInlineDirectiveBody, SChildInlineDirectiveContent, SChildInlineDirNested, SChildInlineDirNested2, SChildInlineDirectiveSkip, SChildDirectiveName, SChildDirectiveBody, SChildDirBodyNested, SChildDirBodyNested2, SSkipChild, SAttrKey, SAttrMerge, SAttrAfterMerge, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine }
 
         let mut state = State::SIdentity;
         loop {
@@ -4219,8 +4219,7 @@ impl StreamingParser {
                         }
                         b';' => {
                             self.advance();
-                            self.mark();
-                            state = State::SChildBlockComment;
+                            state = State::SChildCommentStart;
                         }
                         b'|' => {
                             self.parse_element(self.current_column());
@@ -4403,6 +4402,25 @@ impl StreamingParser {
                         }
                         _ => {
                             self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SChildCommentStart => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'{' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SChildInlineComment;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SChildBlockComment;
                         }
                         }
                     }
@@ -4761,7 +4779,7 @@ impl StreamingParser {
                         match b {
                         b'}' => {
                             self.advance();
-                            state = State::SChildProse;
+                            state = State::SChildProseAfterInterp;
                         }
                         b'{' => {
                             self.advance();
@@ -4772,6 +4790,67 @@ impl StreamingParser {
                             state = State::SChildDirectiveInterp;
                         }
                         }
+                    }
+                }
+                State::SChildProseAfterInterp => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SChildren;
+                        }
+                        b';' => {
+                            self.advance();
+                            state = State::SChildCommentCheck;
+                        }
+                        b'|' => {
+                            self.parse_element(self.current_column());
+                            state = State::SChildrenAfterElement;
+                        }
+                        b'!' => {
+                            self.advance();
+                            state = State::SChildDirective;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SChildProseInline;
+                        }
+                        }
+                    }
+                }
+                State::SChildProseInline => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to4(b'\n', b';', b'|', b'!') {
+                        Some(b'\n') => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.advance();
+                            state = State::SChildren;
+                        }
+                        Some(b';') => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.advance();
+                            state = State::SChildCommentCheck;
+                        }
+                        Some(b'|') => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.parse_element(self.current_column());
+                            state = State::SChildrenAfterElement;
+                        }
+                        Some(b'!') => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.advance();
+                            state = State::SChildDirective;
+                        }
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {} // Other bytes not possible after SCAN
                     }
                 }
                 State::SChildInterpNested => {

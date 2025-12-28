@@ -1177,7 +1177,7 @@
     |if[ACTUAL_COL <= elem_col]            | emit(ElementEnd)  |return
     ; Still inside this element - handle actual content
     |c[']       |.escape   | ->                                |>> :child_escaped
-    |c[;]       |.comment  | -> | MARK                         |>> :child_block_comment
+    |c[;]       |.comment  | ->                                |>> :child_comment_start
     |c[<P>]     |.element  |                                   |>> /element(ACTUAL_COL) :children_after_element
     |c[:]       |.attr     | ->                                |>> :attr_key
     |c[@]       |.idref    | ->                                |>> :child_id_ref
@@ -1239,7 +1239,14 @@
     |c[<R>]     |.close    | emit(IdReference) | ->            |>> :children
     |default    |.collect  | ->                                |>>
 
+  |state[:child_comment_start]
+    ; After ; at child content line start - check for inline or block comment
+    |eof                   | emit(ElementEnd)                  |return
+    |c[{]       |.inline   | -> | MARK                         |>> :child_inline_comment
+    |default    |.line     | MARK                              |>> :child_block_comment
+
   |state[:child_comment_check]
+    ; After ; in middle of child prose - check for inline or line comment
     |eof                   | emit(ElementEnd)                  |return
     |c[{]       |.inline   | -> | MARK                         |>> :child_inline_comment
     |default    |.line     | MARK                              |>> :child_line_comment
@@ -1344,9 +1351,28 @@
   |state[:child_directive_interp_close2]
     ; After advancing past first } - now check for second }
     |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
-    |c[}]       |.done     | ->                                |>> :child_prose
+    |c[}]       |.done     | ->                                |>> :child_prose_after_interp
     |c[{]       |.nest     | ->                                |>> :child_directive_interp
     |default    |.more     | ->                                |>> :child_directive_interp
+
+  |state[:child_prose_after_interp]
+    ; After interpolation in child content - no text accumulated yet
+    ; Same-line continuation uses child_prose_inline to emit Text (not DedentedText)
+    |eof                   | emit(ElementEnd)                  |return
+    |c[\n]      |.done     | ->                         |>> :children
+    |c[;]       |.semi     | ->                                |>> :child_comment_check
+    |c[<P>]     |.pipe     |                                   |>> /element(ACTUAL_COL) :children_after_element
+    |c[!]       |.bang     | ->                                |>> :child_directive
+    |default    |.prose    | MARK                              |>> :child_prose_inline
+
+  |state[:child_prose_inline] SCAN(\n;<P>!)
+    ; Same-line prose after interpolation - emits Text (not DedentedText)
+    ; Avoids dedent logic which would incorrectly pad with spaces
+    |eof                   | emit(Text) | emit(ElementEnd)     |return
+    |c[\n]      |.done     | emit(Text) | ->            |>> :children
+    |c[;]       |.semi     | emit(Text) | ->                   |>> :child_comment_check
+    |c[<P>]     |.pipe     | emit(Text)                        |>> /element(ACTUAL_COL) :children_after_element
+    |c[!]       |.bang     | emit(Text) | ->                   |>> :child_directive
 
   |state[:child_interp_nested]
     ; Nested braces in interpolation

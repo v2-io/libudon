@@ -2947,6 +2947,58 @@ mod dynamics {
     }
 
     // =========================================================================
+    // Interpolation - Edge Cases (line starts, nesting)
+    // =========================================================================
+
+    #[test]
+    fn interpolation_at_child_line_start() {
+        // Interpolation can start a child content line
+        let events = parse(b"|parent\n  !{{'the-issue' | embed}}");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"parent"))),
+            E::Interp(s(b"'the-issue' | embed")),
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn inline_comment_at_child_line_start() {
+        // Inline comment can start a child content line (edge case)
+        let events = parse(b"|parent\n  ;{and this, as an edge case}");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"parent"))),
+            E::Comment(s(b"and this, as an edge case")),
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn interpolation_multiple_child_lines() {
+        // Multiple child lines can each start with interpolation
+        // When each interpolation is on its own line, newline+indent is structural
+        let events = parse(b"|parent\n  !{{first}}\n  !{{second}}");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"parent"))),
+            E::Interp(s(b"first")),
+            E::Interp(s(b"second")),
+            E::ElementEnd,
+        ]);
+    }
+
+    #[test]
+    fn interpolation_with_surrounding_text() {
+        // Interpolation surrounded by text on same line preserves text
+        let events = parse(b"|parent\n  before !{{middle}} after");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"parent"))),
+            E::Text(s(b"before ")),
+            E::Interp(s(b"middle")),
+            E::Text(s(b" after")),
+            E::ElementEnd,
+        ]);
+    }
+
+    // =========================================================================
     // Interpolation - In Attributes
     // =========================================================================
 
