@@ -2139,14 +2139,15 @@ mod inline_attributes {
 
     #[test]
     fn attribute_value_terminates_at_next_attribute() {
-        // Value runs until space + ":"
+        // For INLINE attributes, space terminates bare value
+        // :msg hello means msg="hello", then "world :count 5" is text content
+        // (Block-level attributes are different - whole line is value)
         let events = parse(b"|el :msg hello world :count 5");
         assert_eq!(events, vec![
             E::ElementStart(Some(s(b"el"))),
             E::Attr(s(b"msg")),
-            E::Str(s(b"hello world")),
-            E::Attr(s(b"count")),
-            E::Int(5),
+            E::Str(s(b"hello")),
+            E::Text(s(b"world :count 5")),  // Rest becomes text content
             E::ElementEnd,
         ]);
     }
