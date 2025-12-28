@@ -203,6 +203,21 @@ Key patterns:
 - `| MARK` — Mark current position
 - `| TERM` — Terminate slice (MARK to current)
 
+### Implicit Stack via Function Calls
+
+**Important:** The element/directive stack is implicit via function calls in the DSL,
+not an explicit data structure. When you call `/element(COL)` or `/directive(COL)`,
+you push onto the call stack. When you `return`, you pop. The column parameter
+carries the indentation context.
+
+This means:
+- Nesting is handled by recursive function calls
+- Dedent detection uses the `elem_col` parameter passed to the function
+- `|if[ACTUAL_COL <= elem_col]` checks if we've dedented past the current container
+- On dedent, emit the appropriate End event and `return` to pop the stack
+
+Don't create explicit stack data structures for tracking element/directive nesting.
+
 ### SCAN-first Optimization
 
 For content-scanning states, add SCAN to the state line:

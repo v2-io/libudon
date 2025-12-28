@@ -253,27 +253,225 @@
     |default    |.skip        | ->                      |>>
 
   |state[:directive_name]
-    ; !name...
-    |eof                       | emit(Directive)        |return
-    |c[\n]      |.block       | emit(Directive)  |>> :start
-    |c[{]       |.inline      | emit(Directive)        |>> :directive_body
-    |c[ \t]     |.space       | emit(Directive)        |>> :prose_after_directive
-    |default    |.collect     | ->                      |>>
+    ; !name... block directive at root level
+    ; Collect name, then handle statement or children
+    |eof                       | emit(DirectiveStart) | emit(DirectiveEnd) |return
+    |c[\n]      |.block       | emit(DirectiveStart) | ->         |>> :directive_children
+    |c[:]       |.colon       | ->                                |>> :directive_check_raw
+    |c[ \t]     |.space       | emit(DirectiveStart) | ->         |>> :directive_statement
+    |default    |.collect     | ->                                |>>
 
-  |state[:directive_body]
-    ; !name{...} inline directive body
-    |eof                       | emit(Error:unclosed_directive) |return
-    |c[}]       |.close       | emit(DirectiveBody)    |>> :prose_after_directive
-    |default    |.collect     | ->                      |>>
+  |state[:directive_check_raw]
+    ; After : in directive name - check for raw: prefix
+    ; For now, just continue collecting (TODO: detect raw prefix)
+    |eof                       | emit(DirectiveStart) | emit(DirectiveEnd) |return
+    |c[\n]      |.block       | emit(DirectiveStart) | ->         |>> :directive_children
+    |c[ \t]     |.space       | emit(DirectiveStart) | ->         |>> :directive_statement
+    |default    |.name        | ->                                |>> :directive_name
+
+  |state[:directive_statement]
+    ; After space following directive name - skip leading whitespace, collect statement
+    |eof                       | emit(DirectiveEnd) |return
+    |c[ \t]     |.skip        | ->                                |>>
+    |c[\n]      |.empty       | ->                                |>> :directive_children
+    |default    |.start       | MARK                              |>> :directive_statement_content
+
+  |state[:directive_statement_content] SCAN(\n)
+    ; Collect statement content until newline
+    |eof                       | emit(DirectiveStatement) | emit(DirectiveEnd) |return
+    |c[\n]      |.done        | emit(DirectiveStatement) | ->     |>> :directive_children
+
+  |state[:directive_children]
+    ; Block directive children at root level
+    ; Children are indented; dedent to column 0 ends the directive
+    |eof                       | emit(DirectiveEnd)               |return
+    |c[\n]      |.newline     | ->                                |>>
+    |c[ ]       |.space       | ->                                |>> :directive_children_ws
+    |c[\t]      |.tab         | -> | emit(Error:no_tabs)          |>> :skip_line
+    |default    |.dedent      | emit(DirectiveEnd)                |>> :start_dispatch
+
+  |state[:directive_children_ws]
+    ; Counting whitespace in directive children
+    ; Any content at column > 0 is directive content
+    |eof                       | emit(DirectiveEnd)               |return
+    |c[\n]      |.newline     | ->                                |>> :directive_children
+    |c[ ]       |.space       | ->                                |>>
+    |c[\t]      |.tab         | -> | emit(Error:no_tabs)          |>> :skip_line
+    |default    |.content     |                                   |>> :directive_children_content
+
+  |state[:directive_children_content]
+    ; Dispatch directive child content
+    ; This is like :start but for directive children
+    |eof                       | emit(DirectiveEnd)               |return
+    |c[']       |.escape      | ->                                |>> :directive_child_escaped
+    |c[;]       |.comment     | -> | MARK                         |>> :directive_child_comment
+    |c[<P>]     |.pipe        |                                   |>> /element(ACTUAL_COL) :directive_children_after_element
+    |c[!]       |.directive   | ->                                |>> :directive_child_directive
+    |default    |.text        | MARK                              |>> :directive_child_prose
+
+  |state[:directive_children_after_element]
+    ; After child element returns
+    |eof                       | emit(DirectiveEnd)               |return
+    |c[\n]      |.newline     | ->                                |>> :directive_children
+    |c[ ]       |.space       | ->                                |>> :directive_children_ws
+    |c[\t]      |.tab         | -> | emit(Error:no_tabs)          |>> :skip_line
+    |default    |.more        |                                   |>> :directive_children_content
+
+  |state[:directive_child_escaped]
+    ; Escaped line in directive child
+    |eof                       | emit(Text) | emit(DirectiveEnd)  |return
+    |c[\n]      |.done        | emit(Text) | ->                   |>> :directive_children
+    |default    |.first       | MARK                              |>> :directive_child_escaped_text
+
+  |state[:directive_child_escaped_text] SCAN(\n)
+    |eof                       | emit(Text) | emit(DirectiveEnd)  |return
+    |c[\n]      |.done        | emit(Text) | ->                   |>> :directive_children
+
+  |state[:directive_child_comment] SCAN(\n)
+    ; Line comment in directive child
+    |eof                       | emit(Comment) | emit(DirectiveEnd) |return
+    |c[\n]      |.done        | emit(Comment) | ->                |>> :directive_children
+
+  |state[:directive_child_directive]
+    ; Nested directive in directive child
+    ; For now, just handle inline forms; nested block directives need more work
+    |eof                       | emit(DirectiveEnd)               |return
+    |c[{]       |.brace       | ->                                |>> :directive_child_directive_brace
+    |default    |.name        | MARK                              |>> :directive_child_directive_name
+
+  |state[:directive_child_directive_brace]
+    ; !{ in directive child - interpolation or inline directive
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[{]       |.interp      | -> | MARK                         |>> :directive_child_interp
+    |default    |.inline      | MARK                              |>> :directive_child_inline_dir
+
+  |state[:directive_child_interp]
+    ; !{{...}} in directive child
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.close       | emit(Interpolation)               |>> :directive_child_interp_close
+    |c[{]       |.nest        | ->                                |>> :directive_child_interp_nested
+    |default    |.collect     | ->                                |>>
+
+  |state[:directive_child_interp_close]
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.first       | ->                                |>> :directive_child_interp_close2
+    |c[{]       |.nest        | ->                                |>> :directive_child_interp
+    |default    |.more        | ->                                |>> :directive_child_interp
+
+  |state[:directive_child_interp_close2]
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.done        | ->                                |>> :directive_child_after_interp
+    |c[{]       |.nest        | ->                                |>> :directive_child_interp
+    |default    |.more        | ->                                |>> :directive_child_interp
+
+  |state[:directive_child_interp_nested]
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.unnest      | ->                                |>> :directive_child_interp
+    |c[{]       |.deeper      | ->                                |>> :directive_child_interp_nested2
+    |default    |.collect     | ->                                |>>
+
+  |state[:directive_child_interp_nested2]
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.unnest      | ->                                |>> :directive_child_interp_nested
+    |default    |.collect     | ->                                |>>
+
+  |state[:directive_child_after_interp]
+    ; After interpolation in directive child
+    |eof                       | emit(DirectiveEnd)               |return
+    |c[\n]      |.done        | ->                                |>> :directive_children
+    |c[;]       |.semi        | ->                                |>> :directive_child_comment_check
+    |c[<P>]     |.pipe        |                                   |>> /element(ACTUAL_COL) :directive_children_after_element
+    |c[!]       |.bang        | ->                                |>> :directive_child_directive
+    |default    |.prose       | MARK                              |>> :directive_child_prose_inline
+
+  |state[:directive_child_prose] SCAN(\n;<P>!)
+    ; Prose in directive child
+    |eof                       | emit(Text) | emit(DirectiveEnd)  |return
+    |c[\n]      |.done        | emit(Text) | ->                   |>> :directive_children
+    |c[;]       |.semi        | emit(Text) | ->                   |>> :directive_child_comment_check
+    |c[<P>]     |.pipe        | emit(Text)                        |>> /element(ACTUAL_COL) :directive_children_after_element
+    |c[!]       |.bang        | emit(Text) | ->                   |>> :directive_child_directive
+
+  |state[:directive_child_prose_inline] SCAN(\n;<P>!)
+    ; Inline prose after interpolation in directive child
+    |eof                       | emit(Text) | emit(DirectiveEnd)  |return
+    |c[\n]      |.done        | emit(Text) | ->                   |>> :directive_children
+    |c[;]       |.semi        | emit(Text) | ->                   |>> :directive_child_comment_check
+    |c[<P>]     |.pipe        | emit(Text)                        |>> /element(ACTUAL_COL) :directive_children_after_element
+    |c[!]       |.bang        | emit(Text) | ->                   |>> :directive_child_directive
+
+  |state[:directive_child_comment_check]
+    ; After ; in directive child - inline or line comment?
+    |eof                       | emit(DirectiveEnd)               |return
+    |c[{]       |.inline      | -> | MARK                         |>> :directive_child_inline_comment
+    |default    |.line        | MARK                              |>> :directive_child_comment
+
+  |state[:directive_child_inline_comment]
+    ; ;{...} in directive child
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.close       | emit(Comment) | ->                |>> :directive_child_after_interp
+    |c[{]       |.nest        | ->                                |>> :directive_child_inline_comment_nested
+    |default    |.collect     | ->                                |>>
+
+  |state[:directive_child_inline_comment_nested]
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.unnest      | ->                                |>> :directive_child_inline_comment
+    |c[{]       |.deeper      | ->                                |>> :directive_child_inline_comment_nested2
+    |default    |.collect     | ->                                |>>
+
+  |state[:directive_child_inline_comment_nested2]
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.unnest      | ->                                |>> :directive_child_inline_comment_nested
+    |default    |.collect     | ->                                |>>
+
+  |state[:directive_child_inline_dir]
+    ; !{name ...} inline directive in directive child - skip for now
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.close       | ->                                |>> :directive_child_after_interp
+    |c[{]       |.nest        | ->                                |>> :directive_child_inline_dir_nested
+    |default    |.collect     | ->                                |>>
+
+  |state[:directive_child_inline_dir_nested]
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.unnest      | ->                                |>> :directive_child_inline_dir
+    |c[{]       |.deeper      | ->                                |>> :directive_child_inline_dir_nested2
+    |default    |.collect     | ->                                |>>
+
+  |state[:directive_child_inline_dir_nested2]
+    |eof                       | emit(Error:unclosed) | emit(DirectiveEnd) |return
+    |c[}]       |.unnest      | ->                                |>> :directive_child_inline_dir_nested
+    |default    |.collect     | ->                                |>>
+
+  |state[:directive_child_directive_name]
+    ; Nested block directive in directive child - for now just collect as text
+    ; TODO: proper nested directive handling
+    |eof                       | emit(Text) | emit(DirectiveEnd)  |return
+    |c[\n]      |.done        | emit(Text) | ->                   |>> :directive_children
+    |c[ \t]     |.space       | emit(Text) | ->                   |>> :directive_child_prose
+    |default    |.collect     | ->                                |>>
+
+  |state[:start_dispatch]
+    ; Dispatch from dedent - re-evaluate current character at column 0
+    ; This handles dedent returning to root level
+    |eof                                                          |return
+    |c[\n]      |.newline     | ->                                |>> :start
+    |c[ ]       |.space       | ->                                |>> :start
+    |c[\t]      |.tab         | -> | emit(Error:no_tabs)          |>> :skip_line
+    |c[']       |.escape      | ->                                |>> :escaped
+    |c[;]       |.comment     | -> | MARK                         |>> :block_comment
+    |c[<P>]     |.pipe        |                                   |>> /element(ACTUAL_COL) :start
+    |c[`]       |.backtick    | ->                                |>> :maybe_freeform
+    |c[!]       |.directive   | ->                                |>> :directive
+    |default    |.text        | MARK                              |>> :prose
 
   |state[:prose_after_directive]
-    ; Continue prose after inline directive
-    ; Note: Don't emit on EOF/newline - no MARK was set here, so there's no content to emit
-    |eof                                                |return
-    |c[\n]      |.done                           |>> :start
-    |c[;]       |.semi        | ->                      |>> :check_inline_comment
-    |c[<P>]     |.pipe        |                         |>> /element(ACTUAL_COL) :start
-    |default    |.collect     | MARK                    |>> :prose
+    ; Continue prose after inline directive at root level
+    ; Note: Don't emit on EOF/newline - no MARK was set here
+    |eof                                                          |return
+    |c[\n]      |.done        | ->                                |>> :start
+    |c[;]       |.semi        | ->                                |>> :check_inline_comment
+    |c[<P>]     |.pipe        |                                   |>> /element(ACTUAL_COL) :start
+    |default    |.collect     | MARK                              |>> :prose
 
   |state[:skip_line]
     ; Error recovery - skip to next line
@@ -1458,11 +1656,17 @@
     |c[ \t]     |.stmt     | emit(DirectiveStart) | ->                 |>> :child_directive_statement
     |default    |.name     | ->                                        |>> :child_directive_name
 
-  |state[:child_directive_statement] SCAN(\n)
-    ; Collect statement until newline, then go to children
-    ; Statement content is currently just skipped (TODO: emit as Text or special event)
+  |state[:child_directive_statement]
+    ; After space following directive name - skip leading whitespace, then collect statement
     |eof                   | emit(DirectiveEnd) | emit(ElementEnd)|return
-    |c[\n]      |.done     | ->                                        |>> :child_directive_children
+    |c[ \t]     |.skip     | ->                                        |>>
+    |c[\n]      |.empty    | ->                                        |>> :child_directive_children
+    |default    |.start    | MARK                                      |>> :child_directive_statement_content
+
+  |state[:child_directive_statement_content] SCAN(\n)
+    ; Collect statement content until newline
+    |eof                   | emit(DirectiveStatement) | emit(DirectiveEnd) | emit(ElementEnd)|return
+    |c[\n]      |.done     | emit(DirectiveStatement) | ->             |>> :child_directive_children
 
   |state[:child_directive_children]
     ; Block directive children - parse normal UDON until dedent

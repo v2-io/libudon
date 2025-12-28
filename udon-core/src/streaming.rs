@@ -310,6 +310,11 @@ pub enum StreamingEvent {
         raw: bool,
         span: Span,
     },
+    /// The condition/expression for a block directive (e.g., "logged_in" in "!if logged_in")
+    DirectiveStatement {
+        content: ChunkSlice,
+        span: Span,
+    },
     DirectiveEnd { span: Span },
 
     /// Boxed to reduce enum size (this variant is ~48 bytes unboxed)
@@ -360,6 +365,7 @@ impl StreamingEvent {
             Self::Comment { span, .. } => *span,
             Self::RawContent { span, .. } => *span,
             Self::DirectiveStart { span, .. } => *span,
+            Self::DirectiveStatement { span, .. } => *span,
             Self::DirectiveEnd { span } => *span,
             Self::InlineDirective(data) => data.span,
             Self::Interpolation { span, .. } => *span,
@@ -385,6 +391,7 @@ impl StreamingEvent {
             Self::Comment { content, .. } => Some(content.chunk_idx),
             Self::RawContent { content, .. } => Some(content.chunk_idx),
             Self::DirectiveStart { name, .. } => Some(name.chunk_idx),
+            Self::DirectiveStatement { content, .. } => Some(content.chunk_idx),
             Self::InlineDirective(data) => Some(data.name.chunk_idx),
             Self::Interpolation { expression, .. } => Some(expression.chunk_idx),
             Self::IdReference { id, .. } => Some(id.chunk_idx),
