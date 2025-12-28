@@ -52,6 +52,8 @@ pub enum ParseErrorCode {
     UnclosedRef,
     /// Incomplete directive (missing required parts)
     IncompleteDirective,
+    /// Invalid characters in label (raw directive)
+    InvalidLabel,
     /// Expected attribute key after ':'
     ExpectedAttrKey,
     /// Expected class name after '.'
@@ -76,6 +78,7 @@ impl ParseErrorCode {
             Self::UnclosedFreeform => "unclosed freeform",
             Self::UnclosedRef => "unclosed reference",
             Self::IncompleteDirective => "incomplete directive",
+            Self::InvalidLabel => "invalid label",
             Self::ExpectedAttrKey => "expected attr key",
             Self::ExpectedClassName => "expected class name",
             Self::UnexpectedAfterValue => "unexpected after value",
@@ -315,6 +318,11 @@ pub enum StreamingEvent {
         content: ChunkSlice,
         span: Span,
     },
+    /// Body content for inline directives (e.g., "item in items" in "!{each item in items}")
+    DirectiveBody {
+        content: ChunkSlice,
+        span: Span,
+    },
     DirectiveEnd { span: Span },
 
     /// Boxed to reduce enum size (this variant is ~48 bytes unboxed)
@@ -366,6 +374,7 @@ impl StreamingEvent {
             Self::RawContent { span, .. } => *span,
             Self::DirectiveStart { span, .. } => *span,
             Self::DirectiveStatement { span, .. } => *span,
+            Self::DirectiveBody { span, .. } => *span,
             Self::DirectiveEnd { span } => *span,
             Self::InlineDirective(data) => data.span,
             Self::Interpolation { span, .. } => *span,

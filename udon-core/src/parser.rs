@@ -781,7 +781,7 @@ impl StreamingParser {
 
     fn parse_document(&mut self) {
         #[derive(Clone, Copy)]
-        enum State { SStart, SEscaped, SEscapedText, SProse, SCheckInlineComment, SInlineComment, SInlineCommentNested, SInlineCommentNested2, SInlineCommentNested3, SLineComment, SBlockComment, SMaybeFreeform, SMaybeFreeform2, SFreeformStart, SFreeform, SFreeformEnd1, SFreeformEnd2, SDirective, SDirectiveBrace, SDirectiveInterp, SDirectiveInterpClose, SDirectiveInterpClose2, SDirectiveInterpNested, SDirectiveInterpNested2, SDirectiveInterpNested3, SInlineDirectiveName, SInlineDirectiveNs, SInlineDirectiveKind, SInlineDirectiveBody, SInlineDirectiveContent, SInlineDirectiveNested, SInlineDirectiveNested2, SInlineDirectiveNested3, SInlineDirectiveSkip, SDirectiveName, SDirectiveCheckRaw, SDirectiveStatement, SDirectiveStatementContent, SDirectiveChildren, SDirectiveChildrenWs, SDirectiveChildrenContent, SDirectiveChildrenAfterElement, SDirectiveChildEscaped, SDirectiveChildEscapedText, SDirectiveChildComment, SDirectiveChildDirective, SDirectiveChildDirectiveBrace, SDirectiveChildInterp, SDirectiveChildInterpClose, SDirectiveChildInterpClose2, SDirectiveChildInterpNested, SDirectiveChildInterpNested2, SDirectiveChildAfterInterp, SDirectiveChildProse, SDirectiveChildProseInline, SDirectiveChildCommentCheck, SDirectiveChildInlineComment, SDirectiveChildInlineCommentNested, SDirectiveChildInlineCommentNested2, SDirectiveChildInlineDir, SDirectiveChildInlineDirNested, SDirectiveChildInlineDirNested2, SDirectiveChildDirectiveName, SStartDispatch, SProseAfterDirective, SSkipLine }
+        enum State { SStart, SEscaped, SEscapedText, SProse, SCheckInlineComment, SInlineComment, SInlineCommentNested, SInlineCommentNested2, SInlineCommentNested3, SLineComment, SBlockComment, SMaybeFreeform, SMaybeFreeform2, SFreeformStart, SFreeform, SFreeformEnd1, SFreeformEnd2, SStartDispatch, SSkipLine }
 
         let mut state = State::SStart;
         loop {
@@ -823,8 +823,8 @@ impl StreamingParser {
                             state = State::SMaybeFreeform;
                         }
                         b'!' => {
-                            self.advance();
-                            state = State::SDirective;
+                            self.parse_directive(self.current_column());
+                            state = State::SStartDispatch;
                         }
                         _ => {
                             self.mark();
@@ -1125,1018 +1125,6 @@ impl StreamingParser {
                         }
                     }
                 }
-                State::SDirective => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveBrace;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SDirectiveName;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveBrace => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'{' => {
-                            self.advance();
-                            self.mark();
-                            state = State::SDirectiveInterp;
-                        }
-                        b if self.is_label_start(b) => {
-                            self.mark();
-                            state = State::SInlineDirectiveName;
-                        }
-                        _ => {
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
-                            state = State::SProseAfterDirective;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveInterp => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            { let expression = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Interpolation { expression, span }); }
-                            state = State::SDirectiveInterpClose;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveInterpNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveInterpClose => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveInterpClose2;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveInterp;
-                        }
-                        _ => {
-                            self.advance();
-                            state = State::SDirectiveInterp;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveInterpClose2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SProseAfterDirective;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveInterp;
-                        }
-                        _ => {
-                            self.advance();
-                            state = State::SDirectiveInterp;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveInterpNested => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveInterp;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveInterpNested2;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveInterpNested2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveInterpNested;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveInterpNested3;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveInterpNested3 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveInterpNested2;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SInlineDirectiveName => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b if self.is_label_continue(b) => {
-                            self.advance();
-                        }
-                        b':' => {
-                            // TODO: emit DirectiveName
-                            state = State::SInlineDirectiveNs;
-                        }
-                        b' ' | b'\t' => {
-                            // TODO: emit DirectiveName
-                            state = State::SInlineDirectiveBody;
-                        }
-                        b'}' => {
-                            // TODO: emit DirectiveName
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            state = State::SProseAfterDirective;
-                        }
-                        _ => {
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
-                            state = State::SInlineDirectiveSkip;
-                        }
-                        }
-                    }
-                }
-                State::SInlineDirectiveNs => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b if self.is_label_start(b) => {
-                            self.mark();
-                            state = State::SInlineDirectiveKind;
-                        }
-                        _ => {
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
-                            state = State::SInlineDirectiveSkip;
-                        }
-                        }
-                    }
-                }
-                State::SInlineDirectiveKind => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b if self.is_label_continue(b) => {
-                            self.advance();
-                        }
-                        b' ' | b'\t' => {
-                            // TODO: emit DirectiveKind
-                            state = State::SInlineDirectiveBody;
-                        }
-                        b'}' => {
-                            // TODO: emit DirectiveKind
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            state = State::SProseAfterDirective;
-                        }
-                        _ => {
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
-                            state = State::SInlineDirectiveSkip;
-                        }
-                        }
-                    }
-                }
-                State::SInlineDirectiveBody => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b' ' | b'\t' => {
-                            self.advance();
-                        }
-                        b'}' => {
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            state = State::SProseAfterDirective;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SInlineDirectiveContent;
-                        }
-                        }
-                    }
-                }
-                State::SInlineDirectiveContent => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            // TODO: emit DirectiveBody
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            state = State::SProseAfterDirective;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SInlineDirectiveNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SInlineDirectiveNested => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SInlineDirectiveContent;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SInlineDirectiveNested2;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SInlineDirectiveNested2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SInlineDirectiveNested;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SInlineDirectiveNested3;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SInlineDirectiveNested3 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedDirective, span: self.span_from_mark() });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SInlineDirectiveNested2;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SInlineDirectiveSkip => {
-                    if self.eof() {
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            state = State::SProseAfterDirective;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveName => {
-                    if self.eof() {
-                        { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        b':' => {
-                            self.advance();
-                            state = State::SDirectiveCheckRaw;
-                        }
-                        b' ' | b'\t' => {
-                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                            self.advance();
-                            state = State::SDirectiveStatement;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveCheckRaw => {
-                    if self.eof() {
-                        { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        b' ' | b'\t' => {
-                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                            self.advance();
-                            state = State::SDirectiveStatement;
-                        }
-                        _ => {
-                            self.advance();
-                            state = State::SDirectiveName;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveStatement => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b' ' | b'\t' => {
-                            self.advance();
-                        }
-                        b'\n' => {
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SDirectiveStatementContent;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveStatementContent => {
-                    // SCAN-first: bulk scan and match result
-                    match self.scan_to1(b'\n') {
-                        Some(b'\n') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStatement { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        None => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStatement { content, span }); }
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            return;
-                        }
-                        _ => {} // Other bytes not possible after SCAN
-                    }
-                }
-                State::SDirectiveChildren => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            self.advance();
-                        }
-                        b' ' => {
-                            self.advance();
-                            state = State::SDirectiveChildrenWs;
-                        }
-                        b'\t' => {
-                            self.advance();
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
-                            state = State::SSkipLine;
-                        }
-                        _ => {
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            state = State::SStartDispatch;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildrenWs => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        b' ' => {
-                            self.advance();
-                        }
-                        b'\t' => {
-                            self.advance();
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
-                            state = State::SSkipLine;
-                        }
-                        _ => {
-                            state = State::SDirectiveChildrenContent;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildrenContent => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\'' => {
-                            self.advance();
-                            state = State::SDirectiveChildEscaped;
-                        }
-                        b';' => {
-                            self.advance();
-                            self.mark();
-                            state = State::SDirectiveChildComment;
-                        }
-                        b'|' => {
-                            self.parse_element(self.current_column());
-                            state = State::SDirectiveChildrenAfterElement;
-                        }
-                        b'!' => {
-                            self.advance();
-                            state = State::SDirectiveChildDirective;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SDirectiveChildProse;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildrenAfterElement => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        b' ' => {
-                            self.advance();
-                            state = State::SDirectiveChildrenWs;
-                        }
-                        b'\t' => {
-                            self.advance();
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
-                            state = State::SSkipLine;
-                        }
-                        _ => {
-                            state = State::SDirectiveChildrenContent;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildEscaped => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SDirectiveChildEscapedText;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildEscapedText => {
-                    // SCAN-first: bulk scan and match result
-                    match self.scan_to1(b'\n') {
-                        Some(b'\n') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        None => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            return;
-                        }
-                        _ => {} // Other bytes not possible after SCAN
-                    }
-                }
-                State::SDirectiveChildComment => {
-                    // SCAN-first: bulk scan and match result
-                    match self.scan_to1(b'\n') {
-                        Some(b'\n') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        None => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            return;
-                        }
-                        _ => {} // Other bytes not possible after SCAN
-                    }
-                }
-                State::SDirectiveChildDirective => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveChildDirectiveBrace;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SDirectiveChildDirectiveName;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildDirectiveBrace => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'{' => {
-                            self.advance();
-                            self.mark();
-                            state = State::SDirectiveChildInterp;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SDirectiveChildInlineDir;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInterp => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            { let expression = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Interpolation { expression, span }); }
-                            state = State::SDirectiveChildInterpClose;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveChildInterpNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInterpClose => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveChildInterpClose2;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveChildInterp;
-                        }
-                        _ => {
-                            self.advance();
-                            state = State::SDirectiveChildInterp;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInterpClose2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveChildAfterInterp;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveChildInterp;
-                        }
-                        _ => {
-                            self.advance();
-                            state = State::SDirectiveChildInterp;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInterpNested => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveChildInterp;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveChildInterpNested2;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInterpNested2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveChildInterpNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildAfterInterp => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        b';' => {
-                            self.advance();
-                            state = State::SDirectiveChildCommentCheck;
-                        }
-                        b'|' => {
-                            self.parse_element(self.current_column());
-                            state = State::SDirectiveChildrenAfterElement;
-                        }
-                        b'!' => {
-                            self.advance();
-                            state = State::SDirectiveChildDirective;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SDirectiveChildProseInline;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildProse => {
-                    // SCAN-first: bulk scan and match result
-                    match self.scan_to4(b'\n', b';', b'|', b'!') {
-                        Some(b'\n') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        Some(b';') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildCommentCheck;
-                        }
-                        Some(b'|') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.parse_element(self.current_column());
-                            state = State::SDirectiveChildrenAfterElement;
-                        }
-                        Some(b'!') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildDirective;
-                        }
-                        None => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            return;
-                        }
-                        _ => {} // Other bytes not possible after SCAN
-                    }
-                }
-                State::SDirectiveChildProseInline => {
-                    // SCAN-first: bulk scan and match result
-                    match self.scan_to4(b'\n', b';', b'|', b'!') {
-                        Some(b'\n') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        Some(b';') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildCommentCheck;
-                        }
-                        Some(b'|') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.parse_element(self.current_column());
-                            state = State::SDirectiveChildrenAfterElement;
-                        }
-                        Some(b'!') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildDirective;
-                        }
-                        None => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            return;
-                        }
-                        _ => {} // Other bytes not possible after SCAN
-                    }
-                }
-                State::SDirectiveChildCommentCheck => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'{' => {
-                            self.advance();
-                            self.mark();
-                            state = State::SDirectiveChildInlineComment;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SDirectiveChildComment;
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInlineComment => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildAfterInterp;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveChildInlineCommentNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInlineCommentNested => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveChildInlineComment;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveChildInlineCommentNested2;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInlineCommentNested2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveChildInlineCommentNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInlineDir => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveChildAfterInterp;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveChildInlineDirNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInlineDirNested => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveChildInlineDir;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SDirectiveChildInlineDirNested2;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildInlineDirNested2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SDirectiveChildInlineDirNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SDirectiveChildDirectiveName => {
-                    if self.eof() {
-                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildren;
-                        }
-                        b' ' | b'\t' => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SDirectiveChildProse;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
                 State::SStartDispatch => {
                     if self.eof() {
                         return;
@@ -2174,33 +1162,8 @@ impl StreamingParser {
                             state = State::SMaybeFreeform;
                         }
                         b'!' => {
-                            self.advance();
-                            state = State::SDirective;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SProse;
-                        }
-                        }
-                    }
-                }
-                State::SProseAfterDirective => {
-                    if self.eof() {
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            self.advance();
-                            state = State::SStart;
-                        }
-                        b';' => {
-                            self.advance();
-                            state = State::SCheckInlineComment;
-                        }
-                        b'|' => {
-                            self.parse_element(self.current_column());
-                            state = State::SStart;
+                            self.parse_directive(self.current_column());
+                            state = State::SStartDispatch;
                         }
                         _ => {
                             self.mark();
@@ -2232,7 +1195,7 @@ impl StreamingParser {
         let mut content_base: i32 = -1;
 
         #[derive(Clone, Copy)]
-        enum State { SIdentity, SEmbedIdentity, SEmbedName, SEmbedAfterNameSuffix, SEmbedAnonBracket, SEmbedBracketStart, SEmbedBracketValue, SEmbedAfterBracket, SEmbedClassStart, SEmbedClassName, SEmbedClassQuoted, SEmbedClassQuotedContent, SEmbedClassQuotedEsc, SEmbedClassCheck, SEmbedAfterIdentity, SEmbedAttrKey, SEmbedAttrKeyScan, SEmbedAttrKeyQuoted, SEmbedAttrKeyQuotedContent, SEmbedAttrKeyQuotedEsc, SEmbedAttrValue, SEmbedAttrDquote, SEmbedAttrDquoteContent, SEmbedAttrDquoteEsc, SEmbedAttrSquote, SEmbedAttrSquoteContent, SEmbedAttrSquoteEsc, SEmbedAttrBare, SEmbedAttrAfterValue, SEmbedCheckNested, SEmbedAfterNested, SEmbedContent, SEmbedContentNested, SEmbedContentNested2, SEmbedContentNested3, SEmbedCommentCheck, SEmbedInlineComment, SEmbedInlineCommentNested, SEmbedContentAfterComment, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdSpaceClassOrSuffix, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SInlineDirective, SInlineDirBrace, SInlineInterp, SInlineInterpClose, SInlineInterpClose2, SInlineInterpNested, SInlineInterpNested2, SInlineAfterInterp, SInlineInlineDirName, SInlineInlineDirNs, SInlineInlineDirKind, SInlineInlineDirBody, SInlineInlineDirNested, SInlineInlineDirNested2, SInlineCheckPipe, SInlineAfterElement, SElemCommentCheck, SElemInlineComment, SElemInlineCommentNested, SElemInlineCommentNested2, SElemLineComment, SInlineAttrKey, SInlineAttrMerge, SInlineAttrAfterMerge, SInlineAttrKeyScan, SInlineAttrKeyQuoted, SInlineAttrKeyQuotedContent, SInlineAttrKeyQuotedEsc, SInlineAttrWs, SInlineAttrValue, SInlineAttrDquote, SInlineAttrDquoteContent, SInlineAttrDquoteEsc, SInlineAttrSquote, SInlineAttrSquoteContent, SInlineAttrSquoteEsc, SInlineAttrBare, SInlineAttrAfterValue, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildIdRef, SChildIdRefValue, SChildCommentStart, SChildCommentCheck, SChildInlineComment, SChildInlineCommentNested, SChildInlineCommentNested2, SChildProseAfterComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeformStart, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveBrace, SChildDirectiveInterp, SChildDirectiveInterpClose, SChildDirectiveInterpClose2, SChildProseAfterInterp, SChildProseInline, SChildInterpNested, SChildInterpNested2, SChildInlineDirectiveName, SChildInlineDirectiveNs, SChildInlineDirectiveKind, SChildInlineDirectiveBody, SChildInlineDirectiveContent, SChildInlineDirNested, SChildInlineDirNested2, SChildInlineDirectiveSkip, SChildDirectiveName, SChildDirectiveCheckRaw, SChildDirectiveStatement, SChildDirectiveStatementContent, SChildDirectiveChildren, SChildDirectiveBody, SChildDirBodyNested, SChildDirBodyNested2, SSkipChild, SAttrKey, SAttrMerge, SAttrAfterMerge, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine }
+        enum State { SIdentity, SEmbedIdentity, SEmbedName, SEmbedAfterNameSuffix, SEmbedAnonBracket, SEmbedBracketStart, SEmbedBracketValue, SEmbedAfterBracket, SEmbedClassStart, SEmbedClassName, SEmbedClassQuoted, SEmbedClassQuotedContent, SEmbedClassQuotedEsc, SEmbedClassCheck, SEmbedAfterIdentity, SEmbedAttrKey, SEmbedAttrKeyScan, SEmbedAttrKeyQuoted, SEmbedAttrKeyQuotedContent, SEmbedAttrKeyQuotedEsc, SEmbedAttrValue, SEmbedAttrDquote, SEmbedAttrDquoteContent, SEmbedAttrDquoteEsc, SEmbedAttrSquote, SEmbedAttrSquoteContent, SEmbedAttrSquoteEsc, SEmbedAttrBare, SEmbedAttrAfterValue, SEmbedCheckNested, SEmbedAfterNested, SEmbedContent, SEmbedContentNested, SEmbedContentNested2, SEmbedContentNested3, SEmbedCommentCheck, SEmbedInlineComment, SEmbedInlineCommentNested, SEmbedContentAfterComment, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdSpaceClassOrSuffix, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SInlineDirective, SInlineDirBrace, SInlineRawLabel, SInlineRawContent, SInlineRawBody, SInlineRawN1, SInlineRawN2, SInlineRawN3, SInlineInterp, SInlineInterpClose, SInlineInterpClose2, SInlineInterpNested, SInlineInterpNested2, SInlineAfterInterp, SInlineInlineDirName, SInlineInlineDirNs, SInlineInlineDirKind, SInlineInlineDirBody, SInlineInlineDirNested, SInlineInlineDirNested2, SInlineCheckPipe, SInlineAfterElement, SElemCommentCheck, SElemInlineComment, SElemInlineCommentNested, SElemInlineCommentNested2, SElemLineComment, SInlineAttrKey, SInlineAttrMerge, SInlineAttrAfterMerge, SInlineAttrKeyScan, SInlineAttrKeyQuoted, SInlineAttrKeyQuotedContent, SInlineAttrKeyQuotedEsc, SInlineAttrWs, SInlineAttrValue, SInlineAttrDquote, SInlineAttrDquoteContent, SInlineAttrDquoteEsc, SInlineAttrSquote, SInlineAttrSquoteContent, SInlineAttrSquoteEsc, SInlineAttrBare, SInlineAttrAfterValue, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenAfterDirective, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildIdRef, SChildIdRefValue, SChildCommentStart, SChildCommentCheck, SChildInlineComment, SChildInlineCommentNested, SChildInlineCommentNested2, SChildProseAfterComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeformStart, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SSkipChild, SAttrKey, SAttrMerge, SAttrAfterMerge, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine }
 
         let mut state = State::SIdentity;
         loop {
@@ -3969,6 +2932,11 @@ impl StreamingParser {
                             self.mark();
                             state = State::SInlineInterp;
                         }
+                        b':' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SInlineRawLabel;
+                        }
                         b if self.is_label_start(b) => {
                             self.mark();
                             state = State::SInlineInlineDirName;
@@ -3976,6 +2944,137 @@ impl StreamingParser {
                         _ => {
                             self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
                             state = State::SInlineText;
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawLabel => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b':' => {
+                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: true, span }); }
+                            self.advance();
+                            state = State::SInlineRawContent;
+                        }
+                        b if self.is_label_continue(b) => {
+                            self.advance();
+                        }
+                        _ => {
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::InvalidLabel, span: self.span_from_mark() });
+                            state = State::SInlineText;
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawContent => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.advance();
+                            self.mark();
+                            state = State::SInlineText;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SInlineRawBody;
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawBody => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveBody { content, span }); }
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            self.advance();
+                            self.mark();
+                            state = State::SInlineText;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineRawN1;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawN1 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineRawBody;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineRawN2;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawN2 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineRawN1;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineRawN3;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawN3 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineRawN2;
+                        }
+                        _ => {
+                            self.advance();
                         }
                         }
                     }
@@ -4204,7 +3303,7 @@ impl StreamingParser {
                     if let Some(b) = self.peek() {
                         match b {
                         b'}' => {
-                            // TODO: emit DirectiveBody
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveBody { content, span }); }
                             self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                             state = State::SInlineAfterInterp;
                         }
@@ -4896,8 +3995,8 @@ impl StreamingParser {
                             state = State::SChildFreeformCheck;
                         }
                         b'!' => {
-                            self.advance();
-                            state = State::SChildDirective;
+                            self.parse_directive(self.current_column());
+                            state = State::SChildrenAfterDirective;
                         }
                         _ => {
                             self.mark();
@@ -4911,6 +4010,36 @@ impl StreamingParser {
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SChildren;
+                        }
+                        b' ' => {
+                            self.advance();
+                            state = State::SChildrenCountWs;
+                        }
+                        b'\t' => {
+                            self.advance();
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
+                            state = State::SSkipChild;
+                        }
+                        _ => {
+                            state = State::SChildrenContent;
+                        }
+                        }
+                    }
+                }
+                State::SChildrenAfterDirective => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if self.current_column()  <=  elem_col {
+    self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+    return;
+}
                     if let Some(b) = self.peek() {
                         match b {
                         b'\n' => {
@@ -5014,8 +4143,8 @@ impl StreamingParser {
                         }
                         Some(b'!') => {
                             self.emit_dedented_text(&mut content_base);
-                            self.advance();
-                            state = State::SChildDirective;
+                            self.parse_directive(self.current_column());
+                            state = State::SChildrenAfterDirective;
                         }
                         None => {
                             self.emit_dedented_text(&mut content_base);
@@ -5335,579 +4464,6 @@ impl StreamingParser {
                         _ => {
                             self.advance();
                             state = State::SChildFreeform;
-                        }
-                        }
-                    }
-                }
-                State::SChildDirective => {
-                    if self.eof() {
-                        // TODO: emit Directive
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'{' => {
-                            self.advance();
-                            state = State::SChildDirectiveBrace;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SChildDirectiveName;
-                        }
-                        }
-                    }
-                }
-                State::SChildDirectiveBrace => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'{' => {
-                            self.advance();
-                            self.mark();
-                            state = State::SChildDirectiveInterp;
-                        }
-                        b if self.is_label_start(b) => {
-                            self.mark();
-                            state = State::SChildInlineDirectiveName;
-                        }
-                        _ => {
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
-                            state = State::SChildProse;
-                        }
-                        }
-                    }
-                }
-                State::SChildDirectiveInterp => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            { let expression = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Interpolation { expression, span }); }
-                            state = State::SChildDirectiveInterpClose;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SChildInterpNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SChildDirectiveInterpClose => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SChildDirectiveInterpClose2;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SChildDirectiveInterp;
-                        }
-                        _ => {
-                            self.advance();
-                            state = State::SChildDirectiveInterp;
-                        }
-                        }
-                    }
-                }
-                State::SChildDirectiveInterpClose2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SChildProseAfterInterp;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SChildDirectiveInterp;
-                        }
-                        _ => {
-                            self.advance();
-                            state = State::SChildDirectiveInterp;
-                        }
-                        }
-                    }
-                }
-                State::SChildProseAfterInterp => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            self.advance();
-                            state = State::SChildren;
-                        }
-                        b';' => {
-                            self.advance();
-                            state = State::SChildCommentCheck;
-                        }
-                        b'|' => {
-                            self.parse_element(self.current_column());
-                            state = State::SChildrenAfterElement;
-                        }
-                        b'!' => {
-                            self.advance();
-                            state = State::SChildDirective;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SChildProseInline;
-                        }
-                        }
-                    }
-                }
-                State::SChildProseInline => {
-                    // SCAN-first: bulk scan and match result
-                    match self.scan_to4(b'\n', b';', b'|', b'!') {
-                        Some(b'\n') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SChildren;
-                        }
-                        Some(b';') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SChildCommentCheck;
-                        }
-                        Some(b'|') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.parse_element(self.current_column());
-                            state = State::SChildrenAfterElement;
-                        }
-                        Some(b'!') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
-                            state = State::SChildDirective;
-                        }
-                        None => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            return;
-                        }
-                        _ => {} // Other bytes not possible after SCAN
-                    }
-                }
-                State::SChildInterpNested => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SChildDirectiveInterp;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SChildInterpNested2;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SChildInterpNested2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SChildInterpNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SChildInlineDirectiveName => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b if self.is_label_continue(b) => {
-                            self.advance();
-                        }
-                        b':' => {
-                            // TODO: emit DirectiveName
-                            state = State::SChildInlineDirectiveNs;
-                        }
-                        b' ' | b'\t' => {
-                            // TODO: emit DirectiveName
-                            state = State::SChildInlineDirectiveBody;
-                        }
-                        b'}' => {
-                            // TODO: emit DirectiveName
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            state = State::SChildProse;
-                        }
-                        _ => {
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
-                            state = State::SChildInlineDirectiveSkip;
-                        }
-                        }
-                    }
-                }
-                State::SChildInlineDirectiveNs => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b if self.is_label_start(b) => {
-                            self.mark();
-                            state = State::SChildInlineDirectiveKind;
-                        }
-                        _ => {
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
-                            state = State::SChildInlineDirectiveSkip;
-                        }
-                        }
-                    }
-                }
-                State::SChildInlineDirectiveKind => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b if self.is_label_continue(b) => {
-                            self.advance();
-                        }
-                        b' ' | b'\t' => {
-                            // TODO: emit DirectiveKind
-                            state = State::SChildInlineDirectiveBody;
-                        }
-                        b'}' => {
-                            // TODO: emit DirectiveKind
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            state = State::SChildProse;
-                        }
-                        _ => {
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
-                            state = State::SChildInlineDirectiveSkip;
-                        }
-                        }
-                    }
-                }
-                State::SChildInlineDirectiveBody => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b' ' | b'\t' => {
-                            self.advance();
-                        }
-                        b'}' => {
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            state = State::SChildProse;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SChildInlineDirectiveContent;
-                        }
-                        }
-                    }
-                }
-                State::SChildInlineDirectiveContent => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            // TODO: emit DirectiveBody
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            state = State::SChildProse;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SChildInlineDirNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SChildInlineDirNested => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SChildInlineDirectiveContent;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SChildInlineDirNested2;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SChildInlineDirNested2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SChildInlineDirNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SChildInlineDirectiveSkip => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            state = State::SChildProse;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SChildDirectiveName => {
-                    if self.eof() {
-                        { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                            self.advance();
-                            state = State::SChildDirectiveChildren;
-                        }
-                        b':' => {
-                            self.advance();
-                            state = State::SChildDirectiveCheckRaw;
-                        }
-                        b' ' | b'\t' => {
-                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                            self.advance();
-                            state = State::SChildDirectiveStatement;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SChildDirectiveCheckRaw => {
-                    if self.eof() {
-                        { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                            self.advance();
-                            state = State::SChildDirectiveChildren;
-                        }
-                        b' ' | b'\t' => {
-                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
-                            self.advance();
-                            state = State::SChildDirectiveStatement;
-                        }
-                        _ => {
-                            self.advance();
-                            state = State::SChildDirectiveName;
-                        }
-                        }
-                    }
-                }
-                State::SChildDirectiveStatement => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b' ' | b'\t' => {
-                            self.advance();
-                        }
-                        b'\n' => {
-                            self.advance();
-                            state = State::SChildDirectiveChildren;
-                        }
-                        _ => {
-                            self.mark();
-                            state = State::SChildDirectiveStatementContent;
-                        }
-                        }
-                    }
-                }
-                State::SChildDirectiveStatementContent => {
-                    // SCAN-first: bulk scan and match result
-                    match self.scan_to1(b'\n') {
-                        Some(b'\n') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStatement { content, span }); }
-                            self.advance();
-                            state = State::SChildDirectiveChildren;
-                        }
-                        None => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStatement { content, span }); }
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            return;
-                        }
-                        _ => {} // Other bytes not possible after SCAN
-                    }
-                }
-                State::SChildDirectiveChildren => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'\n' => {
-                            self.advance();
-                        }
-                        b' ' => {
-                            self.advance();
-                            state = State::SChildrenCountWs;
-                        }
-                        b'\t' => {
-                            self.advance();
-                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
-                            state = State::SSkipChild;
-                        }
-                        _ => {
-                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                            state = State::SChildrenContent;
-                        }
-                        }
-                    }
-                }
-                State::SChildDirectiveBody => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            // TODO: emit DirectiveBody
-                            state = State::SChildProse;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SChildDirBodyNested;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SChildDirBodyNested => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SChildDirectiveBody;
-                        }
-                        b'{' => {
-                            self.advance();
-                            state = State::SChildDirBodyNested2;
-                        }
-                        _ => {
-                            self.advance();
-                        }
-                        }
-                    }
-                }
-                State::SChildDirBodyNested2 => {
-                    if self.eof() {
-                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
-                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
-                        return;
-                    }
-                    if let Some(b) = self.peek() {
-                        match b {
-                        b'}' => {
-                            self.advance();
-                            state = State::SChildDirBodyNested;
-                        }
-                        _ => {
-                            self.advance();
                         }
                         }
                     }
@@ -6489,6 +5045,1181 @@ impl StreamingParser {
                             self.emit(StreamingEvent::ArrayEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                             self.advance();
                             return;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn parse_directive(&mut self, dir_col: i32) {
+        let mut content_base: i32 = -1;
+
+        #[derive(Clone, Copy)]
+        enum State { SStart, SDispatch, SRawLabel, SRawAfterLabel, SRawInlineWs, SRawInlineContent, SRawChildren, SRawChildrenWs, SRawChildrenContent, SRawLine, SRawSkipLine, SInlineBrace, SInlineRawLabel, SInlineRawContent, SInlineRawBody, SInlineRawN1, SInlineRawN2, SInlineRawN3, SInlineInterp, SInlineInterpClose, SInlineInterpClose2, SInlineInterpN1, SInlineInterpN2, SInlineInterpN3, SInlineName, SInlineNs, SInlineKind, SInlineBodyStart, SInlineBody, SInlineBodyN1, SInlineBodyN2, SInlineBodyN3, SInlineSkip, SBlockName, SBlockCheckRaw, SBlockStatement, SBlockStatementContent, SBlockChildren, SBlockChildrenWs, SBlockChildrenContent, SBlockAfterElement, SBlockAfterDirective, SBlockChildEscaped, SBlockChildEscapedText, SBlockChildComment, SBlockChildProse, SBlockChildCommentCheck, SBlockInlineComment, SBlockInlineCommentN1, SBlockInlineCommentN2, SBlockProseAfterComment, SBlockChildAttr, SBlockSkipLine }
+
+        let mut state = State::SStart;
+        loop {
+            match state {
+                State::SStart => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'!' => {
+                            self.advance();
+                            state = State::SDispatch;
+                        }
+                        _ => {
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
+                            return;
+                        }
+                        }
+                    }
+                }
+                State::SDispatch => {
+                    if self.eof() {
+                        self.emit_bang_text();
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b':' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SRawLabel;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineBrace;
+                        }
+                        b if self.is_label_start(b) => {
+                            self.mark();
+                            state = State::SBlockName;
+                        }
+                        _ => {
+                            self.emit_bang_text();
+                            return;
+                        }
+                        }
+                    }
+                }
+                State::SRawLabel => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b':' => {
+                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: true, span }); }
+                            self.advance();
+                            state = State::SRawAfterLabel;
+                        }
+                        b if self.is_label_continue(b) => {
+                            self.advance();
+                        }
+                        _ => {
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::InvalidLabel, span: self.span_from_mark() });
+                            state = State::SBlockSkipLine;
+                        }
+                        }
+                    }
+                }
+                State::SRawAfterLabel => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SRawChildren;
+                        }
+                        b' ' | b'\t' => {
+                            self.advance();
+                            state = State::SRawInlineWs;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SRawInlineContent;
+                        }
+                        }
+                    }
+                }
+                State::SRawInlineWs => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SRawChildren;
+                        }
+                        b' ' | b'\t' => {
+                            self.advance();
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SRawInlineContent;
+                        }
+                        }
+                    }
+                }
+                State::SRawInlineContent => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.advance();
+                            state = State::SRawChildren;
+                        }
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {} // Other bytes not possible after SCAN
+                    }
+                }
+                State::SRawChildren => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                        }
+                        b' ' => {
+                            self.advance();
+                            state = State::SRawChildrenWs;
+                        }
+                        b'\t' => {
+                            self.advance();
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
+                            state = State::SRawSkipLine;
+                        }
+                        _ => {
+                            state = State::SRawChildrenContent;
+                        }
+                        }
+                    }
+                }
+                State::SRawChildrenWs => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SRawChildren;
+                        }
+                        b' ' => {
+                            self.advance();
+                        }
+                        b'\t' => {
+                            self.advance();
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
+                            state = State::SRawSkipLine;
+                        }
+                        _ => {
+                            state = State::SRawChildrenContent;
+                        }
+                        }
+                    }
+                }
+                State::SRawChildrenContent => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if self.current_column()  <=  dir_col {
+    self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+    return;
+}
+                    if let Some(b) = self.peek() {
+                        match b {
+                        _ => {
+                            self.mark();
+                            state = State::SRawLine;
+                        }
+                        }
+                    }
+                }
+                State::SRawLine => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
+                            self.emit_dedented_text(&mut content_base);
+                            self.advance();
+                            state = State::SRawChildren;
+                        }
+                        None => {
+                            self.emit_dedented_text(&mut content_base);
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {} // Other bytes not possible after SCAN
+                    }
+                }
+                State::SRawSkipLine => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
+                            self.advance();
+                            state = State::SRawChildren;
+                        }
+                        None => {
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {} // Other bytes not possible after SCAN
+                    }
+                }
+                State::SInlineBrace => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'{' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SInlineInterp;
+                        }
+                        b':' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SInlineRawLabel;
+                        }
+                        b if self.is_label_start(b) => {
+                            self.mark();
+                            state = State::SInlineName;
+                        }
+                        _ => {
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
+                            return;
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawLabel => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b':' => {
+                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: true, span }); }
+                            self.advance();
+                            state = State::SInlineRawContent;
+                        }
+                        b if self.is_label_continue(b) => {
+                            self.advance();
+                        }
+                        _ => {
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::InvalidLabel, span: self.span_from_mark() });
+                            state = State::SInlineSkip;
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawContent => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveBody { content, span }); }
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SInlineRawBody;
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawBody => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveBody { content, span }); }
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineRawN1;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawN1 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineRawBody;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineRawN2;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawN2 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineRawN1;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineRawN3;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineRawN3 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineRawN2;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineInterp => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            { let expression = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Interpolation { expression, span }); }
+                            state = State::SInlineInterpClose;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineInterpN1;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineInterpClose => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineInterpClose2;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineInterp;
+                        }
+                        _ => {
+                            self.advance();
+                            state = State::SInlineInterp;
+                        }
+                        }
+                    }
+                }
+                State::SInlineInterpClose2 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            return;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineInterp;
+                        }
+                        _ => {
+                            self.advance();
+                            state = State::SInlineInterp;
+                        }
+                        }
+                    }
+                }
+                State::SInlineInterpN1 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineInterp;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineInterpN2;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineInterpN2 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineInterpN1;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineInterpN3;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineInterpN3 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineInterpN2;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineName => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b if self.is_label_continue(b) => {
+                            self.advance();
+                        }
+                        b':' => {
+                            // TODO: emit DirectiveName
+                            state = State::SInlineNs;
+                        }
+                        b' ' | b'\t' => {
+                            // TODO: emit DirectiveName
+                            state = State::SInlineBodyStart;
+                        }
+                        b'}' => {
+                            // TODO: emit DirectiveName
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
+                            state = State::SInlineSkip;
+                        }
+                        }
+                    }
+                }
+                State::SInlineNs => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b if self.is_label_start(b) => {
+                            self.mark();
+                            state = State::SInlineKind;
+                        }
+                        _ => {
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
+                            state = State::SInlineSkip;
+                        }
+                        }
+                    }
+                }
+                State::SInlineKind => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b if self.is_label_continue(b) => {
+                            self.advance();
+                        }
+                        b' ' | b'\t' => {
+                            // TODO: emit DirectiveKind
+                            state = State::SInlineBodyStart;
+                        }
+                        b'}' => {
+                            // TODO: emit DirectiveKind
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::IncompleteDirective, span: self.span_from_mark() });
+                            state = State::SInlineSkip;
+                        }
+                        }
+                    }
+                }
+                State::SInlineBodyStart => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b' ' | b'\t' => {
+                            self.advance();
+                        }
+                        b'}' => {
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SInlineBody;
+                        }
+                        }
+                    }
+                }
+                State::SInlineBody => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveBody { content, span }); }
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineBodyN1;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineBodyN1 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineBody;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineBodyN2;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineBodyN2 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineBodyN1;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SInlineBodyN3;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineBodyN3 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::Unclosed, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SInlineBodyN2;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineSkip => {
+                    if self.eof() {
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            return;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SBlockName => {
+                    if self.eof() {
+                        { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        b':' => {
+                            self.advance();
+                            state = State::SBlockCheckRaw;
+                        }
+                        b' ' | b'\t' => {
+                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
+                            self.advance();
+                            state = State::SBlockStatement;
+                        }
+                        b if self.is_label_continue(b) => {
+                            self.advance();
+                        }
+                        _ => {
+                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
+                            state = State::SBlockStatement;
+                        }
+                        }
+                    }
+                }
+                State::SBlockCheckRaw => {
+                    if self.eof() {
+                        { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        b' ' | b'\t' => {
+                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
+                            self.advance();
+                            state = State::SBlockStatement;
+                        }
+                        b if self.is_label_continue(b) => {
+                            self.advance();
+                            state = State::SBlockName;
+                        }
+                        _ => {
+                            { let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }
+                            state = State::SBlockStatement;
+                        }
+                        }
+                    }
+                }
+                State::SBlockStatement => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b' ' | b'\t' => {
+                            self.advance();
+                        }
+                        b'\n' => {
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SBlockStatementContent;
+                        }
+                        }
+                    }
+                }
+                State::SBlockStatementContent => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStatement { content, span }); }
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStatement { content, span }); }
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {} // Other bytes not possible after SCAN
+                    }
+                }
+                State::SBlockChildren => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                        }
+                        b' ' => {
+                            self.advance();
+                            state = State::SBlockChildrenWs;
+                        }
+                        b'\t' => {
+                            self.advance();
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
+                            state = State::SBlockSkipLine;
+                        }
+                        _ => {
+                            state = State::SBlockChildrenContent;
+                        }
+                        }
+                    }
+                }
+                State::SBlockChildrenWs => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        b' ' => {
+                            self.advance();
+                        }
+                        b'\t' => {
+                            self.advance();
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
+                            state = State::SBlockSkipLine;
+                        }
+                        _ => {
+                            state = State::SBlockChildrenContent;
+                        }
+                        }
+                    }
+                }
+                State::SBlockChildrenContent => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if self.current_column()  <=  dir_col {
+    self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+    return;
+}
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\'' => {
+                            self.advance();
+                            state = State::SBlockChildEscaped;
+                        }
+                        b';' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SBlockChildComment;
+                        }
+                        b'|' => {
+                            self.parse_element(self.current_column());
+                            state = State::SBlockAfterElement;
+                        }
+                        b'!' => {
+                            self.parse_directive(self.current_column());
+                            state = State::SBlockAfterDirective;
+                        }
+                        b':' => {
+                            self.advance();
+                            state = State::SBlockChildAttr;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SBlockChildProse;
+                        }
+                        }
+                    }
+                }
+                State::SBlockAfterElement => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if self.current_column()  <=  dir_col {
+    self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+    return;
+}
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        b' ' => {
+                            self.advance();
+                            state = State::SBlockChildrenWs;
+                        }
+                        b'\t' => {
+                            self.advance();
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
+                            state = State::SBlockSkipLine;
+                        }
+                        _ => {
+                            state = State::SBlockChildrenContent;
+                        }
+                        }
+                    }
+                }
+                State::SBlockAfterDirective => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if self.current_column()  <=  dir_col {
+    self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+    return;
+}
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        b' ' => {
+                            self.advance();
+                            state = State::SBlockChildrenWs;
+                        }
+                        b'\t' => {
+                            self.advance();
+                            self.emit(StreamingEvent::Error { code: ParseErrorCode::NoTabs, span: self.span_from_mark() });
+                            state = State::SBlockSkipLine;
+                        }
+                        _ => {
+                            state = State::SBlockChildrenContent;
+                        }
+                        }
+                    }
+                }
+                State::SBlockChildEscaped => {
+                    if self.eof() {
+                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SBlockChildEscapedText;
+                        }
+                        }
+                    }
+                }
+                State::SBlockChildEscapedText => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {} // Other bytes not possible after SCAN
+                    }
+                }
+                State::SBlockChildComment => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to1(b'\n') {
+                        Some(b'\n') => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        None => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {} // Other bytes not possible after SCAN
+                    }
+                }
+                State::SBlockChildProse => {
+                    // SCAN-first: bulk scan and match result
+                    match self.scan_to4(b'\n', b';', b'|', b'!') {
+                        Some(b'\n') => {
+                            self.emit_dedented_text(&mut content_base);
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        Some(b';') => {
+                            self.emit_dedented_text(&mut content_base);
+                            self.advance();
+                            state = State::SBlockChildCommentCheck;
+                        }
+                        Some(b'|') => {
+                            self.emit_dedented_text(&mut content_base);
+                            self.parse_element(self.current_column());
+                            state = State::SBlockAfterElement;
+                        }
+                        Some(b'!') => {
+                            self.emit_dedented_text(&mut content_base);
+                            self.parse_directive(self.current_column());
+                            state = State::SBlockAfterDirective;
+                        }
+                        None => {
+                            self.emit_dedented_text(&mut content_base);
+                            self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                            return;
+                        }
+                        _ => {} // Other bytes not possible after SCAN
+                    }
+                }
+                State::SBlockChildCommentCheck => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'{' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SBlockInlineComment;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SBlockChildComment;
+                        }
+                        }
+                    }
+                }
+                State::SBlockInlineComment => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedComment, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
+                            self.advance();
+                            state = State::SBlockProseAfterComment;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SBlockInlineCommentN1;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SBlockInlineCommentN1 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedComment, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SBlockInlineComment;
+                        }
+                        b'{' => {
+                            self.advance();
+                            state = State::SBlockInlineCommentN2;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SBlockInlineCommentN2 => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedComment, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'}' => {
+                            self.advance();
+                            state = State::SBlockInlineCommentN1;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SBlockProseAfterComment => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SBlockChildren;
+                        }
+                        b';' => {
+                            self.advance();
+                            state = State::SBlockChildCommentCheck;
+                        }
+                        b'|' => {
+                            self.parse_element(self.current_column());
+                            state = State::SBlockAfterElement;
+                        }
+                        b'!' => {
+                            self.parse_directive(self.current_column());
+                            state = State::SBlockAfterDirective;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SBlockChildProse;
+                        }
+                        }
+                    }
+                }
+                State::SBlockChildAttr => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        _ => {
+                            self.mark();
+                            state = State::SBlockChildProse;
+                        }
+                        }
+                    }
+                }
+                State::SBlockSkipLine => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SBlockChildren;
                         }
                         _ => {
                             self.advance();

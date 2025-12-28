@@ -69,6 +69,7 @@ enum E {
     // Directives
     DirStart(Vec<u8>, bool),  // !name (name, raw)
     DirStmt(Vec<u8>),         // statement/condition
+    DirBody(Vec<u8>),         // inline directive body
     DirEnd,
 
     // Other
@@ -84,7 +85,14 @@ fn parse(input: &[u8]) -> Vec<E> {
 
     let mut events = Vec::new();
     while let Some(event) = parser.read() {
-        events.push(E::from_streaming(event, &parser));
+        let e = E::from_streaming(event, &parser);
+        // Filter out empty text events (can occur at boundaries)
+        if let E::Text(ref content) = e {
+            if content.is_empty() {
+                continue;
+            }
+        }
+        events.push(e);
     }
     events
 }
@@ -139,6 +147,9 @@ impl E {
                 raw
             ),
             StreamingEvent::DirectiveStatement { content, .. } => E::DirStmt(
+                parser.arena().resolve(content).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::DirectiveBody { content, .. } => E::DirBody(
                 parser.arena().resolve(content).unwrap_or(&[]).to_vec()
             ),
             StreamingEvent::DirectiveEnd { .. } => E::DirEnd,
@@ -3063,18 +3074,46 @@ mod dynamics {
         // When !else appears at same/lesser column as !if started, it must:
         //   1. Close !if (emit DirEnd)
         //   2. Start !else as sibling directive
-        // REQUIRES: /directive(COL) function to track directive's starting column
-        let events = parse(b"!if logged_in\n  |p Welcome!\n!else\n  |p Please login");
-        placeholder_test!("directive-dedent", events);
+        let events = parse(b"!if logged_in\n  |p Welcome\n!else\n  |p Please login");
+        assert_eq!(events, vec![
+            E::DirStart(s(b"if"), false),
+            E::DirStmt(s(b"logged_in")),
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Welcome")),
+            E::ElementEnd,
+            E::DirEnd,
+            E::DirStart(s(b"else"), false),
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Please login")),
+            E::ElementEnd,
+            E::DirEnd,
+        ]);
     }
 
     #[test]
     fn if_elif_else_directive() {
         // SPEC: Same column-relative dedent applies to chains
         // Each directive at same column closes previous, starts new
-        // REQUIRES: /directive(COL) function to track directive's starting column
         let events = parse(b"!if admin\n  |p Admin\n!elif moderator\n  |p Mod\n!else\n  |p User");
-        placeholder_test!("directive-dedent", events);
+        assert_eq!(events, vec![
+            E::DirStart(s(b"if"), false),
+            E::DirStmt(s(b"admin")),
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Admin")),
+            E::ElementEnd,
+            E::DirEnd,
+            E::DirStart(s(b"elif"), false),
+            E::DirStmt(s(b"moderator")),
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Mod")),
+            E::ElementEnd,
+            E::DirEnd,
+            E::DirStart(s(b"else"), false),
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"User")),
+            E::ElementEnd,
+            E::DirEnd,
+        ]);
     }
 
     #[test]
@@ -3244,83 +3283,134 @@ mod dynamics {
 
     #[test]
     fn raw_block_directive() {
-        // !raw:elixir
+        // New syntax: !:elixir: (label between colons)
+        // !:elixir:
         //   def hello, do: :world
-        let events = parse(b"!raw:elixir\n  def hello, do: :world");
-        // TODO(raw): Verify raw content emitted
-        placeholder_test!("raw-block", events);
+        let events = parse(b"!:elixir:\n  def hello, do: :world");
+        assert_eq!(events, vec![
+            E::DirStart(s(b"elixir"), true),  // raw=true
+            E::Text(s(b"def hello, do: :world")),
+            E::DirEnd,
+        ]);
     }
 
     #[test]
     fn raw_block_preserves_pipes() {
         // Pipes inside raw should NOT be elements
-        let events = parse(b"!raw:elixir\n  value |> transform() |> output()");
-        // TODO(raw): Verify no elements created for pipes
-        placeholder_test!("raw-block", events);
+        let events = parse(b"!:elixir:\n  value |> transform() |> output()");
+        assert_eq!(events, vec![
+            E::DirStart(s(b"elixir"), true),
+            E::Text(s(b"value |> transform() |> output()")),
+            E::DirEnd,
+        ]);
     }
 
     #[test]
     fn raw_block_preserves_colons() {
         // Colons inside raw should NOT be attributes
-        let events = parse(b"!raw:python\n  def foo():\n    return {:key => \"value\"}");
-        // TODO(raw): Verify colons not parsed as attrs
-        placeholder_test!("raw-block", events);
+        let events = parse(b"!:python:\n  def foo():\n    return {:key => \"value\"}");
+        assert_eq!(events, vec![
+            E::DirStart(s(b"python"), true),
+            E::Text(s(b"def foo():")),
+            // Extra indent preserved as leading spaces
+            E::Text(s(b"  return {:key => \"value\"}")),
+            E::DirEnd,
+        ]);
     }
 
     #[test]
     fn raw_block_with_indentation() {
-        // Raw content should preserve indentation
-        let input = b"!raw:python\n  def foo():\n      return 1\n  def bar():\n      return 2";
+        // Raw content should preserve indentation via content_base
+        // First line establishes content_base=2, extra indent preserved
+        let input = b"!:python:\n  def foo():\n      return 1\n  def bar():\n      return 2";
         let events = parse(input);
-        // TODO(raw): Verify indentation preserved
-        placeholder_test!("raw-block", events);
+        assert_eq!(events, vec![
+            E::DirStart(s(b"python"), true),
+            E::Text(s(b"def foo():")),
+            E::Text(s(b"    return 1")),  // 4 extra spaces preserved
+            E::Text(s(b"def bar():")),
+            E::Text(s(b"    return 2")),
+            E::DirEnd,
+        ]);
     }
 
     #[test]
     fn raw_multiple_languages() {
         // Different language tags
-        let events_sql = parse(b"!raw:sql\n  SELECT * FROM users");
-        let events_json = parse(b"!raw:json\n  {\"key\": \"value\"}");
-        let events_html = parse(b"!raw:html\n  <div>Hello</div>");
-        // TODO(raw): Verify language tag captured
-        placeholder_test!("raw-block", events_sql);
+        let events_sql = parse(b"!:sql:\n  SELECT * FROM users");
+        assert_eq!(events_sql, vec![
+            E::DirStart(s(b"sql"), true),
+            E::Text(s(b"SELECT * FROM users")),
+            E::DirEnd,
+        ]);
+
+        let events_json = parse(b"!:json:\n  {\"key\": \"value\"}");
+        assert_eq!(events_json, vec![
+            E::DirStart(s(b"json"), true),
+            E::Text(s(b"{\"key\": \"value\"}")),
+            E::DirEnd,
+        ]);
     }
 
     // =========================================================================
-    // Raw Directives - Inline Form (new syntax: !{raw:kind ...})
+    // Raw Directives - Inline Form (new syntax: !{:label:content})
     // =========================================================================
 
     #[test]
     fn raw_inline_directive() {
-        // !{raw:json {"key": "value"}}
-        let events = parse(b"|p The data is !{raw:json {\"key\": \"value\"}}.");
-        // TODO(raw-inline): Verify inline raw parsed
-        placeholder_test!("raw-inline", events);
+        // New syntax: !{:json:{"key": "value"}}
+        let events = parse(b"|p The data is !{:json:{\"key\": \"value\"}}.");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"The data is ")),
+            E::DirStart(s(b"json"), true),
+            E::DirBody(s(b"{\"key\": \"value\"}")),
+            E::DirEnd,
+            E::Text(s(b".")),
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn raw_inline_nested_braces() {
         // Balanced nested braces should work (brace-counting)
-        // !{raw:regex [a-z]{3,5}}
-        let events = parse(b"|p Pattern: !{raw:regex [a-z]{3,5}}");
-        // TODO(raw-inline): Verify brace counting
-        placeholder_test!("raw-inline", events);
+        // !{:regex:[a-z]{3,5}}
+        let events = parse(b"|p Pattern: !{:regex:[a-z]{3,5}}");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Pattern: ")),
+            E::DirStart(s(b"regex"), true),
+            E::DirBody(s(b"[a-z]{3,5}")),
+            E::DirEnd,
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn raw_inline_sql() {
-        // !{raw:sql SELECT * FROM users}
-        let events = parse(b"|p Query: !{raw:sql SELECT * FROM users}");
-        // TODO(raw-inline): Verify content captured
-        placeholder_test!("raw-inline", events);
+        // !{:sql:SELECT * FROM users}
+        let events = parse(b"|p Query: !{:sql:SELECT * FROM users}");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Query: ")),
+            E::DirStart(s(b"sql"), true),
+            E::DirBody(s(b"SELECT * FROM users")),
+            E::DirEnd,
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn raw_inline_with_nested_json() {
         // Complex nested braces - brace counting
-        let events = parse(b"|p !{raw:json {\"outer\": {\"inner\": [1, 2, 3]}}}");
-        // TODO(raw-inline): Verify nested braces handled
-        placeholder_test!("raw-inline", events);
+        let events = parse(b"|p !{:json:{\"outer\": {\"inner\": [1, 2, 3]}}}");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::DirStart(s(b"json"), true),
+            E::DirBody(s(b"{\"outer\": {\"inner\": [1, 2, 3]}}")),
+            E::DirEnd,
+            E::ElementEnd,
+        ]);
     }
 
     // =========================================================================
@@ -3346,11 +3436,17 @@ mod dynamics {
 
     #[test]
     fn single_brace_is_directive_not_interpolation() {
-        // !{something} is a directive, not interpolation
-        // !{{something}} is interpolation
-        let events = parse(b"|p !{raw:text hello}");
-        // TODO(raw-inline): Verify single-brace is directive
-        placeholder_test!("raw-inline", events);
+        // !{name body} is a directive, not interpolation
+        // !{{expr}} is interpolation
+        // Use new syntax: !{:label:content} for inline raw
+        let events = parse(b"|p !{:text:hello world}");
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::DirStart(s(b"text"), true),
+            E::DirBody(s(b"hello world")),
+            E::DirEnd,
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
@@ -3369,10 +3465,9 @@ mod dynamics {
 
     #[test]
     fn directive_inside_element() {
-        // Directives inside elements
-        // NOTE: Currently DirEnd is emitted when we see content at the directive's column,
-        // which happens when we first see the |p. This is slightly early but works for most cases.
-        // TODO: Track directive column separately for proper dedent detection
+        // Directives inside elements use column-relative dedent
+        // Stack: |div(col 0) → !if(col 2) → |p(col 4)
+        // At EOF: |p returns → !if sees dedent and returns → |div returns
         let events = parse(b"|div\n  !if show\n    |p Conditional content");
         assert_eq!(events, vec![
             E::ElementStart(Some(s(b"div"))),
@@ -3380,9 +3475,9 @@ mod dynamics {
             E::DirStmt(s(b"show")),
             E::ElementStart(Some(s(b"p"))),
             E::Text(s(b"Conditional content")),
-            E::ElementEnd,
-            // DirEnd is currently emitted with ElementEnd due to shared dedent tracking
-            E::ElementEnd,
+            E::ElementEnd,    // |p ends (EOF)
+            E::DirEnd,        // !if ends (implicit dedent at EOF)
+            E::ElementEnd,    // |div ends (EOF)
         ]);
     }
 
