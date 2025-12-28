@@ -4103,10 +4103,6 @@ impl StreamingParser {
                             self.advance();
                             state = State::SElemCommentCheck;
                         }
-                        b':' => {
-                            self.advance();
-                            state = State::SInlineAttrKey;
-                        }
                         b'|' => {
                             self.advance();
                             state = State::SInlineCheckPipe;

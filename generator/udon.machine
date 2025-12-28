@@ -1117,10 +1117,10 @@
   |state[:inline_after_interp]
     ; After interpolation closes - continue inline content
     ; Handle ! specially to avoid empty text before checking for {{
+    ; Note: `:` is NOT treated as attribute here since we're mid-content
     |eof                   | emit(ElementEnd)                  |return
     |c[\n]      |.newline  | ->                         |>> :children
     |c[;]       |.comment  | ->                                |>> :elem_comment_check
-    |c[:]       |.attr     | ->                                |>> :inline_attr_key
     |c[<P>]     |.pipe     | ->                                |>> :inline_check_pipe
     |c[!]       |.bang     | ->                                |>> :inline_directive
     |default    |.text     | MARK                              |>> :inline_text
