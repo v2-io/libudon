@@ -3059,48 +3059,76 @@ mod dynamics {
 
     #[test]
     fn if_else_directive() {
+        // SPEC: Dedent detection is column-relative (see SPEC-INDENTS.md)
+        // When !else appears at same/lesser column as !if started, it must:
+        //   1. Close !if (emit DirEnd)
+        //   2. Start !else as sibling directive
+        // REQUIRES: /directive(COL) function to track directive's starting column
         let events = parse(b"!if logged_in\n  |p Welcome!\n!else\n  |p Please login");
-        // TODO(directives): Verify If/Else structure
-        placeholder_test!("block-directives", events);
+        placeholder_test!("directive-dedent", events);
     }
 
     #[test]
     fn if_elif_else_directive() {
+        // SPEC: Same column-relative dedent applies to chains
+        // Each directive at same column closes previous, starts new
+        // REQUIRES: /directive(COL) function to track directive's starting column
         let events = parse(b"!if admin\n  |p Admin\n!elif moderator\n  |p Mod\n!else\n  |p User");
-        // TODO(directives): Verify If/Elif/Else structure
-        placeholder_test!("block-directives", events);
+        placeholder_test!("directive-dedent", events);
     }
 
     #[test]
     fn if_with_comparison() {
-        // !if age >= 18
+        // Statement captures full expression including operators
         let events = parse(b"!if age >= 18\n  |p Adult");
-        // TODO(directives): Verify comparison expression captured
-        placeholder_test!("block-directives", events);
+        assert_eq!(events, vec![
+            E::DirStart(s(b"if"), false),
+            E::DirStmt(s(b"age >= 18")),
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Adult")),
+            E::ElementEnd,
+            E::DirEnd,
+        ]);
     }
 
     #[test]
     fn if_with_logical_operators() {
-        // !if user.verified and user.subscribed
         let events = parse(b"!if verified and subscribed\n  |p Premium user");
-        // TODO(directives): Verify logical operators parsed
-        placeholder_test!("block-directives", events);
+        assert_eq!(events, vec![
+            E::DirStart(s(b"if"), false),
+            E::DirStmt(s(b"verified and subscribed")),
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Premium user")),
+            E::ElementEnd,
+            E::DirEnd,
+        ]);
     }
 
     #[test]
     fn if_with_contains() {
-        // !if tags contains "featured"
         let events = parse(b"!if tags contains \"featured\"\n  |badge Featured");
-        // TODO(directives): Verify contains operator
-        placeholder_test!("block-directives", events);
+        assert_eq!(events, vec![
+            E::DirStart(s(b"if"), false),
+            E::DirStmt(s(b"tags contains \"featured\"")),
+            E::ElementStart(Some(s(b"badge"))),
+            E::Text(s(b"Featured")),
+            E::ElementEnd,
+            E::DirEnd,
+        ]);
     }
 
     #[test]
     fn unless_directive() {
-        // !unless — negated conditional
+        // !unless is just another directive name
         let events = parse(b"!unless disabled\n  |button Click me");
-        // TODO(directives): Verify unless
-        placeholder_test!("block-directives", events);
+        assert_eq!(events, vec![
+            E::DirStart(s(b"unless"), false),
+            E::DirStmt(s(b"disabled")),
+            E::ElementStart(Some(s(b"button"))),
+            E::Text(s(b"Click me")),
+            E::ElementEnd,
+            E::DirEnd,
+        ]);
     }
 
     // =========================================================================

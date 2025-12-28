@@ -302,6 +302,7 @@
   |state[:directive_children_content]
     ; Dispatch directive child content
     ; This is like :start but for directive children
+    ; NOTE: Proper dedent detection requires /directive(COL) function - TODO
     |eof                       | emit(DirectiveEnd)               |return
     |c[']       |.escape      | ->                                |>> :directive_child_escaped
     |c[;]       |.comment     | -> | MARK                         |>> :directive_child_comment
