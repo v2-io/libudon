@@ -1,7 +1,7 @@
 //! Check sizes of key types and enum discriminants.
 
 use udon_core::{StreamingEvent, ParserState};
-use std::mem::{size_of, align_of, discriminant};
+use std::mem::{size_of, align_of};
 
 fn main() {
     println!("=== Type Sizes ===");

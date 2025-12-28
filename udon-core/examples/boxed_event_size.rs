@@ -1,4 +1,7 @@
 //! Test if boxing large variants reduces enum size.
+//! These types are only used for size measurement via size_of.
+
+#![allow(dead_code)]
 
 use std::mem::size_of;
 

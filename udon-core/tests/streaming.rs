@@ -16,22 +16,6 @@
 
 use udon_core::{StreamingEvent, StreamingParser};
 
-/// Macro for placeholder tests - features not yet implemented.
-/// These tests FAIL intentionally to guide TDD implementation.
-/// Once the feature is implemented, replace with real assertions.
-macro_rules! placeholder_test {
-    ($feature:literal, $events:expr) => {{
-        // Capture events to verify parsing doesn't panic
-        let _events = $events;
-        // FAIL intentionally - this is a TDD placeholder!
-        panic!(
-            "PLACEHOLDER TEST: '{}' - feature not yet implemented.\n\
-             Replace this placeholder_test! with real assertions once implemented.",
-            $feature
-        );
-    }};
-}
-
 // =============================================================================
 // Test Helper - Simplified event representation
 // =============================================================================
@@ -2033,7 +2017,7 @@ mod element_recognition {
         // |123 is NOT an element (elements must start with letter)
         let events = parse(b"|123");
         // Should be prose or error, not ElementStart
-        let has_element = events.iter().any(|e| matches!(e, E::ElementStart(_)));
+        let _has_element = events.iter().any(|e| matches!(e, E::ElementStart(_)));
         // This might be prose OR a parse decision - let's see what happens
         // For now, just assert it doesn't panic
         assert!(!events.is_empty());
@@ -2701,7 +2685,7 @@ mod value_types {
         // 1/3r
         let events = parse(b"|el :val 1/3r");
         // Check if rational is supported
-        let has_rational = events.iter().any(|e| {
+        let _has_rational = events.iter().any(|e| {
             matches!(e, E::Other(s) if s.contains("Rational"))
         });
         // If not, might parse as string
