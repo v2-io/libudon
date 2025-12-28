@@ -11,20 +11,21 @@ library that language bindings (Ruby, Python, etc.) link against.
 Current state (main branch):
 - Streaming parser with ring buffer architecture
 - 1.83x faster than old batch parser (17.9 µs vs 32.8 µs for comprehensive.udon)
-- 242 tests in udon-core (212 passing, 30 TDD placeholders for dynamics features)
-- Embedded elements `|{...}` fully working (27/27 tests pass)
-- Freeform blocks (```) fully working (5/5 tests pass)
-- References `@[id]` and `:[id]` fully working (4/4 tests pass)
-- Interpolation `!{{...}}` in prose/inline content (11/13 tests pass - attr/id pending)
-- Prose dedentation with content_base tracking (14/15 tests pass)
+- 242 tests in udon-core (237 passing, 5 TDD placeholders)
+- Embedded elements `|{...}` fully working
+- Freeform blocks (```) fully working
+- References `@[id]` and `:[id]` fully working
+- Interpolation `!{{...}}` in prose/inline content working
+- Raw block directives `!:label:` working
+- Inline directives `!{name ...}` working
+- Prose dedentation with content_base tracking
 - Pipe-as-text in inline content (` | ` is text, not element)
 - FFI code needs updating to use new StreamingEvent API
 
-Remaining 30 tests are TDD placeholders for:
-- Block directives `!if`, `!for`, `!let`, etc. (16 tests)
-- Raw directives `!raw:lang`, `!{raw:kind}` (9 tests)
+Remaining 5 tests are TDD placeholders for:
 - Interpolation in attr/id contexts (3 tests)
-- Edge cases (2 tests)
+- Block directives nested `!for` (1 test)
+- Edge case: empty interpolation (1 test)
 
 ## Unified Inline Syntax (NEW - Dec 2025)
 
@@ -300,6 +301,41 @@ fn emit_pipe_text(&mut self) {
 - `/element(ACTUAL_COL)` calls the element function with a continuation state
 - After a function returns, execution continues at the specified state
 - `CALL:method` invokes helper without arguments; for arguments use emit patterns
+
+### Debugging with Trace Mode
+
+The generator supports a `--trace` flag that inserts `eprintln!` statements throughout
+the generated parser, showing state transitions, positions, and mark values:
+
+```bash
+# Generate parser with trace statements
+ruby generator/genmachine-rs --trace generator/udon.machine > udon-core/src/parser.rs
+
+# Run with trace output
+cargo run --example debug_interp 2>&1 | grep TRACE
+```
+
+Trace output format:
+```
+TRACE L1147: element/child_prose pos=10 peek=Some(98)
+TRACE L1154: child_prose.bang (SCAN) mark=10 pos=17
+```
+
+- `L####` - Line number in udon.machine
+- `function/state` - Current function and state
+- `pos=N` - Current parse position in input
+- `peek=Some(N)` - Next byte (or None for EOF)
+- `mark=N` - Current mark position (for MARK/TERM accumulation)
+- `(SCAN)` - Indicates SCAN-first optimization was used
+
+This is invaluable for debugging parser issues. When something goes wrong,
+**look at the DSL lines referenced in the trace** rather than reasoning backwards
+from generated Rust code.
+
+**To disable trace mode:** Regenerate without the flag:
+```bash
+./generate-parser.sh  # or: ruby generator/genmachine-rs generator/udon.machine > ...
+```
 
 ## Key Files
 

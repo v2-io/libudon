@@ -1116,12 +1116,13 @@
 
   |state[:children_after_directive]
     ; After child directive returns - check for dedent or continuation
+    ; NOTE: Inline directives (like !{{...}}) return mid-line. Use child_prose_cont
+    ; which emits Text (not DedentedText) to avoid column-based space prepending.
     |eof                                   | emit(ElementEnd)  |return
     |c[\n]      |.newline  | ->                         |>> :children
-    |c[ ]       |.space    | ->                         |>> :children_count_ws
     |c[\t]      |.tab      | -> | emit(Error:no_tabs)          |>> :skip_child
     |if[ACTUAL_COL <= elem_col]            | emit(ElementEnd)  |return
-    |default                                            |>> :children_content
+    |default               | MARK                              |>> :child_prose_cont
 
   |state[:children_count_ws]
     ; Counting whitespace after seeing first space in :children_after_element
@@ -1151,6 +1152,16 @@
     |c[;]       |.semi     | emit(DedentedText) | ->                   |>> :child_comment_check
     |c[<P>]     |.pipe     | emit(DedentedText)                        |>> /element(ACTUAL_COL) :children_after_element
     |c[!]       |.bang     | emit(DedentedText)                        |>> /directive(ACTUAL_COL) :children_after_directive
+
+  |state[:child_prose_cont] SCAN(\n;<P>!)
+    ; Prose continuation after inline directive (e.g., !{{...}})
+    ; Uses emit(Text) NOT emit(DedentedText) because we're continuing mid-line
+    ; and don't want column-based space prepending
+    |eof                   | emit(Text) | emit(ElementEnd)              |return
+    |c[\n]      |.done     | emit(Text) | ->                     |>> :children
+    |c[;]       |.semi     | emit(Text) | ->                            |>> :child_comment_check
+    |c[<P>]     |.pipe     | emit(Text)                                 |>> /element(ACTUAL_COL) :children_after_element
+    |c[!]       |.bang     | emit(Text)                                 |>> /directive(ACTUAL_COL) :children_after_directive
 
   ;----------------------------------------------------------------------------
   ; ID REFERENCES - @[id] to insert entire element

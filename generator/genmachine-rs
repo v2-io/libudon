@@ -13,11 +13,23 @@
 # - MARK/TERM for string accumulation
 # - emit() for event emission
 #
-# Usage: ./genmachine-rs udon.machine > udon-core/src/parser.rs
+# Usage: ./genmachine-rs [--trace] udon.machine > udon-core/src/parser.rs
 
 require 'liquid'
 
 INDENTS = 4
+
+# Global trace mode - when true, generates trace statements
+$trace_mode = false
+
+# Current line number being parsed (for tracking in AST nodes)
+$current_lineno = 0
+
+# Generate a trace statement for debugging
+def trace_stmt(lineno, context, indent = "")
+  return "" unless $trace_mode
+  "#{indent}eprintln!(\"TRACE L{}: {}\", #{lineno}, #{context.inspect});\n"
+end
 
 def dent(i)
   ' ' * i * INDENTS
@@ -28,12 +40,13 @@ end
 # ============================================================================
 
 class GMGenericChild
-  attr_accessor :parent, :name, :body
+  attr_accessor :parent, :name, :body, :lineno
 
   def initialize(parent, name)
     @parent = parent
     @name = name
     @body = []
+    @lineno = $current_lineno || 0
   end
 
   def gm
@@ -542,8 +555,14 @@ class GMState < GMGenericChild
 
   def to_rust(state_names, idx)
     state_enum = state_names[idx]
+    func_name = gmf&.name || "?"
     code = []
     code << "                State::#{state_enum} => {"
+
+    # Trace statement for entering state
+    if $trace_mode
+      code << "                    eprintln!(\"TRACE L#{@lineno}: #{func_name}/#{@name} pos={} peek={:?}\", self.pos, self.peek());"
+    end
 
     # Check if inline_init contains a SCAN command (SCAN-first optimization)
     scan_first_cmd = nil
@@ -698,6 +717,13 @@ class GMCase < GMGenericChild
       return "#{indent}// WARNING: empty pattern for #{@name.inspect}"
     end
 
+    # Trace statement for case match
+    if $trace_mode
+      state_name = gms&.name || "?"
+      case_label = @substate || (@is_default ? "default" : @chars&.join || "?")
+      code << "#{indent}    eprintln!(\"TRACE L#{@lineno}: #{state_name}.#{case_label} mark={}\", self.mark_pos);"
+    end
+
     # Generate body
     @body.each do |cmd|
       rust = cmd.to_rust
@@ -729,6 +755,13 @@ class GMCase < GMGenericChild
       code << "#{indent}#{chars} => {"
     else
       return "#{indent}// WARNING: empty pattern for #{@name.inspect}"
+    end
+
+    # Trace statement for SCAN-first case match
+    if $trace_mode
+      state_name = gms&.name || "?"
+      case_label = @substate || @chars&.join || "?"
+      code << "#{indent}    eprintln!(\"TRACE L#{@lineno}: #{state_name}.#{case_label} (SCAN) mark={} pos={}\", self.mark_pos, self.pos);"
     end
 
     # Generate body
@@ -1141,16 +1174,51 @@ end
 # Main
 # ============================================================================
 
-if ARGV.empty?
-  puts "Usage: #{$0} <machine-file>"
+# Parse command line arguments
+args = ARGV.dup
+if args.include?('--trace')
+  $trace_mode = true
+  args.delete('--trace')
+end
+
+if args.empty?
+  puts "Usage: #{$0} [--trace] <machine-file>"
   exit 1
 end
 
-# Parse the machine file
-content = File.read(ARGV[0])
+machine_file = args[0]
+
+# Parse the machine file with line number tracking
+content = File.read(machine_file)
+raw_lines = content.lines
+
+# Build a mapping from character offset to line number
+char_to_line = {}
+offset = 0
+raw_lines.each_with_index do |line, idx|
+  line.length.times do |i|
+    char_to_line[offset + i] = idx + 1  # 1-based line numbers
+  end
+  offset += line.length
+end
+
 # Keep lines starting with | but filter out comment-only lines
-lines = content.lines.reject { |l| l.strip.start_with?(';') }
-parts = lines.join('').split('|').map(&:rstrip).reject { |c| c.strip.empty? }
+lines = raw_lines.reject { |l| l.strip.start_with?(';') }
+joined = lines.join('')
+
+# Split on | and track positions
+parts = []
+part_linenos = []
+current_pos = 0
+joined.split('|').each do |part|
+  next if part.strip.empty?
+  # Find this part's position in the original content
+  found_pos = content.index(part, current_pos) || current_pos
+  lineno = char_to_line[found_pos] || 1
+  parts << part.rstrip
+  part_linenos << lineno
+  current_pos = found_pos + part.length
+end
 
 i = -1
 gm = GM.new
@@ -1158,6 +1226,7 @@ gm.parse do
   i += 1
   break if i >= parts.size
   c = parts[i]
+  $current_lineno = part_linenos[i] || 0
   next if c =~ /^\s*$/ || c.strip.start_with?(';')
 
   tag = c[/^(\.|[^ \[]+)/]&.strip&.downcase || ''
@@ -1177,7 +1246,8 @@ output = template.render(
   'functions' => gm.output_functions.join("\n\n"),
   'enums' => gm.output_enums.join("\n"),
   'structs' => gm.output_structs.join("\n"),
-  'machine_file' => ARGV[0] || 'unknown'
+  'machine_file' => machine_file || 'unknown',
+  'trace_mode' => $trace_mode
 )
 
 puts output
