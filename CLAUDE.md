@@ -11,7 +11,10 @@ library that language bindings (Ruby, Python, etc.) link against.
 Current state (streaming-parser branch):
 - Streaming parser with ring buffer architecture
 - 1.83x faster than old batch parser (17.9 µs vs 32.8 µs for comprehensive.udon)
-- 238 tests in udon-core (142 passing, 96 TDD placeholders for unimplemented features)
+- 238 tests in udon-core (162 passing, 76 TDD placeholders for unimplemented features)
+- Embedded elements `|{...}` fully working (26/26 tests pass)
+- Pipe-as-text in inline content (` | ` is text, not element)
+- Double-brace interpolation `!{{...}}` syntax in parser
 - FFI code needs updating to use new StreamingEvent API
 
 ## Unified Inline Syntax (NEW - Dec 2025)
@@ -186,6 +189,75 @@ This generates SIMD-accelerated memchr scanning. Characters:
 - `<L>` — left bracket ([)
 - `<R>` — right bracket (])
 
+### Emit Actions
+
+The generator (`genmachine-rs`) maps emit actions in `.machine` to Rust code.
+Available emit actions:
+
+| Action | Generated Code |
+|--------|----------------|
+| `emit(Text)` | `Text { content: self.term(), span }` |
+| `emit(Comment)` | `Comment { content: self.term(), span }` |
+| `emit(RawContent)` | `RawContent { content: self.term(), span }` |
+| `emit(ElementStart)` | `ElementStart { name: Some(self.term()), span }` |
+| `emit(ElementStartAnon)` | `ElementStart { name: None, span }` |
+| `emit(ElementEnd)` | `ElementEnd { span }` |
+| `emit(EmbeddedStart)` | `EmbeddedStart { name: Some(self.term()), span }` |
+| `emit(EmbeddedStartAnon)` | `EmbeddedStart { name: None, span }` |
+| `emit(EmbeddedEnd)` | `EmbeddedEnd { span }` |
+| `emit(Attribute)` | `Attribute { key: self.term(), span }` |
+| `emit(Attribute:$id)` | `Attribute { key: "$id", span }` |
+| `emit(Attribute:?)` | `Attribute { key: "?", span }` |
+| `emit(BoolValue:true)` | `BoolValue { value: true, span }` |
+| `emit(StringValue)` | `StringValue { value: self.term(), span }` |
+| `emit(TypedValue)` | Calls `emit_typed_value()` for int/float/bool/nil |
+| `emit(Interpolation)` | `Interpolation { expression: self.term(), span }` |
+| `emit(DirectiveStart)` | `DirectiveStart { name: self.term(), namespace: None, span }` |
+| `emit(DirectiveEnd)` | `DirectiveEnd { span }` |
+| `emit(Error:name)` | `Error { code: ParseErrorCode::Name, span }` |
+
+**To add a new emit action:**
+1. Add the event variant to `StreamingEvent` in `streaming.rs`
+2. Add the handler in `genmachine-rs` (around line 975, in `emit_rust` method)
+3. Use in `.machine` file
+4. Regenerate with `./generate-parser.sh`
+
+### Helper Methods (CALL:method)
+
+For complex or reusable logic, add helper methods to `parser.rs.liquid` and invoke
+them via `CALL:method_name` in the `.machine` file.
+
+**Existing helpers:**
+- `emit_special_attribute(key)` - Emit attribute with static key (e.g., "$id", "?")
+- `emit_pipe_text()` - Emit literal "|" as Text (for prose pipes that aren't elements)
+- `emit_typed_value()` - Parse accumulated value and emit Int/Float/Bool/Nil/String
+
+**To add a new helper method:**
+1. Add the method to `generator/templates/parser.rs.liquid`
+2. Use `CALL:method_name` in `.machine` file (note: no parentheses in DSL)
+3. The generator maps `CALL:foo` to `self.foo();`
+4. Regenerate with `./generate-parser.sh`
+
+**Example helper (emit_pipe_text in parser.rs.liquid):**
+```rust
+/// Emit a literal "|" as text. Used when pipe in inline content is not followed
+/// by a valid element starter (per SPEC.md:645-651).
+fn emit_pipe_text(&mut self) {
+    let pipe_bytes = b"|".to_vec();
+    let chunk_idx = self.chunks.push(pipe_bytes);
+    let pipe_slice = ChunkSlice::new(chunk_idx, 0, 1);
+    let span = Span::new(self.global_offset as usize - 1, self.global_offset as usize);
+    self.emit(StreamingEvent::Text { content: pipe_slice, span });
+}
+```
+
+**Important DSL notes:**
+- `-> |` advances to next character (REQUIRED before `|return` when matching `}`)
+- Without `-> |`, position doesn't advance after matching
+- `/element(ACTUAL_COL)` calls the element function with a continuation state
+- After a function returns, execution continues at the specified state
+- `CALL:method` invokes helper without arguments; for arguments use emit patterns
+
 ## Key Files
 
 | File | Purpose | Edit? |
@@ -218,17 +290,20 @@ Key optimizations:
 Tests exist for all these features; implement to make tests pass.
 
 ### Parser Features (in udon.machine)
-| Feature | Tests | Priority |
-|---------|-------|----------|
-| Embedded elements `\|{...}` | 20 tests | HIGH |
-| Indentation edge cases | 15 tests | HIGH |
-| Interpolation `!{{...}}` | 13 tests | MEDIUM |
-| Block directives (`!if`, `!for`) | 16 tests | MEDIUM |
-| Inline comments `;{...}` | 7 tests | MEDIUM |
-| Raw block `!raw:lang` | 6 tests | MEDIUM |
-| Raw inline `!{raw:kind ...}` | 5 tests | LOW |
-| Freeform blocks ``` | 3 tests | LOW |
-| References `@[id]`, `:[id]` | 2 tests | LOW |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Embedded elements `\|{...}` | DONE | 26/26 tests pass |
+| Pipe-as-text ` \| ` | DONE | Pipes not followed by element starters are text |
+| Double-brace interpolation `!{{...}}` | DONE | Parser recognizes, tests are placeholders |
+| Inline directives `!{name ...}` | DONE | Parser recognizes, tests are placeholders |
+| Inline comments `;{...}` | DONE | With brace-counting |
+| Suffix handling in embedded | DONE | `?!*+` work in `\|{element? ...}` |
+| Indentation edge cases | Partial | Some tests still failing |
+| Block directives (`!if`, `!for`) | TODO | Tests are placeholders |
+| Raw block `!raw:lang` | TODO | Tests are placeholders |
+| Raw inline `!{raw:kind ...}` | TODO | Tests are placeholders |
+| Freeform blocks ``` | Partial | Basic support exists |
+| References `@[id]`, `:[id]` | TODO | Tests are placeholders |
 
 ### FFI (udon-ffi/src/lib.rs) - BROKEN
 The FFI code uses the old Event enum and deprecated Parser API:

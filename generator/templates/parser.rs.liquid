@@ -429,6 +429,17 @@ impl StreamingParser {
         self.emit(StreamingEvent::Attribute { key: key_slice, span });
     }
 
+    /// Emit a literal "|" as text. Used when pipe in inline content is not followed
+    /// by a valid element starter (per SPEC.md:645-651, | is prose unless followed
+    /// by letter, [, ., {, ', or suffix).
+    fn emit_pipe_text(&mut self) {
+        let pipe_bytes = b"|".to_vec();
+        let chunk_idx = self.chunks.push(pipe_bytes);
+        let pipe_slice = ChunkSlice::new(chunk_idx, 0, 1);
+        let span = Span::new(self.global_offset as usize - 1, self.global_offset as usize);
+        self.emit(StreamingEvent::Text { content: pipe_slice, span });
+    }
+
     // ========== SIMD-Accelerated Scanning ==========
     //
     // These methods use memchr for fast bulk scanning. They advance position

@@ -86,6 +86,11 @@ impl E {
                 name.map(|cs| parser.arena().resolve(cs).unwrap_or(&[]).to_vec())
             ),
             StreamingEvent::ElementEnd { .. } => E::ElementEnd,
+            // Embedded elements are semantically the same as regular elements
+            StreamingEvent::EmbeddedStart { name, .. } => E::ElementStart(
+                name.map(|cs| parser.arena().resolve(cs).unwrap_or(&[]).to_vec())
+            ),
+            StreamingEvent::EmbeddedEnd { .. } => E::ElementEnd,
             StreamingEvent::Attribute { key, .. } => E::Attr(
                 parser.arena().resolve(key).unwrap_or(&[]).to_vec()
             ),
@@ -2237,13 +2242,15 @@ mod embedded_elements {
 
     #[test]
     fn multiple_embedded_siblings() {
-        // |nav |{a :href / Home} |{a :href /about About}
+        // |nav |{a Home} |{a About}
+        // Space between } and |{ is preserved as text (user controls spacing)
         let events = parse(b"|nav |{a Home} |{a About}");
         assert_eq!(events, vec![
             E::ElementStart(Some(s(b"nav"))),
             E::ElementStart(Some(s(b"a"))),
             E::Text(s(b"Home")),
             E::ElementEnd,
+            E::Text(s(b" ")),  // Space between siblings is preserved
             E::ElementStart(Some(s(b"a"))),
             E::Text(s(b"About")),
             E::ElementEnd,
@@ -2367,13 +2374,13 @@ mod embedded_elements {
 
     #[test]
     fn complex_nested_with_attributes() {
-        // |{div.outer |{span[id].inner :data value content}}
+        // |p |{div.outer |{span[id].inner :data val text}}
+        // Elements: p, div, span = 3 elements with proper nesting
         let events = parse(b"|p |{div.outer |{span[id].inner :data val text}}");
-        // Should parse the nested structure correctly
         let element_count = events.iter()
             .filter(|e| matches!(e, E::ElementStart(_)))
             .count();
-        assert_eq!(element_count, 4); // p, div, span, and proper nesting
+        assert_eq!(element_count, 3); // p, div, span
     }
 
     // =========================================================================
