@@ -2921,6 +2921,10 @@ impl StreamingParser {
                         self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                         return;
                     }
+                    if self.current_column()  <=  elem_col {
+    self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+    return;
+}
                     if let Some(b) = self.peek() {
                         match b {
                         b'\n' => {

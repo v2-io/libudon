@@ -795,7 +795,11 @@
     ; Inline content after element identity
     ; Note: Spaces are included in text (not skipped) because after embedded elements
     ; return, leading spaces should be preserved as text content.
+    ;
+    ; DEDENT CHECK: When a child element returns after crossing a newline,
+    ; we may need to close this element too if the new content is at a lower column.
     |eof                   | emit(ElementEnd)                  |return
+    |if[ACTUAL_COL <= elem_col]            | emit(ElementEnd)  |return
     |c[\n]      |.newline  | ->                         |>> :children
     |c[;]       |.comment  | ->                                |>> :elem_comment_check
     |c[:]       |.attr     | ->                                |>> :inline_attr_key
