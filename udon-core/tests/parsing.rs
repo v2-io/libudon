@@ -593,64 +593,10 @@ mod attributes {
 }
 
 // =============================================================================
-// Phase 4: Directives (To Be Implemented)
+// Phase 4: Directives - See streaming.rs for comprehensive directive tests
 // =============================================================================
-
-mod directives {
-    use super::*;
-
-    #[test]
-    #[ignore = "directives not yet implemented"]
-    fn block_directive() {
-        let events = parse(b"!if user\n  |div Welcome\n");
-        assert_eq!(
-            events,
-            vec![
-                EventKind::DirectiveStart {
-                    name: b"if".to_vec(),
-                    raw: false,
-                },
-                EventKind::ElementStart {
-                    name: Some(b"div".to_vec()),
-                },
-                EventKind::Text(b"Welcome".to_vec()),
-                EventKind::ElementEnd,
-                EventKind::DirectiveEnd,
-            ]
-        );
-    }
-
-    #[test]
-    #[ignore = "directives not yet implemented"]
-    fn raw_directive() {
-        let events = parse(b"!raw:sql\n  SELECT * FROM users\n");
-        assert_eq!(
-            events,
-            vec![
-                EventKind::DirectiveStart {
-                    name: b"sql".to_vec(),
-                    raw: true,
-                },
-                EventKind::RawContent(b"SELECT * FROM users\n".to_vec()),
-                EventKind::DirectiveEnd,
-            ]
-        );
-    }
-
-    #[test]
-    #[ignore = "directives not yet implemented"]
-    fn interpolation() {
-        let events = parse(b"Hello !{user.name}!\n");
-        assert_eq!(
-            events,
-            vec![
-                EventKind::Text(b"Hello ".to_vec()),
-                EventKind::Interpolation(b"user.name".to_vec()),
-                EventKind::Text(b"!".to_vec()),
-            ]
-        );
-    }
-}
+// Removed: Old tests used outdated syntax (!raw:sql instead of !:sql:,
+// !{...} instead of !{{...}}). All directive tests are in streaming.rs.
 
 // =============================================================================
 // Phase 5: Escape Sequences (To Be Implemented)

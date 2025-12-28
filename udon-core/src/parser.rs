@@ -38,7 +38,9 @@ pub enum FunctionId {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// use udon_core::StreamingParser;
+///
 /// let mut parser = StreamingParser::new(1024); // 1024 event capacity
 ///
 /// // Feed chunks of input

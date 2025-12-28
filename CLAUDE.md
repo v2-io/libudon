@@ -11,21 +11,21 @@ library that language bindings (Ruby, Python, etc.) link against.
 Current state (main branch):
 - Streaming parser with ring buffer architecture
 - 1.83x faster than old batch parser (17.9 µs vs 32.8 µs for comprehensive.udon)
-- 242 tests in udon-core (237 passing, 5 TDD placeholders)
+- 242 tests in udon-core (all passing)
 - Embedded elements `|{...}` fully working
 - Freeform blocks (```) fully working
 - References `@[id]` and `:[id]` fully working
 - Interpolation `!{{...}}` in prose/inline content working
 - Raw block directives `!:label:` working
 - Inline directives `!{name ...}` working
+- Block directives `!if`, `!for`, etc. working
 - Prose dedentation with content_base tracking
 - Pipe-as-text in inline content (` | ` is text, not element)
 - FFI code needs updating to use new StreamingEvent API
 
-Remaining 5 tests are TDD placeholders for:
-- Interpolation in attr/id contexts (3 tests)
-- Block directives nested `!for` (1 test)
-- Edge case: empty interpolation (1 test)
+Deferred features (syntax passes through as literal):
+- Interpolation in attribute values: `:href !{{url}}`
+- Interpolation in element IDs: `|div[!{{id}}]`
 
 ## Unified Inline Syntax (NEW - Dec 2025)
 

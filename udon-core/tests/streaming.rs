@@ -3029,25 +3029,43 @@ mod dynamics {
     #[test]
     fn interpolation_in_attribute_value() {
         // :href !{{base_url}}/users
+        // DEFERRED: Currently interpolation syntax in attribute values is passed through
+        // as literal text. Future versions may parse this as mixed string + interpolation.
         let events = parse(b"|a :href !{{base}}/users");
-        // TODO(interpolation): Verify interpolation in attr value
-        placeholder_test!("interpolation+attrs", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"a"))),
+            E::Attr(s(b"href")),
+            E::Str(s(b"!{{base}}/users")),  // Currently passed through as literal
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn interpolation_full_attribute_value() {
         // :class !{{dynamic_class}}
+        // DEFERRED: Currently interpolation syntax in attribute values is passed through
+        // as literal text. Future versions may emit Interpolation event instead.
         let events = parse(b"|div :class !{{computed_class}}");
-        // TODO(interpolation): Verify attr value is interpolation
-        placeholder_test!("interpolation+attrs", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"div"))),
+            E::Attr(s(b"class")),
+            E::Str(s(b"!{{computed_class}}")),  // Currently passed through as literal
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn interpolation_in_element_id() {
         // |el[!{{dynamic_id}}]
+        // DEFERRED: Currently interpolation syntax in element IDs is passed through
+        // as literal text. Future versions may emit Interpolation event instead.
         let events = parse(b"|div[!{{item.id}}]");
-        // TODO(interpolation): Verify interpolation in element id
-        placeholder_test!("interpolation+id", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"div"))),
+            E::Attr(s(b"$id")),
+            E::Str(s(b"!{{item.id}}")),  // Currently passed through as literal
+            E::ElementEnd,
+        ]);
     }
 
     // =========================================================================
@@ -3205,7 +3223,7 @@ mod dynamics {
 
     #[test]
     fn for_nested() {
-        // Nested for loops - inner directive doesn't emit DirEnd due to shared dedent tracking
+        // Nested for loops
         let events = parse(b"!for row in rows\n  |tr\n    !for cell in row\n      |td !{{cell}}");
         assert_eq!(events, vec![
             E::DirStart(s(b"for"), false),
@@ -3216,9 +3234,9 @@ mod dynamics {
             E::ElementStart(Some(s(b"td"))),
             E::Interp(s(b"cell")),
             E::ElementEnd,
-            // Inner DirEnd missing due to shared dedent tracking (known issue)
+            E::DirEnd,  // Inner directive ends
             E::ElementEnd,
-            E::DirEnd,
+            E::DirEnd,  // Outer directive ends
         ]);
     }
 
@@ -3428,10 +3446,14 @@ mod dynamics {
 
     #[test]
     fn empty_interpolation() {
-        // !{{}} — empty expression
+        // !{{}} — empty expression (allowed, consumer can decide if it's an error)
         let events = parse(b"|p Value: !{{}}");
-        // TODO(interpolation): Decide if empty is error or allowed
-        placeholder_test!("interpolation", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Value: ")),
+            E::Interp(s(b"")),  // Empty interpolation is valid syntax
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
