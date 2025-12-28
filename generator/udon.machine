@@ -22,7 +22,7 @@
     |c[\t]      |.tab         | -> | emit(Error:no_tabs) |>> :skip_line
     |c[']       |.escape      | ->                      |>> :escaped
     |c[;]       |.comment     | -> | MARK               |>> :block_comment
-    |c[<P>]     |.pipe        | ->                         |>> /element(ACTUAL_COL) :start
+    |c[<P>]     |.pipe        |                            |>> /element(ACTUAL_COL) :start
     |c[`]       |.backtick    | ->                      |>> :maybe_freeform
     |c[!]       |.directive   | ->                      |>> :directive
     |default    |.text        | MARK                    |>> :prose
@@ -44,7 +44,7 @@
     |eof                       | emit(Text)             |return
     |c[\n]      |.done        | emit(Text)      |>> :start
     |c[;]       |.semi        | emit(Text) | ->         |>> :check_inline_comment
-    |c[<P>]     |.pipe        | emit(Text) | ->         |>> /element(ACTUAL_COL) :start
+    |c[<P>]     |.pipe        | emit(Text)              |>> /element(ACTUAL_COL) :start
 
   |state[:check_inline_comment]
     ; After ; in prose - is it ;{...} or rest-of-line comment?
@@ -251,7 +251,7 @@
     |eof                       | emit(Text)             |return
     |c[\n]      |.done        | emit(Text)      |>> :start
     |c[;]       |.semi        | emit(Text) | ->         |>> :check_inline_comment
-    |c[<P>]     |.pipe        | emit(Text) | ->         |>> /element(ACTUAL_COL) :start
+    |c[<P>]     |.pipe        | emit(Text)              |>> /element(ACTUAL_COL) :start
     |default    |.collect     | MARK                    |>> :prose
 
   |state[:skip_line]
@@ -291,6 +291,9 @@
     ; "|" is element when followed by: letter, [, ., {, ', or suffix
     ; Otherwise "|" is prose (Markdown table compatibility)
     ;
+    ; Function may be called AT the pipe or AFTER it. If at pipe, skip it.
+    ; This allows callers to pass ACTUAL_COL before advancing (for correct elem_col).
+    ;
     ; Examples:
     ;   |foo     → ElementStart("foo")
     ;   |[id]    → ElementStartAnon, Attribute("$id"), StringValue("id")
@@ -298,6 +301,7 @@
     ;   |?       → ElementStartAnon, Attribute("?"), BoolValue(true)
     ;   |'name'  → ElementStart("name")
     ;   |{em}    → Embedded element (brace-delimited)
+    |c[<P>]       |.pipe     | ->                                |>>
     |eof                     | emit(ElementStartAnon) | emit(ElementEnd) |return
     |c[LETTER]    |.name     | MARK                              |>> :id_name
     |c[<L>]       |.bracket  | ->                                |>> :id_anon_bracket
@@ -973,7 +977,7 @@
     ; Still inside this element - handle actual content
     |c[']       |.escape   | ->                                |>> :child_escaped
     |c[;]       |.comment  | -> | MARK                         |>> :child_block_comment
-    |c[<P>]     |.element  | ->                                |>> /element(ACTUAL_COL) :children_after_element
+    |c[<P>]     |.element  |                                   |>> /element(ACTUAL_COL) :children_after_element
     |c[:]       |.attr     | ->                                |>> :attr_key
     |c[`]       |.backtick | ->                                |>> :child_freeform_check
     |c[!]       |.directive| ->                                |>> :child_directive
@@ -1012,7 +1016,7 @@
     |eof                   | emit(Text) | emit(ElementEnd)     |return
     |c[\n]      |.done     | emit(Text) | ->            |>> :children
     |c[;]       |.semi     | emit(Text) | ->                   |>> :child_comment_check
-    |c[<P>]     |.pipe     | emit(Text) | ->                   |>> /element(ACTUAL_COL) :children_after_element
+    |c[<P>]     |.pipe     | emit(Text)                        |>> /element(ACTUAL_COL) :children_after_element
 
   |state[:child_comment_check]
     |eof                   | emit(ElementEnd)                  |return
@@ -1042,7 +1046,7 @@
     |eof                   | emit(ElementEnd)                  |return
     |c[\n]      |.done     | ->                         |>> :children
     |c[;]       |.semi     | ->                                |>> :child_comment_check
-    |c[<P>]     |.pipe     | emit(Text) | ->                   |>> /element(ACTUAL_COL) :children_after_element
+    |c[<P>]     |.pipe     | emit(Text)                        |>> /element(ACTUAL_COL) :children_after_element
     |default    |.prose    | MARK                              |>> :child_prose
 
   |state[:child_line_comment] SCAN(\n)

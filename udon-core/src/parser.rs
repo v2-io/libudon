@@ -658,7 +658,6 @@ impl StreamingParser {
                             state = State::SBlockComment;
                         }
                         b'|' => {
-                            self.advance();
                             self.parse_element(self.current_column());
                             state = State::SStart;
                         }
@@ -723,7 +722,6 @@ impl StreamingParser {
                         }
                         Some(b'|') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
                             self.parse_element(self.current_column());
                             state = State::SStart;
                         }
@@ -1343,7 +1341,6 @@ impl StreamingParser {
                         }
                         b'|' => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
                             self.parse_element(self.current_column());
                             state = State::SStart;
                         }
@@ -1388,6 +1385,9 @@ impl StreamingParser {
                     }
                     if let Some(b) = self.peek() {
                         match b {
+                        b'|' => {
+                            self.advance();
+                        }
                         b if self.is_label_start(b) => {
                             self.mark();
                             state = State::SIdName;
@@ -3493,7 +3493,6 @@ impl StreamingParser {
                             state = State::SChildBlockComment;
                         }
                         b'|' => {
-                            self.advance();
                             self.parse_element(self.current_column());
                             state = State::SChildrenAfterElement;
                         }
@@ -3619,7 +3618,6 @@ impl StreamingParser {
                         }
                         Some(b'|') => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
                             self.parse_element(self.current_column());
                             state = State::SChildrenAfterElement;
                         }
@@ -3730,7 +3728,6 @@ impl StreamingParser {
                         }
                         b'|' => {
                             { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
-                            self.advance();
                             self.parse_element(self.current_column());
                             state = State::SChildrenAfterElement;
                         }

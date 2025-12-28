@@ -1748,19 +1748,19 @@ mod comment_indentation {
     }
 
     // =========================================================================
-    // Inline Comments Stripped
+    // Inline Comments Emitted (consumer decides whether to keep/strip)
     // =========================================================================
 
     #[test]
     fn inline_comment_stripped_from_output() {
         // |p This is some text ;{TODO: improve this} and more text.
-        // Output: "This is some text and more text."
+        // Parser EMITS Comment, consumer decides to keep/strip
         let events = parse(b"|p This is text ;{TODO} and more.");
         assert_eq!(events, vec![
             E::ElementStart(Some(s(b"p"))),
             E::Text(s(b"This is text ")),
-            // inline comment stripped
-            E::Text(s(b"and more.")),
+            E::Comment(s(b"TODO")),  // Parser emits, consumer may strip
+            E::Text(s(b" and more.")),
             E::ElementEnd,
         ]);
     }
@@ -1772,20 +1772,22 @@ mod comment_indentation {
         assert_eq!(events, vec![
             E::ElementStart(Some(s(b"p"))),
             E::Text(s(b"Some text ")),
-            // inline comment stripped, nothing after
+            E::Comment(s(b"comment at end")),  // Parser emits
             E::ElementEnd,
         ]);
     }
 
     #[test]
     fn nested_inline_comment() {
-        // |p Text ;{outer ;{inner} still outer} more text
+        // |p Text ;{outer ;{inner} outer} more.
+        // The ;{inner} is NOT a nested comment - it's literal text inside comment
+        // Only bare { and } are brace-counted, not ;{
         let events = parse(b"|p Text ;{outer ;{inner} outer} more.");
         assert_eq!(events, vec![
             E::ElementStart(Some(s(b"p"))),
             E::Text(s(b"Text ")),
-            // nested comment stripped
-            E::Text(s(b"more.")),
+            E::Comment(s(b"outer ;{inner} outer")),  // ;{inner} is literal
+            E::Text(s(b" more.")),
             E::ElementEnd,
         ]);
     }
