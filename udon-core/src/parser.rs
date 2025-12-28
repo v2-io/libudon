@@ -3683,7 +3683,11 @@ impl StreamingParser {
                             self.mark();
                             state = State::SInlineText;
                         }
-                        b'!' | b'?' | b'.' | b',' | b')' | b'}' | b'\\' => {
+                        b'!' => {
+                            self.advance();
+                            state = State::SInlineDirective;
+                        }
+                        b'?' | b'.' | b',' | b')' | b'}' | b'\\' => {
                             self.mark();
                             state = State::SInlineText;
                         }

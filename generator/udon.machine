@@ -1004,7 +1004,8 @@
     |c[:]       |.attr     | ->                                |>> :inline_attr_key
     |c[<P>]     |.pipe     | ->                                |>> :inline_check_pipe
     |c[ \t]     |.space    | MARK                              |>> :inline_text
-    |c[!?.,)}\]>]|.punct   | MARK                              |>> :inline_text
+    |c[!]       |.bang     | ->                                |>> :inline_directive
+    |c[?.,)}\]>]|.punct    | MARK                              |>> :inline_text
     |default    |.other    |                                   |>> :children_content
 
   |state[:elem_comment_check]
