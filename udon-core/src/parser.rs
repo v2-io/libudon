@@ -3197,6 +3197,7 @@ impl StreamingParser {
                         match b {
                         b'\'' => {
                             { let key = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Attribute { key, span }); }
+                            self.advance();
                             state = State::SInlineAttrWs;
                         }
                         b'\\' => {
@@ -3434,6 +3435,7 @@ impl StreamingParser {
                             state = State::SElemCommentCheck;
                         }
                         b':' => {
+                            self.advance();
                             state = State::SInlineAttrKey;
                         }
                         b' ' | b'\t' => {

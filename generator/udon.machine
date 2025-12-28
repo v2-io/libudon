@@ -884,7 +884,7 @@
 
   |state[:inline_attr_key_quoted_content]
     |eof                     | emit(Error:unclosed_quote) | emit(ElementEnd) |return
-    |c[']         |.close   | emit(Attribute)                   |>> :inline_attr_ws
+    |c[']         |.close   | emit(Attribute) | ->              |>> :inline_attr_ws
     |c[\\]        |.escape  | ->                                |>> :inline_attr_key_quoted_esc
     |default      |.collect | ->                                |>>
 
@@ -958,7 +958,7 @@
     |eof                      |                                 |>> :inline_content
     |c[\n]        |.done                                 |>> :children
     |c[;]         |.comment  |                                  |>> :elem_comment_check
-    |c[:]         |.attr     |                                  |>> :inline_attr_key
+    |c[:]         |.attr     | ->                               |>> :inline_attr_key
     |c[ \t]       |.space    | ->                               |>>
     |c[<P>]       |.pipe     |                                  |>> /element(ACTUAL_COL) :inline_content
     |default      |.text     | MARK                             |>> :inline_text
