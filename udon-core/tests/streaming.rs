@@ -3192,32 +3192,54 @@ mod inline_comments {
     fn basic_inline_comment() {
         // ;{comment} in prose
         let events = parse(b"|p Text ;{TODO: fix this} more text.");
-        // TODO(inline-comments): Verify Comment event emitted
-        placeholder_test!("inline-comments", events);
+
+        // Should emit: ElementStart, Text, Comment, Text, ElementEnd
+        assert_eq!(events.len(), 5, "Expected 5 events: {:?}", events);
+        assert_eq!(events[0], E::ElementStart(Some(s(b"p"))));
+        assert_eq!(events[1], E::Text(s(b"Text ")));
+        assert_eq!(events[2], E::Comment(s(b"TODO: fix this")),
+            "Expected Comment event with 'TODO: fix this', got {:?}", events[2]);
+        assert_eq!(events[3], E::Text(s(b" more text.")));
+        assert_eq!(events[4], E::ElementEnd);
     }
 
     #[test]
     fn inline_comment_with_nested_braces() {
         // Brace-counting: balanced braces inside allowed
         let events = parse(b"|p Text ;{comment with {nested} braces} continues.");
-        // TODO(inline-comments): Verify brace counting
-        placeholder_test!("inline-comments", events);
+
+        // Comment content should include the nested braces
+        let comment = events.iter().find_map(|e| {
+            if let E::Comment(c) = e { Some(c.clone()) } else { None }
+        });
+        assert_eq!(comment, Some(s(b"comment with {nested} braces")),
+            "Nested braces should be preserved in comment, got {:?}", comment);
     }
 
     #[test]
     fn multiple_inline_comments() {
         // Multiple ;{...} in one line
         let events = parse(b"|p First ;{note 1} middle ;{note 2} end.");
-        // TODO(inline-comments): Verify multiple comments
-        placeholder_test!("inline-comments", events);
+
+        // Should have 2 Comment events
+        let comments: Vec<_> = events.iter().filter_map(|e| {
+            if let E::Comment(c) = e { Some(c.clone()) } else { None }
+        }).collect();
+        assert_eq!(comments, vec![s(b"note 1"), s(b"note 2")],
+            "Expected two comments, got {:?}", comments);
     }
 
     #[test]
     fn inline_comment_in_element() {
         // ;{...} after element content
         let events = parse(b"|div Content here ;{hidden note}");
-        // TODO(inline-comments): Verify in element context
-        placeholder_test!("inline-comments", events);
+
+        // Should emit Comment event in element context
+        let comment = events.iter().find_map(|e| {
+            if let E::Comment(c) = e { Some(c.clone()) } else { None }
+        });
+        assert_eq!(comment, Some(s(b"hidden note")),
+            "Expected Comment 'hidden note', got {:?}", comment);
     }
 
     #[test]
@@ -3234,17 +3256,36 @@ mod inline_comments {
         // ; at line start is line comment, ;{ is inline
         let line_comment = parse(b"; This is a line comment");
         let inline_comment = parse(b"|p ;{This is inline} text");
-        // Both should work but behave differently
-        // TODO(inline-comments): Verify distinction
-        placeholder_test!("inline-comments", inline_comment);
+
+        // Line comment should emit Comment (but different structure - full line)
+        let line_has_comment = line_comment.iter().any(|e| matches!(e, E::Comment(_)));
+        assert!(line_has_comment, "Line comment should produce Comment event");
+
+        // Inline comment is embedded in element content
+        let inline_has_comment = inline_comment.iter().any(|e| {
+            matches!(e, E::Comment(c) if c == &s(b"This is inline"))
+        });
+        assert!(inline_has_comment, "Inline comment should emit Comment with content");
     }
 
     #[test]
     fn comment_emitted_not_stripped() {
         // Parser emits comment events, consumer decides to keep/strip
         let events = parse(b"|p Before ;{emitted comment} after");
-        // TODO(inline-comments): Verify Comment event present
-        placeholder_test!("inline-comments", events);
+
+        // Comment should be emitted as event (not stripped)
+        let comment = events.iter().find_map(|e| {
+            if let E::Comment(c) = e { Some(c.clone()) } else { None }
+        });
+        assert_eq!(comment, Some(s(b"emitted comment")),
+            "Comment should be emitted, not stripped. Got {:?}", comment);
+
+        // Text before and after should be preserved
+        let texts: Vec<_> = events.iter().filter_map(|e| {
+            if let E::Text(t) = e { Some(t.clone()) } else { None }
+        }).collect();
+        assert!(texts.contains(&s(b"Before ")), "Text before comment should exist");
+        assert!(texts.contains(&s(b" after")), "Text after comment should exist");
     }
 }
 

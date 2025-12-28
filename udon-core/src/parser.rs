@@ -742,6 +742,7 @@ impl StreamingParser {
                         match b {
                         b'{' => {
                             self.advance();
+                            self.mark();
                             state = State::SInlineComment;
                         }
                         _ => {
@@ -759,6 +760,7 @@ impl StreamingParser {
                     if let Some(b) = self.peek() {
                         match b {
                         b'}' => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                             self.advance();
                             state = State::SProse;
                         }
@@ -2384,6 +2386,7 @@ impl StreamingParser {
                         match b {
                         b'{' => {
                             self.advance();
+                            self.mark();
                             state = State::SEmbedInlineComment;
                         }
                         _ => {
@@ -2402,6 +2405,7 @@ impl StreamingParser {
                     if let Some(b) = self.peek() {
                         match b {
                         b'}' => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                             self.advance();
                             state = State::SEmbedContentAfterComment;
                         }
@@ -3029,6 +3033,7 @@ impl StreamingParser {
                         match b {
                         b'{' => {
                             self.advance();
+                            self.mark();
                             state = State::SElemInlineComment;
                         }
                         _ => {
@@ -3047,6 +3052,7 @@ impl StreamingParser {
                     if let Some(b) = self.peek() {
                         match b {
                         b'}' => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                             self.advance();
                             state = State::SInlineContent;
                         }
@@ -3634,6 +3640,7 @@ impl StreamingParser {
                         match b {
                         b'{' => {
                             self.advance();
+                            self.mark();
                             state = State::SChildInlineComment;
                         }
                         _ => {
@@ -3652,6 +3659,7 @@ impl StreamingParser {
                     if let Some(b) = self.peek() {
                         match b {
                         b'}' => {
+                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }
                             self.advance();
                             state = State::SChildProseAfterComment;
                         }

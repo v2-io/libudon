@@ -49,13 +49,14 @@
   |state[:check_inline_comment]
     ; After ; in prose - is it ;{...} or rest-of-line comment?
     |eof                       |                        |return
-    |c[{]       |.inline      | ->                      |>> :inline_comment
+    |c[{]       |.inline      | -> | MARK               |>> :inline_comment
     |default    |.block       | MARK                    |>> :line_comment
 
   |state[:inline_comment]
-    ; ;{...} - balanced braces stripped from output
+    ; ;{...} inline comment - emit Comment event, consumer decides to keep/strip
+    ; SPEC.md: Parser emits comments, consumer decides
     |eof                       | emit(Error:unclosed_comment) |return
-    |c[}]       |.close       | ->                      |>> :prose
+    |c[}]       |.close       | emit(Comment) | ->      |>> :prose
     |c[{]       |.nest        | ->                      |>> :inline_comment_nested
     |default    |.collect     | ->                      |>>
 
@@ -586,13 +587,13 @@
   |state[:embed_comment_check]
     ; Check for ;{ inline comment in embedded content
     |eof                     | emit(Error:unclosed) | emit(EmbeddedEnd) |return
-    |c[{]         |.inline   | ->                                |>> :embed_inline_comment
+    |c[{]         |.inline   | -> | MARK                        |>> :embed_inline_comment
     |default      |.content  | MARK                              |>> :embed_content
 
   |state[:embed_inline_comment]
-    ; Inline comment inside embedded element
+    ; Inline comment inside embedded element - emit Comment event
     |eof                     | emit(Error:unclosed_comment) | emit(EmbeddedEnd) |return
-    |c[}]         |.close    | ->                                |>> :embed_content_after_comment
+    |c[}]         |.close    | emit(Comment) | ->               |>> :embed_content_after_comment
     |c[{]         |.nest     | ->                                |>> :embed_inline_comment_nested
     |default      |.collect  | ->                                |>>
 
@@ -822,13 +823,13 @@
 
   |state[:elem_comment_check]
     |eof                   | emit(ElementEnd)                  |return
-    |c[{]       |.inline   | ->                                |>> :elem_inline_comment
+    |c[{]       |.inline   | -> | MARK                         |>> :elem_inline_comment
     |default    |.line     | MARK                              |>> :elem_line_comment
 
   |state[:elem_inline_comment]
-    ; ;{...} inline comment in element context - brace-counted
+    ; ;{...} inline comment in element context - emit Comment event
     |eof                   | emit(Error:unclosed_comment) | emit(ElementEnd) |return
-    |c[}]       |.close    | ->                                |>> :inline_content
+    |c[}]       |.close    | emit(Comment) | ->                |>> :inline_content
     |c[{]       |.nest     | ->                                |>> :elem_inline_comment_nested
     |default    |.collect  | ->                                |>>
 
@@ -1015,13 +1016,13 @@
 
   |state[:child_comment_check]
     |eof                   | emit(ElementEnd)                  |return
-    |c[{]       |.inline   | ->                                |>> :child_inline_comment
+    |c[{]       |.inline   | -> | MARK                         |>> :child_inline_comment
     |default    |.line     | MARK                              |>> :child_line_comment
 
   |state[:child_inline_comment]
-    ; ;{...} inline comment - brace-counted
+    ; ;{...} inline comment - emit Comment event
     |eof                   | emit(Error:unclosed_comment) | emit(ElementEnd) |return
-    |c[}]       |.close    | ->                                |>> :child_prose_after_comment
+    |c[}]       |.close    | emit(Comment) | ->                |>> :child_prose_after_comment
     |c[{]       |.nest     | ->                                |>> :child_inline_comment_nested
     |default    |.collect  | ->                                |>>
 
