@@ -1036,7 +1036,9 @@ class GMCommand < GMGenericChild
 
     # Directive events
     when 'directivestart'
-      "{ let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, namespace: None, span }); }"
+      "{ let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: false, span }); }"
+    when 'directivestartraw'
+      "{ let name = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::DirectiveStart { name, raw: true, span }); }"
     when 'directiveend'
       "self.emit(StreamingEvent::DirectiveEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });"
     when 'interpolation'

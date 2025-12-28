@@ -90,7 +90,7 @@ impl ParseErrorCode {
 #[derive(Debug, Clone, PartialEq)]
 pub struct InlineDirectiveData {
     pub name: ChunkSlice,
-    pub namespace: Option<ChunkSlice>,
+    pub raw: bool,
     pub content: ChunkSlice,
     pub span: Span,
 }
@@ -307,7 +307,7 @@ pub enum StreamingEvent {
 
     DirectiveStart {
         name: ChunkSlice,
-        namespace: Option<ChunkSlice>,
+        raw: bool,
         span: Span,
     },
     DirectiveEnd { span: Span },

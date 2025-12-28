@@ -55,7 +55,7 @@ enum EventKind {
     RawContent(Vec<u8>),
 
     // Directive events
-    DirectiveStart { name: Vec<u8>, namespace: Option<Vec<u8>> },
+    DirectiveStart { name: Vec<u8>, raw: bool },
     DirectiveEnd,
     Interpolation(Vec<u8>),
 
@@ -104,9 +104,9 @@ impl EventKind {
             ),
 
             // Directive events
-            StreamingEvent::DirectiveStart { name, namespace, .. } => EventKind::DirectiveStart {
+            StreamingEvent::DirectiveStart { name, raw, .. } => EventKind::DirectiveStart {
                 name: parser.arena().resolve(name).unwrap_or(&[]).to_vec(),
-                namespace: namespace.map(|cs| parser.arena().resolve(cs).unwrap_or(&[]).to_vec()),
+                raw,
             },
             StreamingEvent::DirectiveEnd { .. } => EventKind::DirectiveEnd,
             StreamingEvent::Interpolation { expression, .. } => EventKind::Interpolation(
@@ -608,7 +608,7 @@ mod directives {
             vec![
                 EventKind::DirectiveStart {
                     name: b"if".to_vec(),
-                    namespace: None,
+                    raw: false,
                 },
                 EventKind::ElementStart {
                     name: Some(b"div".to_vec()),
@@ -629,7 +629,7 @@ mod directives {
             vec![
                 EventKind::DirectiveStart {
                     name: b"sql".to_vec(),
-                    namespace: Some(b"raw".to_vec()),
+                    raw: true,
                 },
                 EventKind::RawContent(b"SELECT * FROM users\n".to_vec()),
                 EventKind::DirectiveEnd,

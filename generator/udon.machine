@@ -1440,12 +1440,40 @@
     |default    |.skip     | ->                                |>>
 
   |state[:child_directive_name]
-    ; !name... block directive
-    |eof                   | emit(Directive) | emit(ElementEnd)|return
-    |c[\n]      |.block    | emit(Directive) | ->       |>> :children
-    |c[{]       |.body     | emit(Directive)                   |>> :child_directive_body
-    |c[ \t]     |.end      | emit(Directive)                   |>> :child_prose
-    |default    |.collect  | ->                                |>>
+    ; !name... block directive - collect name until space/newline
+    ; After name: space means statement follows, newline means children start
+    ; Special case: if name is "raw" followed by ":", this is a raw directive
+    |eof                   | emit(DirectiveStart) | emit(DirectiveEnd) | emit(ElementEnd)|return
+    |c[\n]      |.block    | emit(DirectiveStart) | ->                 |>> :child_directive_children
+    |c[:]       |.colon    | ->                                        |>> :child_directive_check_raw
+    |c[ \t]     |.stmt     | emit(DirectiveStart) | ->                 |>> :child_directive_statement
+    |default    |.collect  | ->                                        |>>
+
+  |state[:child_directive_check_raw]
+    ; After : in directive name - check if prefix was "raw"
+    ; If raw: treat rest as name, then raw content
+    ; Otherwise: continue collecting name (allow namespace-like names)
+    |eof                   | emit(DirectiveStart) | emit(DirectiveEnd) | emit(ElementEnd)|return
+    |c[\n]      |.block    | emit(DirectiveStart) | ->                 |>> :child_directive_children
+    |c[ \t]     |.stmt     | emit(DirectiveStart) | ->                 |>> :child_directive_statement
+    |default    |.name     | ->                                        |>> :child_directive_name
+
+  |state[:child_directive_statement] SCAN(\n)
+    ; Collect statement until newline, then go to children
+    ; Statement content is currently just skipped (TODO: emit as Text or special event)
+    |eof                   | emit(DirectiveEnd) | emit(ElementEnd)|return
+    |c[\n]      |.done     | ->                                        |>> :child_directive_children
+
+  |state[:child_directive_children]
+    ; Block directive children - parse normal UDON until dedent
+    ; Dedent is detected when column <= directive's column
+    ; For now, reuse :children which handles dedent via elem_col
+    ; TODO: need to track directive column and emit DirectiveEnd on dedent
+    |eof                   | emit(DirectiveEnd) | emit(ElementEnd)|return
+    |c[\n]      |.newline  | ->                                        |>>
+    |c[ ]       |.space    | ->                                        |>> :children_count_ws
+    |c[\t]      |.tab      | -> | emit(Error:no_tabs)                  |>> :skip_child
+    |default    |          | emit(DirectiveEnd)                        |>> :children_content
 
   |state[:child_directive_body]
     ; !name{...} directive body - brace-counted
