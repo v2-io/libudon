@@ -61,9 +61,10 @@ enum E {
     Comment(Vec<u8>),
     Raw(Vec<u8>),
 
-    // References
+    // References and Dynamics
     IdRef(Vec<u8>),      // @[id] - insert entire element
     AttrMerge(Vec<u8>),  // :[id] - merge attributes
+    Interp(Vec<u8>),     // !{{expr}} - interpolation
 
     // Other
     Error(String),
@@ -124,6 +125,9 @@ impl E {
             ),
             StreamingEvent::AttributeMerge { id, .. } => E::AttrMerge(
                 parser.arena().resolve(id).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::Interpolation { expression, .. } => E::Interp(
+                parser.arena().resolve(expression).unwrap_or(&[]).to_vec()
             ),
             StreamingEvent::Error { code, .. } => E::Error(code.message().to_string()),
             StreamingEvent::Warning { message, .. } => E::Warning(message),
@@ -2836,40 +2840,60 @@ mod dynamics {
     fn basic_interpolation() {
         // !{{user.name}} — double-brace for interpolation
         let events = parse(b"|p Hello, !{{user.name}}!");
-        // TODO(interpolation): Verify Interpolation event is emitted with correct expression
-        placeholder_test!("interpolation", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Hello, ")),
+            E::Interp(s(b"user.name")),
+            E::Text(s(b"!")),
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn interpolation_standalone() {
         // Just !{{expr}} at document level
         let events = parse(b"!{{greeting}}");
-        // TODO(interpolation): Should emit Interpolation event
-        placeholder_test!("interpolation", events);
+        assert_eq!(events, vec![
+            E::Interp(s(b"greeting")),
+        ]);
     }
 
     #[test]
     fn interpolation_property_access() {
         // !{{user.profile.name}}
         let events = parse(b"|p !{{user.profile.name}}");
-        // TODO(interpolation): Verify property chain is captured
-        placeholder_test!("interpolation", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Interp(s(b"user.profile.name")),
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn interpolation_array_access() {
         // !{{items[0]}}
         let events = parse(b"|p First: !{{items[0]}}");
-        // TODO(interpolation): Verify array access is captured
-        placeholder_test!("interpolation", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"First: ")),
+            E::Interp(s(b"items[0]")),
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn multiple_interpolations() {
         // Multiple !{{}} in one line
         let events = parse(b"|p !{{first}} and !{{second}} and !{{third}}");
-        // TODO(interpolation): Should emit 3 Interpolation events
-        placeholder_test!("interpolation", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Interp(s(b"first")),
+            E::Text(s(b" and ")),
+            E::Interp(s(b"second")),
+            E::Text(s(b" and ")),
+            E::Interp(s(b"third")),
+            E::ElementEnd,
+        ]);
     }
 
     // =========================================================================
@@ -2878,34 +2902,48 @@ mod dynamics {
 
     #[test]
     fn interpolation_with_filter() {
-        // !{{name | capitalize}}
+        // !{{name | capitalize}} - filter expression is captured verbatim
         let events = parse(b"|p Hello, !{{name | capitalize}}!");
-        // TODO(interpolation): Verify filter is captured
-        placeholder_test!("interpolation+filters", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Text(s(b"Hello, ")),
+            E::Interp(s(b"name | capitalize")),
+            E::Text(s(b"!")),
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn interpolation_multiple_filters() {
         // !{{value | filter1 | filter2 | filter3}}
         let events = parse(b"|p !{{text | strip | capitalize | truncate}}");
-        // TODO(interpolation): Verify filter chain is captured
-        placeholder_test!("interpolation+filters", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Interp(s(b"text | strip | capitalize | truncate")),
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn interpolation_filter_with_arg() {
         // !{{date | format "%Y-%m-%d"}}
         let events = parse(b"|p !{{date | format \"%Y-%m-%d\"}}");
-        // TODO(interpolation): Verify filter args are captured
-        placeholder_test!("interpolation+filters", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Interp(s(b"date | format \"%Y-%m-%d\"")),
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn interpolation_filter_with_multiple_args() {
         // !{{price | currency "USD"}}
         let events = parse(b"|p !{{price | currency \"USD\"}}");
-        // TODO(interpolation): Verify filter args are captured
-        placeholder_test!("interpolation+filters", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"p"))),
+            E::Interp(s(b"price | currency \"USD\"")),
+            E::ElementEnd,
+        ]);
     }
 
     // =========================================================================

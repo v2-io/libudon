@@ -142,7 +142,7 @@
     ; After !{ - check for double-brace (interpolation) or directive name
     ; !{{ = interpolation, !{name = inline directive
     |eof                       | emit(Error:unclosed_directive) |return
-    |c[{]       |.interp      | MARK                    |>> :directive_interp
+    |c[{]       |.interp      | -> | MARK               |>> :directive_interp
     |c[LETTER]  |.directive   | MARK                    |>> :inline_directive_name
     |default    |.err         | emit(Error:incomplete_directive) |>> :prose_after_directive
 
@@ -156,7 +156,14 @@
     |default    |.collect     | ->                      |>>
 
   |state[:directive_interp_close]
-    ; After first } in interpolation - need second } to close !{{...}}
+    ; After first } - we're AT it. Advance past it and check for second }.
+    |eof                       | emit(Error:unclosed_directive) |return
+    |c[}]       |.first       | ->                      |>> :directive_interp_close2
+    |c[{]       |.nest        | ->                      |>> :directive_interp
+    |default    |.more        | ->                      |>> :directive_interp
+
+  |state[:directive_interp_close2]
+    ; After advancing past first } - now check for second }
     |eof                       | emit(Error:unclosed_directive) |return
     |c[}]       |.done        | ->                      |>> :prose_after_directive
     |c[{]       |.nest        | ->                      |>> :directive_interp
@@ -261,10 +268,11 @@
 
   |state[:prose_after_directive]
     ; Continue prose after inline directive
-    |eof                       | emit(Text)             |return
-    |c[\n]      |.done        | emit(Text)      |>> :start
-    |c[;]       |.semi        | emit(Text) | ->         |>> :check_inline_comment
-    |c[<P>]     |.pipe        | emit(Text)              |>> /element(ACTUAL_COL) :start
+    ; Note: Don't emit on EOF/newline - no MARK was set here, so there's no content to emit
+    |eof                                                |return
+    |c[\n]      |.done                           |>> :start
+    |c[;]       |.semi        | ->                      |>> :check_inline_comment
+    |c[<P>]     |.pipe        |                         |>> /element(ACTUAL_COL) :start
     |default    |.collect     | MARK                    |>> :prose
 
   |state[:skip_line]
@@ -829,6 +837,7 @@
     |c[;]       |.comment  | ->                                |>> :elem_comment_check
     |c[:]       |.attr     | ->                                |>> :inline_attr_key
     |c[<P>]     |.pipe     | ->                                |>> :inline_check_pipe
+    |c[!]       |.bang     | ->                                |>> :inline_directive
     |default    |.text     | MARK                              |>> :inline_text
 
   |state[:inline_content]
@@ -844,14 +853,120 @@
     |c[;]       |.comment  | ->                                |>> :elem_comment_check
     |c[:]       |.attr     | ->                                |>> :inline_attr_key
     |c[<P>]     |.pipe     | ->                                |>> :inline_check_pipe
+    |c[!]       |.bang     | ->                                |>> :inline_directive
     |default    |.text     | MARK                              |>> :inline_text
 
-  |state[:inline_text] SCAN(\n;<P>)
-    ; SCAN-first: bulk scan to newline, semicolon, or pipe
+  |state[:inline_text] SCAN(\n;<P>!)
+    ; SCAN-first: bulk scan to newline, semicolon, pipe, or bang (for interpolation)
     |eof                   | emit(Text) | emit(ElementEnd)     |return
     |c[\n]      |.done     | emit(Text) | ->            |>> :children
     |c[;]       |.semi     | emit(Text) | ->                   |>> :elem_comment_check
     |c[<P>]     |.pipe     | emit(Text) | ->                   |>> :inline_check_pipe
+    |c[!]       |.bang     | emit(Text) | ->                   |>> :inline_directive
+
+  ;----------------------------------------------------------------------------
+  ; INLINE DIRECTIVES - !{{...}} interpolation in inline content
+  ;----------------------------------------------------------------------------
+
+  |state[:inline_directive]
+    ; After ! in inline content - we've already advanced past the !
+    ; If next char is {, start interpolation/directive
+    ; If not (or EOF), the ! was literal text - emit it and continue
+    |eof                   | CALL:emit_bang_text | emit(ElementEnd) |return
+    |c[{]       |.brace    | ->                                |>> :inline_dir_brace
+    |default    |.literal  | CALL:emit_bang_text | MARK        |>> :inline_text
+
+  |state[:inline_dir_brace]
+    ; After !{ in inline - check for double-brace (interpolation)
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[{]       |.interp   | -> | MARK                         |>> :inline_interp
+    |c[LETTER]  |.inline   | MARK                              |>> :inline_inline_dir_name
+    |default    |.err      | emit(Error:incomplete_directive)  |>> :inline_text
+
+  |state[:inline_interp]
+    ; !{{...}} interpolation with brace-counting in inline context
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.close    | emit(Interpolation)               |>> :inline_interp_close
+    |c[{]       |.nest     | ->                                |>> :inline_interp_nested
+    |default    |.collect  | ->                                |>>
+
+  |state[:inline_interp_close]
+    ; After first } - we're AT it. Need to advance past it and check for second }.
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.first    | ->                                |>> :inline_interp_close2
+    |c[{]       |.nest     | ->                                |>> :inline_interp
+    |default    |.more     | ->                                |>> :inline_interp
+
+  |state[:inline_interp_close2]
+    ; After advancing past first } - now check for second }
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.done     | ->                                |>> :inline_after_interp
+    |c[{]       |.nest     | ->                                |>> :inline_interp
+    |default    |.more     | ->                                |>> :inline_interp
+
+  |state[:inline_interp_nested]
+    ; Nested braces in interpolation
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.unnest   | ->                                |>> :inline_interp
+    |c[{]       |.deeper   | ->                                |>> :inline_interp_nested2
+    |default    |.collect  | ->                                |>>
+
+  |state[:inline_interp_nested2]
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.unnest   | ->                                |>> :inline_interp_nested
+    |default    |.collect  | ->                                |>>
+
+  |state[:inline_after_interp]
+    ; After interpolation closes - continue inline content
+    ; Handle ! specially to avoid empty text before checking for {{
+    |eof                   | emit(ElementEnd)                  |return
+    |c[\n]      |.newline  | ->                         |>> :children
+    |c[;]       |.comment  | ->                                |>> :elem_comment_check
+    |c[:]       |.attr     | ->                                |>> :inline_attr_key
+    |c[<P>]     |.pipe     | ->                                |>> :inline_check_pipe
+    |c[!]       |.bang     | ->                                |>> :inline_directive
+    |default    |.text     | MARK                              |>> :inline_text
+
+  |state[:inline_inline_dir_name]
+    ; !{name...} inline directive in inline context
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[LABEL_CONT]|.cont   | ->                                |>>
+    |c[:]       |.ns       | emit(DirectiveName)               |>> :inline_inline_dir_ns
+    |c[ \t]     |.body     | emit(DirectiveName)               |>> :inline_inline_dir_body
+    |c[}]       |.noarg    | emit(DirectiveName) | emit(DirectiveEnd) |>> :inline_after_interp
+    |default    |.err      | emit(Error:incomplete_directive)  |>> :inline_text
+
+  |state[:inline_inline_dir_ns]
+    ; After : in directive name - namespace separator
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[LETTER]  |.kind     | MARK                              |>> :inline_inline_dir_kind
+    |default    |.err      | emit(Error:incomplete_directive)  |>> :inline_text
+
+  |state[:inline_inline_dir_kind]
+    ; Collecting kind after namespace
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[LABEL_CONT]|.cont   | ->                                |>>
+    |c[ \t]     |.body     | emit(DirectiveKind)               |>> :inline_inline_dir_body
+    |c[}]       |.noarg    | emit(DirectiveKind) | emit(DirectiveEnd) |>> :inline_after_interp
+    |default    |.err      | emit(Error:incomplete_directive)  |>> :inline_text
+
+  |state[:inline_inline_dir_body]
+    ; !{name body...} - content with brace-counting
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.close    | emit(DirectiveBody) | emit(DirectiveEnd) |>> :inline_after_interp
+    |c[{]       |.nest     | ->                                |>> :inline_inline_dir_nested
+    |default    |.collect  | ->                                |>>
+
+  |state[:inline_inline_dir_nested]
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.unnest   | ->                                |>> :inline_inline_dir_body
+    |c[{]       |.deeper   | ->                                |>> :inline_inline_dir_nested2
+    |default    |.collect  | ->                                |>>
+
+  |state[:inline_inline_dir_nested2]
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.unnest   | ->                                |>> :inline_inline_dir_nested
+    |default    |.collect  | ->                                |>>
 
   |state[:inline_check_pipe]
     ; After | in inline content - check if this starts an element
@@ -1098,13 +1213,14 @@
     |eof                   | emit(DedentedText) | emit(ElementEnd)     |return
     |c[\n]      |.done     | emit(DedentedText) | ->            |>> :children
 
-  |state[:child_prose] SCAN(\n;<P>)
-    ; SCAN-first: bulk scan to newline, semicolon, or pipe
+  |state[:child_prose] SCAN(\n;<P>!)
+    ; SCAN-first: bulk scan to newline, semicolon, pipe, or bang (for interpolation)
     ; Uses DedentedText for automatic content_base tracking and space preservation
     |eof                   | emit(DedentedText) | emit(ElementEnd)     |return
     |c[\n]      |.done     | emit(DedentedText) | ->            |>> :children
     |c[;]       |.semi     | emit(DedentedText) | ->                   |>> :child_comment_check
     |c[<P>]     |.pipe     | emit(DedentedText)                        |>> /element(ACTUAL_COL) :children_after_element
+    |c[!]       |.bang     | emit(DedentedText) | ->                   |>> :child_directive
 
   ;----------------------------------------------------------------------------
   ; ID REFERENCES - @[id] to insert entire element
@@ -1206,7 +1322,7 @@
   |state[:child_directive_brace]
     ; After !{ - check for double-brace (interpolation) or directive name
     |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
-    |c[{]       |.interp   | MARK                              |>> :child_directive_interp
+    |c[{]       |.interp   | -> | MARK                         |>> :child_directive_interp
     |c[LETTER]  |.inline   | MARK                              |>> :child_inline_directive_name
     |default    |.err      | emit(Error:incomplete_directive)  |>> :child_prose
 
@@ -1218,7 +1334,14 @@
     |default    |.collect  | ->                                |>>
 
   |state[:child_directive_interp_close]
-    ; After first } - need second } for !{{...}}
+    ; After first } - we're AT it. Advance past it and check for second }.
+    |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
+    |c[}]       |.first    | ->                                |>> :child_directive_interp_close2
+    |c[{]       |.nest     | ->                                |>> :child_directive_interp
+    |default    |.more     | ->                                |>> :child_directive_interp
+
+  |state[:child_directive_interp_close2]
+    ; After advancing past first } - now check for second }
     |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
     |c[}]       |.done     | ->                                |>> :child_prose
     |c[{]       |.nest     | ->                                |>> :child_directive_interp

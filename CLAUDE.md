@@ -11,13 +11,13 @@ library that language bindings (Ruby, Python, etc.) link against.
 Current state (main branch):
 - Streaming parser with ring buffer architecture
 - 1.83x faster than old batch parser (17.9 µs vs 32.8 µs for comprehensive.udon)
-- 238 tests in udon-core (198 passing, 40 TDD placeholders for dynamics features)
+- 238 tests in udon-core (207 passing, 31 TDD placeholders for dynamics features)
 - Embedded elements `|{...}` fully working (26/26 tests pass)
 - Freeform blocks (```) fully working (5/5 tests pass)
 - References `@[id]` and `:[id]` fully working (4/4 tests pass)
+- Interpolation `!{{...}}` in prose/inline content (7/13 tests pass - attr/id pending)
 - Prose dedentation with content_base tracking (14/15 tests pass)
 - Pipe-as-text in inline content (` | ` is text, not element)
-- Double-brace interpolation `!{{...}}` syntax in parser
 - FFI code needs updating to use new StreamingEvent API
 
 ## Unified Inline Syntax (NEW - Dec 2025)
@@ -302,8 +302,8 @@ Tests exist for all these features; implement to make tests pass.
 | Prose dedentation | DONE | 14/15 tests pass (1 depends on freeform in dynamics context) |
 | Inline comments `;{...}` | DONE | With brace-counting |
 | Suffix handling | DONE | `?!*+` work in all positions |
-| Double-brace interpolation `!{{...}}` | TODO | Parser recognizes, 40 dynamics tests are placeholders |
-| Inline directives `!{name ...}` | TODO | Parser recognizes, tests are placeholders |
+| Double-brace interpolation `!{{...}}` | PARTIAL | 7/13 tests pass - works in prose/inline, attr/id pending |
+| Inline directives `!{name ...}` | TODO | Tests are placeholders |
 | Block directives (`!if`, `!for`) | TODO | Tests are placeholders |
 | Raw block `!raw:lang` | TODO | Tests are placeholders |
 | Raw inline `!{raw:kind ...}` | TODO | Tests are placeholders |

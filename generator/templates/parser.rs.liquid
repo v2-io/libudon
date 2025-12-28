@@ -491,6 +491,16 @@ impl StreamingParser {
         self.emit(StreamingEvent::Text { content: pipe_slice, span });
     }
 
+    /// Emit a literal "!" as text. Used when bang in inline content is not followed
+    /// by { (meaning it's not an interpolation/directive).
+    fn emit_bang_text(&mut self) {
+        let bang_bytes = b"!".to_vec();
+        let chunk_idx = self.chunks.push(bang_bytes);
+        let bang_slice = ChunkSlice::new(chunk_idx, 0, 1);
+        let span = Span::new(self.global_offset as usize - 1, self.global_offset as usize);
+        self.emit(StreamingEvent::Text { content: bang_slice, span });
+    }
+
     /// Emit dedented text with content_base tracking.
     ///
     /// Handles three cases:
@@ -616,6 +626,51 @@ impl StreamingParser {
                 Some(remaining[offset])
             }
             None => {
+                let len = remaining.len();
+                self.pos += len;
+                self.column += len as u32;
+                self.global_offset += len as u64;
+                None
+            }
+        }
+    }
+
+    /// Scan until one of four target bytes. Returns the found byte or None for EOF.
+    /// Uses memchr3 for first 3 bytes and memchr for the 4th, taking whichever is first.
+    #[inline]
+    fn scan_to4(&mut self, b1: u8, b2: u8, b3: u8, b4: u8) -> Option<u8> {
+        if self.pos >= self.current_len {
+            return None;
+        }
+        let remaining = unsafe {
+            std::slice::from_raw_parts(self.current_ptr.add(self.pos), self.current_len - self.pos)
+        };
+        // Find first occurrence of b1/b2/b3 and first occurrence of b4
+        let pos_123 = memchr::memchr3(b1, b2, b3, remaining);
+        let pos_4 = memchr::memchr(b4, remaining);
+
+        // Take whichever is first
+        match (pos_123, pos_4) {
+            (Some(p123), Some(p4)) => {
+                let offset = p123.min(p4);
+                self.pos += offset;
+                self.column += offset as u32;
+                self.global_offset += offset as u64;
+                Some(remaining[offset])
+            }
+            (Some(offset), None) => {
+                self.pos += offset;
+                self.column += offset as u32;
+                self.global_offset += offset as u64;
+                Some(remaining[offset])
+            }
+            (None, Some(offset)) => {
+                self.pos += offset;
+                self.column += offset as u32;
+                self.global_offset += offset as u64;
+                Some(b4)
+            }
+            (None, None) => {
                 let len = remaining.len();
                 self.pos += len;
                 self.column += len as u32;

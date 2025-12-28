@@ -910,8 +910,10 @@ class GMCommand < GMGenericChild
         "self.scan_to2(#{chars[0]}, #{chars[1]})"
       when 3
         "self.scan_to3(#{chars[0]}, #{chars[1]}, #{chars[2]})"
+      when 4
+        "self.scan_to4(#{chars[0]}, #{chars[1]}, #{chars[2]}, #{chars[3]})"
       else
-        "None // SCAN with #{chars.size} chars not supported (max 3)"
+        "None // SCAN with #{chars.size} chars not supported (max 4)"
       end
     when :call
       args = @call_args ? @call_args.map { |a| map_value(a) }.join(", ") : ""
