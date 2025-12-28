@@ -11,14 +11,20 @@ library that language bindings (Ruby, Python, etc.) link against.
 Current state (main branch):
 - Streaming parser with ring buffer architecture
 - 1.83x faster than old batch parser (17.9 µs vs 32.8 µs for comprehensive.udon)
-- 238 tests in udon-core (207 passing, 31 TDD placeholders for dynamics features)
-- Embedded elements `|{...}` fully working (26/26 tests pass)
+- 242 tests in udon-core (212 passing, 30 TDD placeholders for dynamics features)
+- Embedded elements `|{...}` fully working (27/27 tests pass)
 - Freeform blocks (```) fully working (5/5 tests pass)
 - References `@[id]` and `:[id]` fully working (4/4 tests pass)
-- Interpolation `!{{...}}` in prose/inline content (7/13 tests pass - attr/id pending)
+- Interpolation `!{{...}}` in prose/inline content (11/13 tests pass - attr/id pending)
 - Prose dedentation with content_base tracking (14/15 tests pass)
 - Pipe-as-text in inline content (` | ` is text, not element)
 - FFI code needs updating to use new StreamingEvent API
+
+Remaining 30 tests are TDD placeholders for:
+- Block directives `!if`, `!for`, `!let`, etc. (16 tests)
+- Raw directives `!raw:lang`, `!{raw:kind}` (9 tests)
+- Interpolation in attr/id contexts (3 tests)
+- Edge cases (2 tests)
 
 ## Unified Inline Syntax (NEW - Dec 2025)
 
@@ -35,6 +41,25 @@ Key rules:
 - **Bracket mode stays bracket mode**: Inside `|{...}`, use `|{nested}` not `|nested`
 - **Brace-counting**: All inline forms use brace-counting for balanced `{}`
 - **Parser emits comments**: Comments are events, consumer decides to keep/strip
+
+## Directive Parsing (Dec 2025 Clarifications)
+
+The parser uses a `raw` flag to distinguish raw vs non-raw directives:
+
+**Block directives:**
+- `!raw:lang` → DirectiveStart{name: "lang", raw: true}, content as prose until dedent
+- `!if condition` → DirectiveStart{name: "if", raw: false}, rest of line is statement,
+  then normal UDON children until dedent
+
+**Inline directives:**
+- `!{raw:json {"key": "val"}}` → raw=true, content is brace-counted opaque bytes
+- `!{include |{em content}}` → raw=false, content is parsed as UDON
+
+**Interpolation in typed contexts (attribute values, element IDs):**
+- Wholly interpolated: `|div[!{{id}}]` → Interpolation event, type is unparsed
+- Concatenated: `|div[prefix_!{{id}}]` → ArrayStart, StringValue, Interpolation, ArrayEnd
+
+See SPEC.md for full details.
 
 ## Critical: Use SPEC.md as Authority
 
