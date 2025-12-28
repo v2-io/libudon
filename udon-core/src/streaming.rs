@@ -48,6 +48,8 @@ pub enum ParseErrorCode {
     UnclosedDirective,
     /// Unclosed freeform block
     UnclosedFreeform,
+    /// Unclosed reference (e.g., @[id or :[id)
+    UnclosedRef,
     /// Incomplete directive (missing required parts)
     IncompleteDirective,
     /// Expected attribute key after ':'
@@ -72,6 +74,7 @@ impl ParseErrorCode {
             Self::UnclosedComment => "unclosed comment",
             Self::UnclosedDirective => "unclosed directive",
             Self::UnclosedFreeform => "unclosed freeform",
+            Self::UnclosedRef => "unclosed reference",
             Self::IncompleteDirective => "incomplete directive",
             Self::ExpectedAttrKey => "expected attr key",
             Self::ExpectedClassName => "expected class name",
@@ -324,6 +327,11 @@ pub enum StreamingEvent {
     FreeformStart { span: Span },
     FreeformEnd { span: Span },
 
+    // ========== Warnings ==========
+
+    /// Warning for recoverable issues like inconsistent indentation
+    Warning { message: String, span: Span },
+
     // ========== Error ==========
 
     Error { code: ParseErrorCode, span: Span },
@@ -359,6 +367,7 @@ impl StreamingEvent {
             Self::AttributeMerge { span, .. } => *span,
             Self::FreeformStart { span } => *span,
             Self::FreeformEnd { span } => *span,
+            Self::Warning { span, .. } => *span,
             Self::Error { span, .. } => *span,
         }
     }

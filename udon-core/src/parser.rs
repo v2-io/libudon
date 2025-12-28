@@ -102,6 +102,8 @@ pub struct StreamingParser {
     /// Mark position for MARK/TERM pattern
     mark_chunk: u32,
     mark_pos: u32,
+    /// Column at the time mark() was called (for dedentation tracking)
+    mark_column: i32,
 
     // ========== Indentation Tracking ==========
 
@@ -137,6 +139,7 @@ impl StreamingParser {
             global_offset: 0,
             mark_chunk: 0,
             mark_pos: 0,
+            mark_column: 1,
             element_stack: Vec::with_capacity(32),
             events: EventRing::new(event_capacity),
             finished: false,
@@ -267,6 +270,7 @@ impl StreamingParser {
         self.global_offset = 0;
         self.mark_chunk = 0;
         self.mark_pos = 0;
+        self.mark_column = 1;
         self.element_stack.clear();
         self.events.clear();
         self.finished = false;
@@ -326,10 +330,12 @@ impl StreamingParser {
     }
 
     /// Mark current position for accumulation.
+    /// Also saves the current column for dedentation tracking.
     #[inline]
     fn mark(&mut self) {
         self.mark_chunk = self.current_chunk;
         self.mark_pos = self.pos as u32;
+        self.mark_column = self.current_column();
     }
 
     /// Get accumulated slice from mark to current position.
@@ -344,6 +350,20 @@ impl StreamingParser {
         } else {
             // Slow path: token spans multiple chunks, need to copy
             self.term_cross_chunk()
+        }
+    }
+
+    /// Like term() but with an adjustment to the end position.
+    /// Used for freeform blocks where we've advanced past closing backticks.
+    #[inline]
+    fn term_adjusted(&mut self, adjustment: i32) -> ChunkSlice {
+        let adjusted_pos = (self.pos as i32 + adjustment).max(self.mark_pos as i32) as u32;
+        if self.mark_chunk == self.current_chunk {
+            // Fast path: same chunk, no copy needed
+            ChunkSlice::new(self.mark_chunk, self.mark_pos, adjusted_pos)
+        } else {
+            // Slow path: token spans multiple chunks
+            self.term_cross_chunk_adjusted(adjusted_pos)
         }
     }
 
@@ -376,6 +396,37 @@ impl StreamingParser {
         }
 
         // Push as synthetic chunk and return slice to it
+        let synthetic_data = std::mem::take(&mut self.partial);
+        let len = synthetic_data.len() as u32;
+        let chunk_idx = self.chunks.push(synthetic_data);
+        ChunkSlice::new(chunk_idx, 0, len)
+    }
+
+    /// Handle adjusted token that spans multiple chunks (cold path).
+    #[cold]
+    fn term_cross_chunk_adjusted(&mut self, adjusted_pos: u32) -> ChunkSlice {
+        self.partial.clear();
+
+        // Copy from mark_chunk[mark_pos..end]
+        if let Some(chunk) = self.chunks.get(self.mark_chunk) {
+            let data = chunk.data();
+            self.partial.extend_from_slice(&data[self.mark_pos as usize..]);
+        }
+
+        // Copy from any intermediate chunks (mark_chunk + 1 .. current_chunk)
+        for chunk_idx in (self.mark_chunk + 1)..self.current_chunk {
+            if let Some(chunk) = self.chunks.get(chunk_idx) {
+                self.partial.extend_from_slice(chunk.data());
+            }
+        }
+
+        // Copy from current_chunk[0..adjusted_pos]
+        if let Some(chunk) = self.chunks.get(self.current_chunk) {
+            let data = chunk.data();
+            let end = (adjusted_pos as usize).min(data.len());
+            self.partial.extend_from_slice(&data[..end]);
+        }
+
         let synthetic_data = std::mem::take(&mut self.partial);
         let len = synthetic_data.len() as u32;
         let chunk_idx = self.chunks.push(synthetic_data);
@@ -438,6 +489,57 @@ impl StreamingParser {
         let pipe_slice = ChunkSlice::new(chunk_idx, 0, 1);
         let span = Span::new(self.global_offset as usize - 1, self.global_offset as usize);
         self.emit(StreamingEvent::Text { content: pipe_slice, span });
+    }
+
+    /// Emit dedented text with content_base tracking.
+    ///
+    /// Handles three cases:
+    /// 1. First prose line: sets content_base, emits text as-is
+    /// 2. Lesser indent: emits Warning, updates content_base, emits text
+    /// 3. Greater indent: prepends extra spaces (mark_column - content_base)
+    ///
+    /// The content_base parameter is a mutable reference to the function-local
+    /// content_base variable. A value of -1 means "not yet set".
+    fn emit_dedented_text(&mut self, content_base: &mut i32) {
+        let content = self.term();
+        let span = self.span_from_mark();
+        let mark_col = self.mark_column;
+
+        // First prose line: set content_base
+        if *content_base < 0 {
+            *content_base = mark_col;
+            self.emit(StreamingEvent::Text { content, span });
+            return;
+        }
+
+        // Lesser indent: emit warning and update content_base
+        if mark_col < *content_base {
+            self.emit(StreamingEvent::Warning {
+                message: "inconsistent indentation".to_string(),
+                span: Span::new(span.start as usize, span.start as usize),
+            });
+            *content_base = mark_col;
+            self.emit(StreamingEvent::Text { content, span });
+            return;
+        }
+
+        // Greater indent: prepend extra spaces
+        let extra_spaces = mark_col - *content_base;
+        if extra_spaces > 0 {
+            // Create synthetic chunk with spaces + original content
+            let mut combined = vec![b' '; extra_spaces as usize];
+            // Resolve original content and append
+            if let Some(bytes) = self.chunks.resolve(content) {
+                combined.extend_from_slice(bytes);
+            }
+            let combined_len = combined.len() as u32;
+            let chunk_idx = self.chunks.push(combined);
+            let combined_slice = ChunkSlice::new(chunk_idx, 0, combined_len);
+            self.emit(StreamingEvent::Text { content: combined_slice, span });
+        } else {
+            // Exact match: emit as-is
+            self.emit(StreamingEvent::Text { content, span });
+        }
     }
 
     // ========== SIMD-Accelerated Scanning ==========
@@ -624,7 +726,7 @@ impl StreamingParser {
 
     fn parse_document(&mut self) {
         #[derive(Clone, Copy)]
-        enum State { SStart, SEscaped, SEscapedText, SProse, SCheckInlineComment, SInlineComment, SInlineCommentNested, SInlineCommentNested2, SInlineCommentNested3, SLineComment, SBlockComment, SMaybeFreeform, SMaybeFreeform2, SFreeform, SFreeformEnd1, SFreeformEnd2, SDirective, SDirectiveBrace, SDirectiveInterp, SDirectiveInterpClose, SDirectiveInterpNested, SDirectiveInterpNested2, SDirectiveInterpNested3, SInlineDirectiveName, SInlineDirectiveNs, SInlineDirectiveKind, SInlineDirectiveBody, SInlineDirectiveContent, SInlineDirectiveNested, SInlineDirectiveNested2, SInlineDirectiveNested3, SInlineDirectiveSkip, SDirectiveName, SDirectiveBody, SProseAfterDirective, SSkipLine }
+        enum State { SStart, SEscaped, SEscapedText, SProse, SCheckInlineComment, SInlineComment, SInlineCommentNested, SInlineCommentNested2, SInlineCommentNested3, SLineComment, SBlockComment, SMaybeFreeform, SMaybeFreeform2, SFreeformStart, SFreeform, SFreeformEnd1, SFreeformEnd2, SDirective, SDirectiveBrace, SDirectiveInterp, SDirectiveInterpClose, SDirectiveInterpNested, SDirectiveInterpNested2, SDirectiveInterpNested3, SInlineDirectiveName, SInlineDirectiveNs, SInlineDirectiveKind, SInlineDirectiveBody, SInlineDirectiveContent, SInlineDirectiveNested, SInlineDirectiveNested2, SInlineDirectiveNested3, SInlineDirectiveSkip, SDirectiveName, SDirectiveBody, SProseAfterDirective, SSkipLine }
 
         let mut state = State::SStart;
         loop {
@@ -885,12 +987,31 @@ impl StreamingParser {
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
+                            self.advance();
+                            state = State::SFreeformStart;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SProse;
+                        }
+                        }
+                    }
+                }
+                State::SFreeformStart => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedFreeform, span: self.span_from_mark() });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
                             self.mark();
                             state = State::SFreeform;
                         }
                         _ => {
                             self.mark();
-                            state = State::SProse;
+                            state = State::SFreeform;
                         }
                         }
                     }
@@ -938,7 +1059,8 @@ impl StreamingParser {
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::RawContent { content, span }); }
+                            { let content = self.term_adjusted(-2); let span = self.span_from_mark(); self.emit(StreamingEvent::RawContent { content, span }); }
+                            self.advance();
                             state = State::SStart;
                         }
                         _ => {
@@ -1371,8 +1493,10 @@ impl StreamingParser {
     }
 
     fn parse_element(&mut self, elem_col: i32) {
+        let mut content_base: i32 = -1;
+
         #[derive(Clone, Copy)]
-        enum State { SIdentity, SEmbedIdentity, SEmbedName, SEmbedAfterNameSuffix, SEmbedAnonBracket, SEmbedBracketStart, SEmbedBracketValue, SEmbedAfterBracket, SEmbedClassStart, SEmbedClassName, SEmbedClassQuoted, SEmbedClassQuotedContent, SEmbedClassQuotedEsc, SEmbedClassCheck, SEmbedAfterIdentity, SEmbedAttrKey, SEmbedAttrKeyScan, SEmbedAttrKeyQuoted, SEmbedAttrKeyQuotedContent, SEmbedAttrKeyQuotedEsc, SEmbedAttrValue, SEmbedAttrDquote, SEmbedAttrDquoteContent, SEmbedAttrDquoteEsc, SEmbedAttrSquote, SEmbedAttrSquoteContent, SEmbedAttrSquoteEsc, SEmbedAttrBare, SEmbedAttrAfterValue, SEmbedCheckNested, SEmbedAfterNested, SEmbedContent, SEmbedContentNested, SEmbedContentNested2, SEmbedContentNested3, SEmbedCommentCheck, SEmbedInlineComment, SEmbedInlineCommentNested, SEmbedContentAfterComment, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SInlineCheckPipe, SElemCommentCheck, SElemInlineComment, SElemInlineCommentNested, SElemInlineCommentNested2, SElemLineComment, SInlineAttrKey, SInlineAttrKeyScan, SInlineAttrKeyQuoted, SInlineAttrKeyQuotedContent, SInlineAttrKeyQuotedEsc, SInlineAttrWs, SInlineAttrValue, SInlineAttrDquote, SInlineAttrDquoteContent, SInlineAttrDquoteEsc, SInlineAttrSquote, SInlineAttrSquoteContent, SInlineAttrSquoteEsc, SInlineAttrBare, SInlineAttrAfterValue, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildCommentCheck, SChildInlineComment, SChildInlineCommentNested, SChildInlineCommentNested2, SChildProseAfterComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveBrace, SChildDirectiveInterp, SChildDirectiveInterpClose, SChildInterpNested, SChildInterpNested2, SChildInlineDirectiveName, SChildInlineDirectiveNs, SChildInlineDirectiveKind, SChildInlineDirectiveBody, SChildInlineDirectiveContent, SChildInlineDirNested, SChildInlineDirNested2, SChildInlineDirectiveSkip, SChildDirectiveName, SChildDirectiveBody, SChildDirBodyNested, SChildDirBodyNested2, SSkipChild, SAttrKey, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine }
+        enum State { SIdentity, SEmbedIdentity, SEmbedName, SEmbedAfterNameSuffix, SEmbedAnonBracket, SEmbedBracketStart, SEmbedBracketValue, SEmbedAfterBracket, SEmbedClassStart, SEmbedClassName, SEmbedClassQuoted, SEmbedClassQuotedContent, SEmbedClassQuotedEsc, SEmbedClassCheck, SEmbedAfterIdentity, SEmbedAttrKey, SEmbedAttrKeyScan, SEmbedAttrKeyQuoted, SEmbedAttrKeyQuotedContent, SEmbedAttrKeyQuotedEsc, SEmbedAttrValue, SEmbedAttrDquote, SEmbedAttrDquoteContent, SEmbedAttrDquoteEsc, SEmbedAttrSquote, SEmbedAttrSquoteContent, SEmbedAttrSquoteEsc, SEmbedAttrBare, SEmbedAttrAfterValue, SEmbedCheckNested, SEmbedAfterNested, SEmbedContent, SEmbedContentNested, SEmbedContentNested2, SEmbedContentNested3, SEmbedCommentCheck, SEmbedInlineComment, SEmbedInlineCommentNested, SEmbedContentAfterComment, SIdName, SIdAfterName, SIdCheckBracket, SIdBracketStart, SIdAnonBracket, SIdBracketValue, SIdAfterBracket, SIdCheckClass, SIdSpaceClassOrSuffix, SIdClassStart, SIdClassName, SIdClassCheckMore, SIdSpaceSuffix, SIdQuotedName, SIdQuotedNameContent, SIdQuotedNameEscape, SIdClassQuoted, SIdClassQuotedContent, SIdClassQuotedEscape, SIdCheckMore, SAfterIdentity, SInlineContent, SInlineText, SInlineCheckPipe, SInlineAfterElement, SElemCommentCheck, SElemInlineComment, SElemInlineCommentNested, SElemInlineCommentNested2, SElemLineComment, SInlineAttrKey, SInlineAttrMerge, SInlineAttrAfterMerge, SInlineAttrKeyScan, SInlineAttrKeyQuoted, SInlineAttrKeyQuotedContent, SInlineAttrKeyQuotedEsc, SInlineAttrWs, SInlineAttrValue, SInlineAttrDquote, SInlineAttrDquoteContent, SInlineAttrDquoteEsc, SInlineAttrSquote, SInlineAttrSquoteContent, SInlineAttrSquoteEsc, SInlineAttrBare, SInlineAttrAfterValue, SChildren, SChildrenContent, SChildrenAfterElement, SChildrenCountWs, SChildEscaped, SChildEscapedText, SChildProse, SChildIdRef, SChildIdRefValue, SChildCommentCheck, SChildInlineComment, SChildInlineCommentNested, SChildInlineCommentNested2, SChildProseAfterComment, SChildLineComment, SChildBlockComment, SChildFreeformCheck, SChildFreeformCheck2, SChildFreeformStart, SChildFreeform, SChildFreeformEnd1, SChildFreeformEnd2, SChildDirective, SChildDirectiveBrace, SChildDirectiveInterp, SChildDirectiveInterpClose, SChildInterpNested, SChildInterpNested2, SChildInlineDirectiveName, SChildInlineDirectiveNs, SChildInlineDirectiveKind, SChildInlineDirectiveBody, SChildInlineDirectiveContent, SChildInlineDirNested, SChildInlineDirNested2, SChildInlineDirectiveSkip, SChildDirectiveName, SChildDirectiveBody, SChildDirBodyNested, SChildDirBodyNested2, SSkipChild, SAttrKey, SAttrMerge, SAttrAfterMerge, SAttrKeyScan, SAttrKeyQuoted, SAttrKeyQuotedContent, SAttrKeyQuotedEsc, SAttrWs, SAttrValue, SAttrComment, SAttrDquote, SAttrDquoteContent, SAttrDquoteEsc, SAttrSquote, SAttrSquoteContent, SAttrSquoteEsc, SAttrBare, SAttrAfterValue, SAttrSkipLine }
 
         let mut state = State::SIdentity;
         loop {
@@ -2528,6 +2652,26 @@ impl StreamingParser {
                     }
                     if let Some(b) = self.peek() {
                         match b {
+                        b'?' => {
+                            self.emit_special_attribute("?");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                        }
+                        b'!' => {
+                            self.emit_special_attribute("!");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                        }
+                        b'*' => {
+                            self.emit_special_attribute("*");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                        }
+                        b'+' => {
+                            self.emit_special_attribute("+");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                        }
                         b'[' => {
                             self.advance();
                             state = State::SIdBracketStart;
@@ -2643,9 +2787,76 @@ impl StreamingParser {
                     }
                     if let Some(b) = self.peek() {
                         match b {
+                        b'?' => {
+                            self.emit_special_attribute("?");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                        }
+                        b'!' => {
+                            self.emit_special_attribute("!");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                        }
+                        b'*' => {
+                            self.emit_special_attribute("*");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                        }
+                        b'+' => {
+                            self.emit_special_attribute("+");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                        }
                         b'.' => {
                             self.advance();
                             state = State::SIdClassStart;
+                        }
+                        b' ' => {
+                            self.advance();
+                            state = State::SIdSpaceClassOrSuffix;
+                        }
+                        _ => {
+                            state = State::SAfterIdentity;
+                        }
+                        }
+                    }
+                }
+                State::SIdSpaceClassOrSuffix => {
+                    if self.eof() {
+                        state = State::SAfterIdentity;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'?' => {
+                            self.emit_special_attribute("?");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                            state = State::SAfterIdentity;
+                        }
+                        b'!' => {
+                            self.emit_special_attribute("!");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                            state = State::SAfterIdentity;
+                        }
+                        b'*' => {
+                            self.emit_special_attribute("*");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                            state = State::SAfterIdentity;
+                        }
+                        b'+' => {
+                            self.emit_special_attribute("+");
+                            { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
+                            state = State::SAfterIdentity;
+                        }
+                        b'.' => {
+                            self.advance();
+                            state = State::SIdClassStart;
+                        }
+                        b' ' => {
+                            self.advance();
                         }
                         _ => {
                             state = State::SAfterIdentity;
@@ -2986,44 +3197,85 @@ impl StreamingParser {
                         match b {
                         b'{' => {
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SInlineAfterElement;
                         }
                         b if self.is_label_start(b) => {
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SInlineAfterElement;
                         }
                         b'[' => {
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SInlineAfterElement;
                         }
                         b'.' => {
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SInlineAfterElement;
                         }
                         b'?' => {
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SInlineAfterElement;
                         }
                         b'!' => {
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SInlineAfterElement;
                         }
                         b'*' => {
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SInlineAfterElement;
                         }
                         b'+' => {
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SInlineAfterElement;
                         }
                         b'\'' => {
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SInlineAfterElement;
                         }
                         _ => {
                             self.emit_pipe_text();
                             self.mark();
                             state = State::SInlineText;
+                        }
+                        }
+                    }
+                }
+                State::SInlineAfterElement => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if self.current_column()  <=  elem_col {
+    self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+    return;
+}
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SChildren;
+                        }
+                        b';' => {
+                            self.advance();
+                            state = State::SElemCommentCheck;
+                        }
+                        b':' => {
+                            self.advance();
+                            state = State::SInlineAttrKey;
+                        }
+                        b'|' => {
+                            self.advance();
+                            state = State::SInlineCheckPipe;
+                        }
+                        b' ' | b'\t' => {
+                            self.mark();
+                            state = State::SInlineText;
+                        }
+                        b'!' | b'?' | b'.' | b',' | b')' | b'}' | b'\\' => {
+                            self.mark();
+                            state = State::SInlineText;
+                        }
+                        _ => {
+                            state = State::SChildrenContent;
                         }
                         }
                     }
@@ -3142,9 +3394,63 @@ impl StreamingParser {
                             self.advance();
                             state = State::SInlineAttrKeyQuoted;
                         }
+                        b'[' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SInlineAttrMerge;
+                        }
                         _ => {
                             self.emit(StreamingEvent::Error { code: ParseErrorCode::ExpectedAttrKey, span: self.span_from_mark() });
                             state = State::SInlineContent;
+                        }
+                        }
+                    }
+                }
+                State::SInlineAttrMerge => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedRef, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b']' => {
+                            { let id = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::AttributeMerge { id, span }); }
+                            self.advance();
+                            state = State::SInlineAttrAfterMerge;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SInlineAttrAfterMerge => {
+                    if self.eof() {
+                        state = State::SInlineContent;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            state = State::SChildren;
+                        }
+                        b';' => {
+                            state = State::SElemCommentCheck;
+                        }
+                        b':' => {
+                            self.advance();
+                            state = State::SInlineAttrKey;
+                        }
+                        b' ' | b'\t' => {
+                            self.advance();
+                        }
+                        b'|' => {
+                            self.parse_element(self.current_column());
+                            state = State::SChildrenAfterElement;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SInlineText;
                         }
                         }
                     }
@@ -3257,6 +3563,7 @@ impl StreamingParser {
                         }
                         b':' => {
                             { let span = self.span_from_mark(); self.emit(StreamingEvent::BoolValue { value: true, span }); }
+                            self.advance();
                             state = State::SInlineAttrKey;
                         }
                         b'[' => {
@@ -3414,7 +3721,7 @@ impl StreamingParser {
                         b'|' => {
                             self.emit_typed_value();
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SChildrenAfterElement;
                         }
                         _ => {
                             self.advance();
@@ -3443,7 +3750,7 @@ impl StreamingParser {
                         }
                         b'|' => {
                             self.parse_element(self.current_column());
-                            state = State::SInlineContent;
+                            state = State::SChildrenAfterElement;
                         }
                         _ => {
                             self.mark();
@@ -3505,6 +3812,10 @@ impl StreamingParser {
                         b':' => {
                             self.advance();
                             state = State::SAttrKey;
+                        }
+                        b'@' => {
+                            self.advance();
+                            state = State::SChildIdRef;
                         }
                         b'`' => {
                             self.advance();
@@ -3597,12 +3908,12 @@ impl StreamingParser {
                     // SCAN-first: bulk scan and match result
                     match self.scan_to1(b'\n') {
                         Some(b'\n') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit_dedented_text(&mut content_base);
                             self.advance();
                             state = State::SChildren;
                         }
                         None => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit_dedented_text(&mut content_base);
                             self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                             return;
                         }
@@ -3613,26 +3924,65 @@ impl StreamingParser {
                     // SCAN-first: bulk scan and match result
                     match self.scan_to3(b'\n', b';', b'|') {
                         Some(b'\n') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit_dedented_text(&mut content_base);
                             self.advance();
                             state = State::SChildren;
                         }
                         Some(b';') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit_dedented_text(&mut content_base);
                             self.advance();
                             state = State::SChildCommentCheck;
                         }
                         Some(b'|') => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit_dedented_text(&mut content_base);
                             self.parse_element(self.current_column());
                             state = State::SChildrenAfterElement;
                         }
                         None => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit_dedented_text(&mut content_base);
                             self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
                             return;
                         }
                         _ => {} // Other bytes not possible after SCAN
+                    }
+                }
+                State::SChildIdRef => {
+                    if self.eof() {
+                        { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'[' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SChildIdRefValue;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SChildProse;
+                        }
+                        }
+                    }
+                }
+                State::SChildIdRefValue => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedRef, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b']' => {
+                            { let id = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::IdReference { id, span }); }
+                            self.advance();
+                            state = State::SChildren;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
                     }
                 }
                 State::SChildCommentCheck => {
@@ -3733,7 +4083,7 @@ impl StreamingParser {
                             state = State::SChildCommentCheck;
                         }
                         b'|' => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }
+                            self.emit_dedented_text(&mut content_base);
                             self.parse_element(self.current_column());
                             state = State::SChildrenAfterElement;
                         }
@@ -3804,12 +4154,32 @@ impl StreamingParser {
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
+                            self.advance();
+                            state = State::SChildFreeformStart;
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SChildProse;
+                        }
+                        }
+                    }
+                }
+                State::SChildFreeformStart => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedFreeform, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
                             self.mark();
                             state = State::SChildFreeform;
                         }
                         _ => {
                             self.mark();
-                            state = State::SChildProse;
+                            state = State::SChildFreeform;
                         }
                         }
                     }
@@ -3860,7 +4230,8 @@ impl StreamingParser {
                     if let Some(b) = self.peek() {
                         match b {
                         b'`' => {
-                            { let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::RawContent { content, span }); }
+                            { let content = self.term_adjusted(-2); let span = self.span_from_mark(); self.emit(StreamingEvent::RawContent { content, span }); }
+                            self.advance();
                             state = State::SChildren;
                         }
                         _ => {
@@ -4297,9 +4668,63 @@ impl StreamingParser {
                             self.advance();
                             state = State::SAttrKeyQuoted;
                         }
+                        b'[' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SAttrMerge;
+                        }
                         _ => {
                             self.emit(StreamingEvent::Error { code: ParseErrorCode::ExpectedAttrKey, span: self.span_from_mark() });
                             state = State::SChildren;
+                        }
+                        }
+                    }
+                }
+                State::SAttrMerge => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::Error { code: ParseErrorCode::UnclosedRef, span: self.span_from_mark() });
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b']' => {
+                            { let id = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::AttributeMerge { id, span }); }
+                            self.advance();
+                            state = State::SAttrAfterMerge;
+                        }
+                        _ => {
+                            self.advance();
+                        }
+                        }
+                    }
+                }
+                State::SAttrAfterMerge => {
+                    if self.eof() {
+                        self.emit(StreamingEvent::ElementEnd { span: Span::new(self.global_offset as usize, self.global_offset as usize) });
+                        return;
+                    }
+                    if let Some(b) = self.peek() {
+                        match b {
+                        b'\n' => {
+                            self.advance();
+                            state = State::SChildren;
+                        }
+                        b';' => {
+                            self.advance();
+                            self.mark();
+                            state = State::SChildBlockComment;
+                        }
+                        b':' => {
+                            self.advance();
+                            state = State::SAttrKey;
+                        }
+                        b' ' | b'\t' => {
+                            self.advance();
+                        }
+                        _ => {
+                            self.mark();
+                            state = State::SChildProse;
                         }
                         }
                     }

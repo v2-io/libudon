@@ -978,8 +978,16 @@ class GMCommand < GMGenericChild
       "{ let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Comment { content, span }); }"
     when 'text'
       "{ let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::Text { content, span }); }"
+    when 'dedentedtext'
+      # Child prose with content_base tracking - requires content_base local variable
+      "self.emit_dedented_text(&mut content_base);"
     when 'rawcontent'
       "{ let content = self.term(); let span = self.span_from_mark(); self.emit(StreamingEvent::RawContent { content, span }); }"
+    when 'freeformraw'
+      # Freeform blocks: emit content excluding the 2 closing backticks we've advanced past
+      # At emit time, pos is at third backtick, but we've advanced past first two
+      # So we need to subtract 2 from end position
+      "{ let content = self.term_adjusted(-2); let span = self.span_from_mark(); self.emit(StreamingEvent::RawContent { content, span }); }"
 
     # Structure events
     when 'elementstart'

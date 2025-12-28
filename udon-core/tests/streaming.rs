@@ -61,6 +61,10 @@ enum E {
     Comment(Vec<u8>),
     Raw(Vec<u8>),
 
+    // References
+    IdRef(Vec<u8>),      // @[id] - insert entire element
+    AttrMerge(Vec<u8>),  // :[id] - merge attributes
+
     // Other
     Error(String),
     Warning(String),  // For inconsistent indentation warnings
@@ -115,7 +119,14 @@ impl E {
             StreamingEvent::RawContent { content, .. } => E::Raw(
                 parser.arena().resolve(content).unwrap_or(&[]).to_vec()
             ),
+            StreamingEvent::IdReference { id, .. } => E::IdRef(
+                parser.arena().resolve(id).unwrap_or(&[]).to_vec()
+            ),
+            StreamingEvent::AttributeMerge { id, .. } => E::AttrMerge(
+                parser.arena().resolve(id).unwrap_or(&[]).to_vec()
+            ),
             StreamingEvent::Error { code, .. } => E::Error(code.message().to_string()),
+            StreamingEvent::Warning { message, .. } => E::Warning(message),
             other => E::Other(format!("{:?}", other)),
         }
     }
@@ -1675,11 +1686,13 @@ mod prose_dedentation {
         //   ```
         //
         // Content inside backticks is preserved exactly as written
+        // NOTE: Content includes trailing whitespace on line before closing ```,
+        // since we preserve exact content from after opening to before closing.
         let events = parse(b"|code\n  ```\n  def foo():\n      return 1\n  ```");
         assert_eq!(events, vec![
             E::ElementStart(Some(s(b"code"))),
             // Freeform content should preserve exact whitespace
-            E::Raw(s(b"  def foo():\n      return 1\n")),
+            E::Raw(s(b"  def foo():\n      return 1\n  ")),
             E::ElementEnd,
         ]);
     }
@@ -3303,16 +3316,24 @@ mod references {
     fn id_reference() {
         // @[id] — insert entire element
         let events = parse(b"|page\n  @[header]");
-        // TODO(references): Verify IdReference event
-        placeholder_test!("references", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"page"))),
+            E::IdRef(s(b"header")),
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
     fn attribute_merge_reference() {
         // :[id] — merge attributes
         let events = parse(b"|database :[base-db] :name mydb");
-        // TODO(references): Verify AttributeMerge event
-        placeholder_test!("references", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"database"))),
+            E::AttrMerge(s(b"base-db")),
+            E::Attr(s(b"name")),
+            E::Str(s(b"mydb")),
+            E::ElementEnd,
+        ]);
     }
 
     #[test]
@@ -3356,24 +3377,31 @@ mod freeform_blocks {
         // ```
         // content
         // ```
+        // Leading newline after opening ``` is skipped
         let events = parse(b"```\nfreeform content\n```");
-        // TODO(freeform): Verify freeform content emitted
-        placeholder_test!("freeform", events);
+        assert_eq!(events, vec![
+            E::Raw(s(b"freeform content\n")),
+        ]);
     }
 
     #[test]
     fn freeform_preserves_pipes() {
-        // Pipes inside freeform are not elements
+        // Pipes inside freeform are not elements - they're literal text
         let events = parse(b"```\n|not-an-element\n|another\n```");
-        // TODO(freeform): Verify no elements created for pipes
-        placeholder_test!("freeform", events);
+        assert_eq!(events, vec![
+            E::Raw(s(b"|not-an-element\n|another\n")),
+        ]);
     }
 
     #[test]
     fn freeform_inside_element() {
+        // Content includes trailing whitespace before closing ```
         let events = parse(b"|code\n  ```\n  raw content\n  ```");
-        // TODO(freeform): Verify freeform inside element
-        placeholder_test!("freeform", events);
+        assert_eq!(events, vec![
+            E::ElementStart(Some(s(b"code"))),
+            E::Raw(s(b"  raw content\n  ")),
+            E::ElementEnd,
+        ]);
     }
 
     #[test]

@@ -102,6 +102,8 @@ pub struct StreamingParser {
     /// Mark position for MARK/TERM pattern
     mark_chunk: u32,
     mark_pos: u32,
+    /// Column at the time mark() was called (for dedentation tracking)
+    mark_column: i32,
 
     // ========== Indentation Tracking ==========
 
@@ -137,6 +139,7 @@ impl StreamingParser {
             global_offset: 0,
             mark_chunk: 0,
             mark_pos: 0,
+            mark_column: 1,
             element_stack: Vec::with_capacity(32),
             events: EventRing::new(event_capacity),
             finished: false,
@@ -267,6 +270,7 @@ impl StreamingParser {
         self.global_offset = 0;
         self.mark_chunk = 0;
         self.mark_pos = 0;
+        self.mark_column = 1;
         self.element_stack.clear();
         self.events.clear();
         self.finished = false;
@@ -326,10 +330,12 @@ impl StreamingParser {
     }
 
     /// Mark current position for accumulation.
+    /// Also saves the current column for dedentation tracking.
     #[inline]
     fn mark(&mut self) {
         self.mark_chunk = self.current_chunk;
         self.mark_pos = self.pos as u32;
+        self.mark_column = self.current_column();
     }
 
     /// Get accumulated slice from mark to current position.
@@ -344,6 +350,20 @@ impl StreamingParser {
         } else {
             // Slow path: token spans multiple chunks, need to copy
             self.term_cross_chunk()
+        }
+    }
+
+    /// Like term() but with an adjustment to the end position.
+    /// Used for freeform blocks where we've advanced past closing backticks.
+    #[inline]
+    fn term_adjusted(&mut self, adjustment: i32) -> ChunkSlice {
+        let adjusted_pos = (self.pos as i32 + adjustment).max(self.mark_pos as i32) as u32;
+        if self.mark_chunk == self.current_chunk {
+            // Fast path: same chunk, no copy needed
+            ChunkSlice::new(self.mark_chunk, self.mark_pos, adjusted_pos)
+        } else {
+            // Slow path: token spans multiple chunks
+            self.term_cross_chunk_adjusted(adjusted_pos)
         }
     }
 
@@ -376,6 +396,37 @@ impl StreamingParser {
         }
 
         // Push as synthetic chunk and return slice to it
+        let synthetic_data = std::mem::take(&mut self.partial);
+        let len = synthetic_data.len() as u32;
+        let chunk_idx = self.chunks.push(synthetic_data);
+        ChunkSlice::new(chunk_idx, 0, len)
+    }
+
+    /// Handle adjusted token that spans multiple chunks (cold path).
+    #[cold]
+    fn term_cross_chunk_adjusted(&mut self, adjusted_pos: u32) -> ChunkSlice {
+        self.partial.clear();
+
+        // Copy from mark_chunk[mark_pos..end]
+        if let Some(chunk) = self.chunks.get(self.mark_chunk) {
+            let data = chunk.data();
+            self.partial.extend_from_slice(&data[self.mark_pos as usize..]);
+        }
+
+        // Copy from any intermediate chunks (mark_chunk + 1 .. current_chunk)
+        for chunk_idx in (self.mark_chunk + 1)..self.current_chunk {
+            if let Some(chunk) = self.chunks.get(chunk_idx) {
+                self.partial.extend_from_slice(chunk.data());
+            }
+        }
+
+        // Copy from current_chunk[0..adjusted_pos]
+        if let Some(chunk) = self.chunks.get(self.current_chunk) {
+            let data = chunk.data();
+            let end = (adjusted_pos as usize).min(data.len());
+            self.partial.extend_from_slice(&data[..end]);
+        }
+
         let synthetic_data = std::mem::take(&mut self.partial);
         let len = synthetic_data.len() as u32;
         let chunk_idx = self.chunks.push(synthetic_data);
@@ -438,6 +489,57 @@ impl StreamingParser {
         let pipe_slice = ChunkSlice::new(chunk_idx, 0, 1);
         let span = Span::new(self.global_offset as usize - 1, self.global_offset as usize);
         self.emit(StreamingEvent::Text { content: pipe_slice, span });
+    }
+
+    /// Emit dedented text with content_base tracking.
+    ///
+    /// Handles three cases:
+    /// 1. First prose line: sets content_base, emits text as-is
+    /// 2. Lesser indent: emits Warning, updates content_base, emits text
+    /// 3. Greater indent: prepends extra spaces (mark_column - content_base)
+    ///
+    /// The content_base parameter is a mutable reference to the function-local
+    /// content_base variable. A value of -1 means "not yet set".
+    fn emit_dedented_text(&mut self, content_base: &mut i32) {
+        let content = self.term();
+        let span = self.span_from_mark();
+        let mark_col = self.mark_column;
+
+        // First prose line: set content_base
+        if *content_base < 0 {
+            *content_base = mark_col;
+            self.emit(StreamingEvent::Text { content, span });
+            return;
+        }
+
+        // Lesser indent: emit warning and update content_base
+        if mark_col < *content_base {
+            self.emit(StreamingEvent::Warning {
+                message: "inconsistent indentation".to_string(),
+                span: Span::new(span.start as usize, span.start as usize),
+            });
+            *content_base = mark_col;
+            self.emit(StreamingEvent::Text { content, span });
+            return;
+        }
+
+        // Greater indent: prepend extra spaces
+        let extra_spaces = mark_col - *content_base;
+        if extra_spaces > 0 {
+            // Create synthetic chunk with spaces + original content
+            let mut combined = vec![b' '; extra_spaces as usize];
+            // Resolve original content and append
+            if let Some(bytes) = self.chunks.resolve(content) {
+                combined.extend_from_slice(bytes);
+            }
+            let combined_len = combined.len() as u32;
+            let chunk_idx = self.chunks.push(combined);
+            let combined_slice = ChunkSlice::new(chunk_idx, 0, combined_len);
+            self.emit(StreamingEvent::Text { content: combined_slice, span });
+        } else {
+            // Exact match: emit as-is
+            self.emit(StreamingEvent::Text { content, span });
+        }
     }
 
     // ========== SIMD-Accelerated Scanning ==========

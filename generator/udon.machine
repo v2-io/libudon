@@ -99,23 +99,36 @@
   |state[:maybe_freeform2]
     ; Saw `` - check for third
     |eof                       | emit(Text)             |return
-    |c[`]       |.third       | MARK                    |>> :freeform
+    |c[`]       |.third       | ->                      |>> :freeform_start
     |default    |.not         | MARK                    |>> :prose
+
+  |state[:freeform_start]
+    ; Just after opening ``` - skip leading newline if present, then MARK
+    ; SPEC: "Content after ``` on the same line is part of the freeform block"
+    ; So if ``` is followed by newline, content starts on next line
+    |eof                       | emit(Error:unclosed_freeform) |return
+    |c[\n]      |.newline     | -> | MARK              |>> :freeform
+    |default    |.content     | MARK                    |>> :freeform
 
   |state[:freeform]
     ; Inside ``` block - preserve exact whitespace
+    ; Content is from MARK (after opening ```) to first closing backtick
     |eof                       | emit(Error:unclosed_freeform) |return
     |c[`]       |.maybe_end   | ->                      |>> :freeform_end1
     |default    |.collect     | ->                      |>>
 
   |state[:freeform_end1]
+    ; After first closing ` - check for second
     |eof                       | emit(Error:unclosed_freeform) |return
     |c[`]       |.second      | ->                      |>> :freeform_end2
     |default    |.not         | ->                      |>> :freeform
 
   |state[:freeform_end2]
+    ; After second closing ` - check for third
+    ; When we emit, pos is at third backtick, but we've already advanced past first two
+    ; so content from MARK to (pos-2) is what we want. Use FreeformRaw for adjusted bounds.
     |eof                       | emit(Error:unclosed_freeform) |return
-    |c[`]       |.close       | emit(RawContent)  |>> :start
+    |c[`]       |.close       | emit(FreeformRaw) | -> |>> :start
     |default    |.not         | ->                      |>> :freeform
 
   |state[:directive]
@@ -273,6 +286,8 @@
 ; Returning = implicit stack pop + ElementEnd event
 ;==============================================================================
 |function[element] :elem_col
+  |var[content_base] = -1
+
   ;============================================================================
   ; ELEMENT IDENTITY PARSING
   ; SPEC.md:654 - element = "|" [ name ] [ suffix ] [ id [ suffix ] ] { class }*
@@ -640,9 +655,14 @@
     |default      |.done     |                                   |>> :after_identity
 
   |state[:id_check_bracket]
-    ; After name+suffix - can still have [id] or .class
+    ; After name+suffix - can have more suffixes, [id], or .class
     ; Example: |foo?[id] → suffix already emitted, now parse [id]
+    ; Example: |foo?! → multiple suffixes directly adjacent
     |eof                                                        |>> :after_identity
+    |c[?]         |.q        | emit(Attribute:?) | emit(BoolValue:true) | -> |>>
+    |c[!]         |.bang     | emit(Attribute:!) | emit(BoolValue:true) | -> |>>
+    |c[*]         |.star     | emit(Attribute:*) | emit(BoolValue:true) | -> |>>
+    |c[+]         |.plus     | emit(Attribute:+) | emit(BoolValue:true) | -> |>>
     |c[<L>]       |.bracket  | ->                                |>> :id_bracket_start
     |c[.]         |.dot      | ->                                |>> :id_class_start
     |default      |.done     |                                   |>> :after_identity
@@ -685,9 +705,29 @@
     |default      |.done     |                                   |>> :after_identity
 
   |state[:id_check_class]
-    ; After [id]+suffix - can still have .class
+    ; After [id]+suffix - can have more suffixes, .class, or space .class
+    ; Example: |foo[id]?.bar → class after suffix
+    ; Example: |foo[id]? .bar → space then class
     |eof                                                        |>> :after_identity
+    |c[?]         |.q        | emit(Attribute:?) | emit(BoolValue:true) | -> |>>
+    |c[!]         |.bang     | emit(Attribute:!) | emit(BoolValue:true) | -> |>>
+    |c[*]         |.star     | emit(Attribute:*) | emit(BoolValue:true) | -> |>>
+    |c[+]         |.plus     | emit(Attribute:+) | emit(BoolValue:true) | -> |>>
     |c[.]         |.dot      | ->                                |>> :id_class_start
+    |c[ ]         |.space    | ->                                |>> :id_space_class_or_suffix
+    |default      |.done     |                                   |>> :after_identity
+
+  |state[:id_space_class_or_suffix]
+    ; After [id]+suffix and space - check for .class or suffix
+    ; Example: |foo[id]? .cls → class
+    ; Example: |foo[id]? ? → another suffix (unusual but valid)
+    |eof                                                        |>> :after_identity
+    |c[?]         |.q        | emit(Attribute:?) | emit(BoolValue:true) | -> |>> :after_identity
+    |c[!]         |.bang     | emit(Attribute:!) | emit(BoolValue:true) | -> |>> :after_identity
+    |c[*]         |.star     | emit(Attribute:*) | emit(BoolValue:true) | -> |>> :after_identity
+    |c[+]         |.plus     | emit(Attribute:+) | emit(BoolValue:true) | -> |>> :after_identity
+    |c[.]         |.dot      | ->                                |>> :id_class_start
+    |c[ ]         |.more     | ->                                |>>
     |default      |.done     |                                   |>> :after_identity
 
   |state[:id_class_start]
@@ -818,16 +858,39 @@
     ; SPEC.md:645-651: | is element when followed by letter, [, ., {, ', or suffix (?!*+)
     ; Otherwise the | is literal text (Markdown table compatibility, prose separators)
     |eof                   | CALL:emit_pipe_text | emit(ElementEnd)  |return
-    |c[{]       |.embedded |                                    |>> /element(ACTUAL_COL) :inline_content
-    |c[LETTER]  |.name     |                                    |>> /element(ACTUAL_COL) :inline_content
-    |c[<L>]     |.bracket  |                                    |>> /element(ACTUAL_COL) :inline_content
-    |c[.]       |.class    |                                    |>> /element(ACTUAL_COL) :inline_content
-    |c[?]       |.q        |                                    |>> /element(ACTUAL_COL) :inline_content
-    |c[!]       |.bang     |                                    |>> /element(ACTUAL_COL) :inline_content
-    |c[*]       |.star     |                                    |>> /element(ACTUAL_COL) :inline_content
-    |c[+]       |.plus     |                                    |>> /element(ACTUAL_COL) :inline_content
-    |c[']       |.quote    |                                    |>> /element(ACTUAL_COL) :inline_content
+    ; After inline child element returns, use :inline_after_element which:
+    ; - Treats spaces as start of inline text (for embedded elements like |{em emphasis} here)
+    ; - Treats non-space chars as child content (for dedent cases like |child\n  prose)
+    |c[{]       |.embedded |                                    |>> /element(ACTUAL_COL) :inline_after_element
+    |c[LETTER]  |.name     |                                    |>> /element(ACTUAL_COL) :inline_after_element
+    |c[<L>]     |.bracket  |                                    |>> /element(ACTUAL_COL) :inline_after_element
+    |c[.]       |.class    |                                    |>> /element(ACTUAL_COL) :inline_after_element
+    |c[?]       |.q        |                                    |>> /element(ACTUAL_COL) :inline_after_element
+    |c[!]       |.bang     |                                    |>> /element(ACTUAL_COL) :inline_after_element
+    |c[*]       |.star     |                                    |>> /element(ACTUAL_COL) :inline_after_element
+    |c[+]       |.plus     |                                    |>> /element(ACTUAL_COL) :inline_after_element
+    |c[']       |.quote    |                                    |>> /element(ACTUAL_COL) :inline_after_element
     |default    |.text     | CALL:emit_pipe_text | MARK         |>> :inline_text
+
+  |state[:inline_after_element]
+    ; Continuation after inline child element returns
+    ; Key insight: Embedded elements like |{em text} return on same line and need
+    ; space preservation. But |child elements may return after dedent across newline
+    ; and need to check column for parent element closure.
+    ;
+    ; Solution: Spaces and punctuation go to inline_text (same-line continuation).
+    ; Other chars go to children_content (dedent case - new line of child prose).
+    ; Note: ! is inline text here, not directive, since inline ! only starts directive
+    ; when followed by { for interpolation, which inline_text handles via inline_check_bang.
+    |eof                   | emit(ElementEnd)                  |return
+    |if[ACTUAL_COL <= elem_col]            | emit(ElementEnd)  |return
+    |c[\n]      |.newline  | ->                         |>> :children
+    |c[;]       |.comment  | ->                                |>> :elem_comment_check
+    |c[:]       |.attr     | ->                                |>> :inline_attr_key
+    |c[<P>]     |.pipe     | ->                                |>> :inline_check_pipe
+    |c[ \t]     |.space    | MARK                              |>> :inline_text
+    |c[!?.,)}\]>]|.punct   | MARK                              |>> :inline_text
+    |default    |.other    |                                   |>> :children_content
 
   |state[:elem_comment_check]
     |eof                   | emit(ElementEnd)                  |return
@@ -865,10 +928,28 @@
   |state[:inline_attr_key]
     ; Parse inline attribute key (LABEL or quoted)
     ; Example: |div :foo-bar value → Attribute("foo-bar"), then value
+    ; Also handles :[id] for attribute merge
     |eof                     | emit(Error:expected_attr_key) | emit(ElementEnd) |return
     |c[LETTER]    |.name    | MARK                              |>> :inline_attr_key_scan
     |c[']         |.quoted  | ->                                |>> :inline_attr_key_quoted
+    |c[<L>]       |.merge   | -> | MARK                         |>> :inline_attr_merge
     |default      |.err     | emit(Error:expected_attr_key)     |>> :inline_content
+
+  |state[:inline_attr_merge]
+    ; Parsing id inside :[...] for attribute merge
+    |eof                     | emit(Error:unclosed_ref) | emit(ElementEnd) |return
+    |c[<R>]      |.close    | emit(AttributeMerge) | ->         |>> :inline_attr_after_merge
+    |default     |.collect  | ->                                |>>
+
+  |state[:inline_attr_after_merge]
+    ; After :[id] merge - continue with more attributes or content
+    |eof                     |                                  |>> :inline_content
+    |c[\n]       |.newline  |                           |>> :children
+    |c[;]        |.comment  |                                   |>> :elem_comment_check
+    |c[:]        |.attr     | ->                                |>> :inline_attr_key
+    |c[ \t]      |.space    | ->                                |>>
+    |c[<P>]      |.pipe     |                                   |>> /element(ACTUAL_COL) :children_after_element
+    |default     |.text     | MARK                              |>> :inline_text
 
   |state[:inline_attr_key_scan]
     ; Scanning inline attribute key label
@@ -904,7 +985,7 @@
     |eof                      | emit(BoolValue:true)            |>> :inline_content
     |c[\n]        |.flag     | emit(BoolValue:true)      |>> :children
     |c[;]         |.flag     | emit(BoolValue:true)             |>> :elem_comment_check
-    |c[:]         |.flag     | emit(BoolValue:true)             |>> :inline_attr_key
+    |c[:]         |.flag     | emit(BoolValue:true) | ->        |>> :inline_attr_key
     |c[<L>]       |.array    | emit(ArrayStart) | ->            |>> /array :inline_attr_after_value
     |c["]         |.dquote   | ->                               |>> :inline_attr_dquote
     |c[']         |.squote   | ->                               |>> :inline_attr_squote
@@ -950,7 +1031,7 @@
     |c[ \t]       |.done     | emit(TypedValue)                 |>> :inline_attr_after_value
     |c[;]         |.done     | emit(TypedValue)                 |>> :elem_comment_check
     |c[:]         |.done     | emit(TypedValue)                 |>> :inline_attr_key
-    |c[<P>]       |.done     | emit(TypedValue)                 |>> /element(ACTUAL_COL) :inline_content
+    |c[<P>]       |.done     | emit(TypedValue)                 |>> /element(ACTUAL_COL) :children_after_element
     |default      |.collect  | ->                               |>>
 
   |state[:inline_attr_after_value]
@@ -960,7 +1041,7 @@
     |c[;]         |.comment  |                                  |>> :elem_comment_check
     |c[:]         |.attr     | ->                               |>> :inline_attr_key
     |c[ \t]       |.space    | ->                               |>>
-    |c[<P>]       |.pipe     |                                  |>> /element(ACTUAL_COL) :inline_content
+    |c[<P>]       |.pipe     |                                  |>> /element(ACTUAL_COL) :children_after_element
     |default      |.text     | MARK                             |>> :inline_text
 
   ;----------------------------------------------------------------------------
@@ -983,6 +1064,7 @@
     |c[;]       |.comment  | -> | MARK                         |>> :child_block_comment
     |c[<P>]     |.element  |                                   |>> /element(ACTUAL_COL) :children_after_element
     |c[:]       |.attr     | ->                                |>> :attr_key
+    |c[@]       |.idref    | ->                                |>> :child_id_ref
     |c[`]       |.backtick | ->                                |>> :child_freeform_check
     |c[!]       |.directive| ->                                |>> :child_directive
     |default    |.prose    | MARK                              |>> :child_prose
@@ -1012,15 +1094,33 @@
   |state[:child_escaped_text] SCAN(\n)
     ; Collect escaped text - no special char handling (| ; ! are literal)
     ; SCAN-first: bulk scan to newline
-    |eof                   | emit(Text) | emit(ElementEnd)     |return
-    |c[\n]      |.done     | emit(Text) | ->            |>> :children
+    ; Still uses DedentedText for content_base tracking
+    |eof                   | emit(DedentedText) | emit(ElementEnd)     |return
+    |c[\n]      |.done     | emit(DedentedText) | ->            |>> :children
 
   |state[:child_prose] SCAN(\n;<P>)
     ; SCAN-first: bulk scan to newline, semicolon, or pipe
+    ; Uses DedentedText for automatic content_base tracking and space preservation
+    |eof                   | emit(DedentedText) | emit(ElementEnd)     |return
+    |c[\n]      |.done     | emit(DedentedText) | ->            |>> :children
+    |c[;]       |.semi     | emit(DedentedText) | ->                   |>> :child_comment_check
+    |c[<P>]     |.pipe     | emit(DedentedText)                        |>> /element(ACTUAL_COL) :children_after_element
+
+  ;----------------------------------------------------------------------------
+  ; ID REFERENCES - @[id] to insert entire element
+  ;----------------------------------------------------------------------------
+
+  |state[:child_id_ref]
+    ; After @ - expect [ to start id reference
     |eof                   | emit(Text) | emit(ElementEnd)     |return
-    |c[\n]      |.done     | emit(Text) | ->            |>> :children
-    |c[;]       |.semi     | emit(Text) | ->                   |>> :child_comment_check
-    |c[<P>]     |.pipe     | emit(Text)                        |>> /element(ACTUAL_COL) :children_after_element
+    |c[<L>]     |.bracket  | -> | MARK                         |>> :child_id_ref_value
+    |default    |.not      | MARK                              |>> :child_prose
+
+  |state[:child_id_ref_value]
+    ; Parsing id inside @[...]
+    |eof                   | emit(Error:unclosed_ref) | emit(ElementEnd) |return
+    |c[<R>]     |.close    | emit(IdReference) | ->            |>> :children
+    |default    |.collect  | ->                                |>>
 
   |state[:child_comment_check]
     |eof                   | emit(ElementEnd)                  |return
@@ -1047,10 +1147,11 @@
 
   |state[:child_prose_after_comment]
     ; After inline comment, continue prose
+    ; Note: pipe case uses DedentedText because content before pipe is child prose
     |eof                   | emit(ElementEnd)                  |return
     |c[\n]      |.done     | ->                         |>> :children
     |c[;]       |.semi     | ->                                |>> :child_comment_check
-    |c[<P>]     |.pipe     | emit(Text)                        |>> /element(ACTUAL_COL) :children_after_element
+    |c[<P>]     |.pipe     | emit(DedentedText)                        |>> /element(ACTUAL_COL) :children_after_element
     |default    |.prose    | MARK                              |>> :child_prose
 
   |state[:child_line_comment] SCAN(\n)
@@ -1070,10 +1171,17 @@
 
   |state[:child_freeform_check2]
     |eof                   | emit(Text) | emit(ElementEnd)     |return
-    |c[`]       |.third    | MARK                              |>> :child_freeform
+    |c[`]       |.third    | ->                                |>> :child_freeform_start
     |default    |.not      | MARK                              |>> :child_prose
 
+  |state[:child_freeform_start]
+    ; Just after opening ``` in child context - skip leading newline if present
+    |eof                   | emit(Error:unclosed_freeform) | emit(ElementEnd) |return
+    |c[\n]      |.newline  | -> | MARK                         |>> :child_freeform
+    |default    |.content  | MARK                              |>> :child_freeform
+
   |state[:child_freeform]
+    ; Inside ``` block within element - preserve exact whitespace
     |eof                   | emit(Error:unclosed_freeform) | emit(ElementEnd) |return
     |c[`]       |.maybe    | ->                                |>> :child_freeform_end1
     |default    |.collect  | ->                                |>>
@@ -1084,8 +1192,9 @@
     |default    |.not      | ->                                |>> :child_freeform
 
   |state[:child_freeform_end2]
+    ; Use FreeformRaw to exclude the 2 closing backticks we've advanced past
     |eof                   | emit(Error:unclosed_freeform) | emit(ElementEnd) |return
-    |c[`]       |.close    | emit(RawContent)           |>> :children
+    |c[`]       |.close    | emit(FreeformRaw) | ->      |>> :children
     |default    |.not      | ->                                |>> :child_freeform
 
   |state[:child_directive]
@@ -1229,10 +1338,27 @@
   |state[:attr_key]
     ; SPEC.md:670 - Parse attribute key (LABEL or quoted)
     ; Example: :foo-bar value → Attribute("foo-bar"), then value
+    ; Also handles :[id] for attribute merge
     |eof                     | emit(Error:expected_attr_key) | emit(ElementEnd) |return
     |c[LETTER]    |.name    | MARK                              |>> :attr_key_scan
     |c[']         |.quoted  | ->                                |>> :attr_key_quoted
+    |c[<L>]       |.merge   | -> | MARK                         |>> :attr_merge
     |default      |.err     | emit(Error:expected_attr_key)     |>> :children
+
+  |state[:attr_merge]
+    ; Parsing id inside :[...] for attribute merge (indented context)
+    |eof                     | emit(Error:unclosed_ref) | emit(ElementEnd) |return
+    |c[<R>]      |.close    | emit(AttributeMerge) | ->         |>> :attr_after_merge
+    |default     |.collect  | ->                                |>>
+
+  |state[:attr_after_merge]
+    ; After :[id] merge in indented context - continue on same line or next line
+    |eof                     | emit(ElementEnd)                 |return
+    |c[\n]       |.newline  | ->                         |>> :children
+    |c[;]        |.comment  | -> | MARK                         |>> :child_block_comment
+    |c[:]        |.attr     | ->                                |>> :attr_key
+    |c[ \t]      |.space    | ->                                |>>
+    |default     |.text     | MARK                              |>> :child_prose
 
   |state[:attr_key_scan]
     ; Scanning attribute key label
