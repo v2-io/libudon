@@ -5,10 +5,23 @@ library that language bindings (Ruby, Python, etc.) link against.
 
 ## Implementation Plan
 
-**See `~/src/udon/implementation-phase-2.md` for the comprehensive roadmap.**
+**See `~/src/udon/implementation-phase-2.md` for the phase-2 roadmap (current parser).**
+**See `implementation-phase-3.md` for the parser generator rewrite (in progress on `phase-3-genmachine-rewrite` branch).**
 **See `~/src/udon/SPEC.md` for the authoritative UDON specification.**
 
-Current state (main branch):
+### Phase 3: Parser Generator Rewrite
+
+The `phase-3-genmachine-rewrite` branch contains work on a complete rewrite of the
+parser generator system. Key findings from benchmarks:
+
+- **Callback-based parsing is 2-7x faster** than ring-buffer or generator approaches
+- True recursive descent (call stack = element stack) is both faster and cleaner
+- New DSL spec: `generator/genmachine-v4.md`
+- Target machine definition: `generator/udon-v4.rmachine`
+
+See `implementation-phase-3.md` for the full roadmap and rationale.
+
+### Current State (main branch)
 - Streaming parser with ring buffer architecture
 - comprehensive.udon (15KB): ~30 µs @ 490 MiB/s (with all features enabled)
 - 242 tests in udon-core (all passing)

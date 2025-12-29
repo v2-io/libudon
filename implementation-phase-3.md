@@ -22,7 +22,29 @@ system based on lessons learned and proof-of-concept benchmarks.
    - True recursive descent compiles to efficient code
    - No buffering overhead
    - No iterator protocol dispatch
-   - See `generator/genmachine-v4.md` and `gen-parser-poc/` for details
+   - See benchmark PoC in `generator/_archive/gen-parser-poc/`
+
+## Key Reference Files
+
+### Active (generator/)
+
+| File | Purpose |
+|------|---------|
+| `genmachine-v4.md` | **DSL specification** - complete syntax reference for the new parser definition language |
+| `udon-v4.rmachine` | **Target definition** - the UDON parser defined in the new DSL (to be implemented) |
+| `GENMACHINE-ANALYSIS.md` | Analysis of original C-era design vs Rust port |
+
+### Archived (generator/_archive/)
+
+| File | Purpose |
+|------|---------|
+| `udon.machine` | Current parser definition (1,901 lines, 231 states) - what we're replacing |
+| `udon-c-era.machine` | Original C-era definition (104 lines, 14 states) - the elegance we're restoring |
+| `genmachine-rs` | Current Ruby generator producing Rust code |
+| `genmachine` | Original Ruby generator producing C code |
+| `templates/parser.rs.liquid` | Current Liquid template for Rust parser generation |
+| `gen-parser-poc/` | Benchmark PoC comparing callback vs ring-buffer vs generators |
+| `udon.rmachine`, `udon-v2.rmachine`, `udon-v3.rmachine` | Intermediate DSL design iterations |
 
 ## Goals
 
