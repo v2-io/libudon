@@ -1,7 +1,7 @@
-# genmachine v4 Specification
+# parser-gen Specification
 
-A declarative DSL for generating recursive descent parsers with streaming (SAX-style)
-event output. Designed for elegance, performance, and clarity.
+A declarative DSL (`.pspec` files) for generating recursive descent parsers with
+streaming (SAX-style) event output. Designed for elegance, performance, and clarity.
 
 ## Design Philosophy
 

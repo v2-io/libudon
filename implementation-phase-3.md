@@ -1,7 +1,11 @@
-# Implementation Phase 3: genmachine-v4 Rewrite
+# Implementation Phase 3: parser-gen Rewrite
 
 This phase involves a complete, principled rewrite of the parser generator
 system based on lessons learned and proof-of-concept benchmarks.
+
+**Tool:** `parser-gen` (generates Rust parsers from `.pspec` files)
+**DSL Spec:** `generator/parser-gen.md`
+**Target Definition:** `generator/udon.pspec`
 
 ## Background
 
@@ -30,9 +34,9 @@ system based on lessons learned and proof-of-concept benchmarks.
 
 | File | Purpose |
 |------|---------|
-| `genmachine-v4.md` | **DSL specification** - complete syntax reference for the new parser definition language |
-| `udon-v4.rmachine` | **Target definition** - the UDON parser defined in the new DSL (to be implemented) |
-| `GENMACHINE-ANALYSIS.md` | Analysis of original C-era design vs Rust port |
+| `parser-gen.md` | **DSL specification** - complete syntax reference for `.pspec` files |
+| `udon.pspec` | **Target definition** - the UDON parser defined in the new DSL (to be implemented) |
+| `PARSER-GEN-HISTORY.md` | Analysis of original C-era design vs Rust port, design rationale |
 
 ### Archived (generator/_archive/)
 
@@ -44,7 +48,7 @@ system based on lessons learned and proof-of-concept benchmarks.
 | `genmachine` | Original Ruby generator producing C code |
 | `templates/parser.rs.liquid` | Current Liquid template for Rust parser generation |
 | `gen-parser-poc/` | Benchmark PoC comparing callback vs ring-buffer vs generators |
-| `udon.rmachine`, `udon-v2.rmachine`, `udon-v3.rmachine` | Intermediate DSL design iterations |
+| `udon.rmachine`, `udon-v2.rmachine`, `udon-v3.rmachine` | Intermediate DSL design iterations (old `.rmachine` format) |
 
 ## Goals
 
@@ -57,9 +61,9 @@ system based on lessons learned and proof-of-concept benchmarks.
 
 ## Architecture
 
-### DSL (udon-v4.rmachine)
+### DSL (udon.pspec)
 
-See `generator/genmachine-v4.md` for full specification.
+See `generator/parser-gen.md` for full specification.
 
 Key features:
 - Type declarations: `|type[Element] BRACKET`
@@ -68,13 +72,13 @@ Key features:
 - Inline literals: `TypeName(literal)`, `TypeName(USE_MARK)`
 - Automatic SCAN inference from state structure
 
-### Generator (genmachine-v4)
+### Generator (parser-gen)
 
-Input: `.rmachine` file (which is valid UDON!)
+Input: `.pspec` file (which is valid UDON!)
 Output: Rust parser with callback-based API
 
 The generator will:
-1. Parse the .rmachine file (can use UDON parser - bootstrap potential!)
+1. Parse the .pspec file (can use UDON parser - bootstrap potential!)
 2. Build internal representation of functions, states, types
 3. Generate Rust code with true recursive descent
 4. Emit callback invocations based on return types
@@ -109,7 +113,7 @@ impl<'a> Parser<'a> {
 
 ### Step 1: DSL Parser
 
-Write a parser for the .rmachine DSL. Options:
+Write a parser for the `.pspec` DSL. Options:
 - Use existing UDON parser (bootstrap!)
 - Write a simple hand-coded parser
 - Use nom/pest for quick iteration
@@ -163,20 +167,22 @@ For SCAN optimization:
 
 ```
 generator/
-├── genmachine-v4.md      # DSL specification (done)
-├── genmachine-v4/        # New generator implementation
+├── parser-gen.md         # DSL specification (done)
+├── udon.pspec            # UDON parser definition (done)
+├── PARSER-GEN-HISTORY.md # Design rationale and history
+├── parser-gen/           # New generator implementation
 │   ├── Cargo.toml
 │   ├── src/
 │   │   ├── main.rs       # CLI entry point
-│   │   ├── parser.rs     # DSL parser
+│   │   ├── parser.rs     # .pspec DSL parser
 │   │   ├── ir.rs         # Internal representation
 │   │   ├── codegen.rs    # Rust code generation
 │   │   └── scan.rs       # SCAN optimization inference
 │   └── templates/        # Optional templates if needed
-├── udon-v4.rmachine      # New UDON machine definition
 └── _archive/
-    ├── genmachine-rs     # Current generator (Ruby)
-    └── udon.machine      # Current machine definition
+    ├── genmachine-rs     # Old generator (Ruby)
+    ├── udon.machine      # Old machine definition
+    └── gen-parser-poc/   # Benchmark research
 ```
 
 ## Success Criteria
@@ -190,7 +196,7 @@ generator/
 ## Risks and Mitigations
 
 ### Risk: Bootstrap complexity
-If using UDON to parse .rmachine, need working parser first.
+If using UDON to parse .pspec, need working parser first.
 **Mitigation**: Start with hand-coded DSL parser, bootstrap later.
 
 ### Risk: FFI compatibility
@@ -213,7 +219,7 @@ This is a complete rewrite, not incremental improvement. Estimated phases:
 
 ## Notes
 
-- The .rmachine DSL is valid UDON - beautiful self-describing property
+- The .pspec DSL is valid UDON - beautiful self-describing property
 - Callback-based design enables future async support without redesign
 - True recursion means the compiler does optimization work for us
 - This is consciousness infrastructure - build it worthy of study

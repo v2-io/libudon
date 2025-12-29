@@ -1,7 +1,8 @@
-# genmachine DSL Analysis
+# parser-gen Design History
 
-A retrospective analysis of the original C-era genmachine design, what made it
-elegant, and where the Rust port diverged.
+A retrospective analysis of the original C-era parser generator design, what made it
+elegant, and where the Rust port diverged. This informed the design of the new
+`parser-gen` tool and `.pspec` DSL format.
 
 ## Original Design Philosophy
 

@@ -9,15 +9,15 @@ library that language bindings (Ruby, Python, etc.) link against.
 **See `implementation-phase-3.md` for the parser generator rewrite (in progress on `phase-3-genmachine-rewrite` branch).**
 **See `~/src/udon/SPEC.md` for the authoritative UDON specification.**
 
-### Phase 3: Parser Generator Rewrite
+### Phase 3: parser-gen Rewrite
 
 The `phase-3-genmachine-rewrite` branch contains work on a complete rewrite of the
 parser generator system. Key findings from benchmarks:
 
 - **Callback-based parsing is 2-7x faster** than ring-buffer or generator approaches
 - True recursive descent (call stack = element stack) is both faster and cleaner
-- New DSL spec: `generator/genmachine-v4.md`
-- Target machine definition: `generator/udon-v4.rmachine`
+- New DSL spec: `generator/parser-gen.md`
+- Target parser definition: `generator/udon.pspec`
 
 See `implementation-phase-3.md` for the full roadmap and rationale.
 
