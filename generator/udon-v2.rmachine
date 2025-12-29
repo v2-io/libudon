@@ -1,0 +1,758 @@
+; UDON Parser - Clean Recursive Descent (Attempt 2)
+;
+; Key insight: The call stack IS the element stack.
+; Each element function knows its column. When it sees a line
+; at column <= its own, it emits ElementEnd and returns WITHOUT
+; consuming that line. Parent sees same line, same check, unwinds naturally.
+
+|parser udon
+
+|entry-point /document
+
+; ============================================================================
+; Document - top level container
+; ============================================================================
+
+|function[document]
+  |state[:line]
+    |eof                                                         |return
+    |c[\n]       |.blank      | ->                               |>>
+    |c[ ]        |.indent     | /count_indent                    |>> :dispatch
+    |c[\t]       |.tab        | emit(Error:no_tabs) | ->[\n]     |>> :line
+    |default     |.col0       | COL_CACHE = 0                    |>> :dispatch
+
+  |state[:dispatch]
+    ; COL_CACHE holds the column of this line's content
+    |c[|]        |.pipe       | -> | /check_element(COL_CACHE)   |>> :line
+    |c[:]        |.attr       | -> | /attribute(COL_CACHE)       |>> :line
+    |c[!]        |.dynamic    | -> | /dynamic(COL_CACHE)         |>> :line
+    |c[;]        |.comment    | -> | /line_comment               |>> :line
+    |c[']        |.escape     | -> | /prose(COL_CACHE, -1)       |>> :line
+    |default     |.prose      | /prose(COL_CACHE, -1)            |>> :line
+
+
+; Count leading spaces, store in COL_CACHE
+|function[count_indent]  | COL_CACHE = 0
+  |state[:main]
+    |c[ ]        |.space      | -> | COL_CACHE += 1              |>>
+    |default     |.done       |                                  |return
+    |eof                      |                                  |return
+
+
+; ============================================================================
+; Element Recognition
+; ============================================================================
+
+; Check if | starts an element or is just prose
+; elem_col = column where the | was
+|function[check_element]  :elem_col
+  |state[:main]
+    |c[LETTER]   |.named      | /element(elem_col)               |return
+    |c[']        |.quoted     | /element(elem_col)               |return
+    |c[[]        |.bracket    | /element(elem_col)               |return
+    |c[.]        |.dot        | /element(elem_col)               |return
+    |c[{]        |.embedded   | /embedded(elem_col)              |return
+    |c[?!*+]     |.suffix     | /element(elem_col)               |return
+    ; Not an element - | is prose text
+    |default     |.prose      | /prose_with_pipe(elem_col, -1)   |return
+    |eof                      | emit(Text:|)                     |return
+
+
+; ============================================================================
+; Element Parsing
+; ============================================================================
+
+; elem_col = column of the | for this element
+|function[element]  :elem_col
+
+  ; First, parse the element's identity (name, id, classes, suffixes, attrs)
+  |state[:identity]
+    |c[LETTER]   |.named      | MARK                             |>> :name
+    |c[']        |.quoted     | ->                               |>> :quoted_name
+    |c[[]        |.anon       | emit(ElementStart:)              |>> :bracket
+    |c[.]        |.class      | emit(ElementStart:)              |>> :class_start
+    |c[?!*+]     |.suffix     | emit(ElementStart:) | /suffix    |>> :after_suffix
+
+  |state[:name]
+    |c[LABEL_CONT] |.cont     | ->                               |>>
+    |default     |.done       | TERM | emit(ElementStart)        |>> :after_name
+    |eof                      | TERM | emit(ElementStart) | emit(ElementEnd) |return
+
+  |state[:quoted_name]
+    |eof                      | emit(Error:unclosed_quote) | emit(ElementStart:) | emit(ElementEnd) |return
+    |c[']        |.empty      | emit(ElementStart:) | ->         |>> :after_name
+    |default     |.start      | MARK                             |>> :quoted_name_cont
+
+  |state[:quoted_name_cont]
+    |eof                      | emit(Error:unclosed_quote) | TERM | emit(ElementStart) | emit(ElementEnd) |return
+    |c[']        |.close      | TERM | emit(ElementStart) | ->   |>> :after_name
+    |c[\\]       |.esc        | -> | ->                          |>>
+    |default     |.cont       | ->                               |>>
+
+  |state[:after_name]
+    |eof                      | emit(ElementEnd)                 |return
+    |c[\n]       |.eol        | ->                               |>> :children
+    |c[[]        |.bracket    | ->                               |>> :bracket
+    |c[.]        |.class      |                                  |>> :class_start
+    |c[?!*+]     |.suffix     | /suffix                          |>> :after_suffix
+    |c[ \t]      |.space      | ->                               |>> :before_content
+    |default     |.inline     | MARK                             |>> :inline_content
+
+  |state[:bracket]
+    |eof                      | emit(Error:unclosed_bracket) | emit(ElementEnd) |return
+    |c[]]        |.empty      | ->                               |>> :after_bracket
+    |default     |.value      | emit(Attr:$id) | /value          |>> :bracket_close
+
+  |state[:bracket_close]
+    |eof                      | emit(Error:unclosed_bracket) | emit(ElementEnd) |return
+    |c[]]        |.close      | ->                               |>> :after_bracket
+    |default     |.err        | emit(Error:expected_close_bracket) |>> :after_bracket
+
+  |state[:after_bracket]
+    |eof                      | emit(ElementEnd)                 |return
+    |c[\n]       |.eol        | ->                               |>> :children
+    |c[.]        |.class      |                                  |>> :class_start
+    |c[?!*+]     |.suffix     | /suffix                          |>> :after_suffix
+    |c[ \t]      |.space      | ->                               |>> :before_content
+    |default     |.inline     | MARK                             |>> :inline_content
+
+  |state[:class_start]
+    |c[.]        |.dot        | ->                               |>>  ; consume dot
+    |c[LETTER]   |.name       | emit(Attr:$class) | MARK         |>> :class_name
+    |c[']        |.quoted     | emit(Attr:$class) | ->           |>> :class_quoted
+    |default     |.err        | emit(Error:expected_class)       |>> :before_content
+    |eof                      | emit(Error:expected_class) | emit(ElementEnd) |return
+
+  |state[:class_name]
+    |c[LABEL_CONT] |.cont     | ->                               |>>
+    |c[.]        |.more       | TERM | emit(StringValue)         |>> :class_start
+    |c[?!*+]     |.suffix     | TERM | emit(StringValue) | /suffix |>> :after_suffix
+    |default     |.done       | TERM | emit(StringValue)         |>> :after_class
+    |eof                      | TERM | emit(StringValue) | emit(ElementEnd) |return
+
+  |state[:class_quoted]
+    |eof                      | emit(Error:unclosed_quote) | emit(ElementEnd) |return
+    |c[']        |.empty      | MARK | TERM | emit(StringValue)  |>> :after_class
+    |default     |.start      | MARK                             |>> :class_quoted_cont
+
+  |state[:class_quoted_cont]
+    |eof                      | emit(Error:unclosed_quote) | TERM | emit(StringValue) | emit(ElementEnd) |return
+    |c[']        |.close      | TERM | emit(StringValue) | ->    |>> :after_class
+    |c[\\]       |.esc        | -> | ->                          |>>
+    |default     |.cont       | ->                               |>>
+
+  |state[:after_class]
+    |eof                      | emit(ElementEnd)                 |return
+    |c[\n]       |.eol        | ->                               |>> :children
+    |c[.]        |.more       |                                  |>> :class_start
+    |c[?!*+]     |.suffix     | /suffix                          |>> :after_suffix
+    |c[ \t]      |.space      | ->                               |>> :before_content
+    |default     |.inline     | MARK                             |>> :inline_content
+
+  |state[:after_suffix]
+    |eof                      | emit(ElementEnd)                 |return
+    |c[\n]       |.eol        | ->                               |>> :children
+    |c[[]        |.bracket    | ->                               |>> :bracket
+    |c[.]        |.class      |                                  |>> :class_start
+    |c[?!*+]     |.more       | /suffix                          |>>
+    |c[ \t]      |.space      | ->                               |>> :before_content
+    |default     |.inline     | MARK                             |>> :inline_content
+
+  |state[:before_content]
+    |eof                      | emit(ElementEnd)                 |return
+    |c[\n]       |.eol        | ->                               |>> :children
+    |c[ \t]      |.space      | ->                               |>>
+    |c[:]        |.attr       | -> | /inline_attr                |>> :before_content
+    |c[|]        |.pipe       | -> | /inline_pipe(elem_col)      |>> :after_inline_child
+    |c[;]        |.semi       | -> | /check_inline_comment       |>> :before_content
+    |c[!]        |.bang       | -> | /inline_bang                |>> :before_content
+    |default     |.content    | MARK                             |>> :inline_content
+
+  |state[:inline_content]  ; SCAN(\n|;!)
+    |eof                      | TERM | emit(Text) | emit(ElementEnd) |return
+    |c[\n]       |.eol        | TERM | emit(Text) | ->           |>> :children
+    |c[|]        |.pipe       | TERM | emit(Text) | -> | /inline_pipe(elem_col) |>> :after_inline_child
+    |c[;]        |.semi       | TERM | emit(Text) | -> | /check_inline_comment |>> :continue_content
+    |c[!]        |.bang       | TERM | emit(Text) | -> | /inline_bang |>> :continue_content
+    |default     |.cont       | ->                               |>>
+
+  |state[:continue_content]
+    |eof                      | emit(ElementEnd)                 |return
+    |c[\n]       |.eol        | ->                               |>> :children
+    |default     |.more       | MARK                             |>> :inline_content
+
+  |state[:after_inline_child]
+    |eof                      | emit(ElementEnd)                 |return
+    |c[\n]       |.eol        | ->                               |>> :children
+    |c[ \t]      |.space      | ->                               |>>
+    |c[|]        |.more       | -> | /inline_pipe(elem_col)      |>>
+    |default     |.content    | MARK                             |>> :inline_content
+
+  ; === Children Loop ===
+  ; This is the heart of dedent handling.
+  ; Read next line, check column. If dedented, emit ElementEnd and return.
+  |state[:children]
+    |eof                      | emit(ElementEnd)                 |return
+    |c[\n]       |.blank      | ->                               |>>
+    |c[ ]        |.indent     | /count_indent                    |>> :check_dedent
+    |c[\t]       |.tab        | emit(Error:no_tabs) | ->[\n]     |>>
+    |default     |.col0       | COL_CACHE = 0                    |>> :check_dedent
+
+  |state[:check_dedent]
+    ; COL_CACHE has the column of this line's content
+    ; If col <= elem_col, we're done - dedent
+    |if[COL_CACHE <= elem_col]
+      | emit(ElementEnd)                                         |return
+    |endif
+    ; Otherwise, dispatch as child content
+    |                                                            |>> :child_dispatch
+
+  |state[:child_dispatch]
+    |c[|]        |.pipe       | -> | /check_element(COL_CACHE)   |>> :children
+    |c[:]        |.attr       | -> | /attribute(COL_CACHE)       |>> :children
+    |c[!]        |.dynamic    | -> | /dynamic(COL_CACHE)         |>> :children
+    |c[;]        |.comment    | -> | /line_comment               |>> :children
+    |c[']        |.escape     | -> | /prose(COL_CACHE, elem_col) |>> :children
+    |c[`]        |.backtick   | /check_freeform(COL_CACHE)       |>> :children
+    |default     |.prose      | /prose(COL_CACHE, elem_col)      |>> :children
+
+
+; ============================================================================
+; Suffix - emits boolean attribute
+; ============================================================================
+
+|function[suffix]
+  |state[:main]
+    |c[?]                     | emit(Attr:?) | emit(BoolTrue) | -> |return
+    |c[!]                     | emit(Attr:!) | emit(BoolTrue) | -> |return
+    |c[*]                     | emit(Attr:*) | emit(BoolTrue) | -> |return
+    |c[+]                     | emit(Attr:+) | emit(BoolTrue) | -> |return
+    |default                  |                                  |return
+
+
+; ============================================================================
+; Inline Pipe - check for element or embedded
+; ============================================================================
+
+|function[inline_pipe]  :parent_col
+  |state[:main]
+    |c[{]        |.embedded   | /embedded(COL)                   |return
+    |c[LETTER]   |.element    | /element(COL)                    |return
+    |c[']        |.quoted     | /element(COL)                    |return
+    |c[[]        |.bracket    | /element(COL)                    |return
+    |c[.]        |.class      | /element(COL)                    |return
+    |c[?!*+]     |.suffix     | /element(COL)                    |return
+    ; Not element - | was just text, emit it
+    |default     |.text       | emit(Text:|)                     |return
+    |eof                      | emit(Text:|)                     |return
+
+
+; ============================================================================
+; Embedded Element |{...}
+; ============================================================================
+
+|function[embedded]  :start_col  | depth = 1
+  |state[:start]
+    |eof                      | emit(Error:unclosed_embedded)    |return
+    |c[}]        |.empty      | emit(EmbeddedStart:) | emit(EmbeddedEnd) | -> |return
+    |c[LETTER]   |.name       | MARK                             |>> :name
+    |c[']        |.quoted     | ->                               |>> :quoted_name
+    |c[[]        |.bracket    | emit(EmbeddedStart:)             |>> :bracket
+    |c[.]        |.class      | emit(EmbeddedStart:)             |>> :class_start
+    |c[ \t]      |.space      | emit(EmbeddedStart:) | ->        |>> :after_identity
+    |default     |.content    | emit(EmbeddedStart:) | MARK      |>> :content
+
+  |state[:name]
+    |c[LABEL_CONT] |.cont     | ->                               |>>
+    |default     |.done       | TERM | emit(EmbeddedStart)       |>> :after_name
+    |eof                      | emit(Error:unclosed_embedded)    |return
+
+  ; TODO: quoted_name, bracket, class states (similar to element)
+
+  |state[:after_name]
+    |eof                      | emit(Error:unclosed_embedded)    |return
+    |c[}]        |.close      | emit(EmbeddedEnd) | ->           |return
+    |c[[]        |.bracket    | ->                               |>> :bracket
+    |c[.]        |.class      |                                  |>> :class_start
+    |c[ \t]      |.space      | ->                               |>> :after_identity
+    |default     |.content    | MARK                             |>> :content
+
+  |state[:after_identity]
+    |eof                      | emit(Error:unclosed_embedded)    |return
+    |c[}]        |.close      | emit(EmbeddedEnd) | ->           |return
+    |c[ \t]      |.space      | ->                               |>>
+    |c[:]        |.attr       | -> | /inline_attr                |>>
+    |default     |.content    | MARK                             |>> :content
+
+  |state[:content]  ; SCAN(}|;!)
+    |eof                      | emit(Error:unclosed_embedded)    |return
+    |c[}]        |.close      | TERM | emit(Text) | emit(EmbeddedEnd) | -> |return
+    |c[|]        |.pipe       | TERM | emit(Text) | ->           |>> :check_nested
+    |c[;]        |.semi       | TERM | emit(Text) | ->           |>> :check_comment
+    |c[!]        |.bang       | TERM | emit(Text) | ->           |>> :check_interp
+    |default     |.cont       | ->                               |>>
+
+  |state[:check_nested]
+    |c[{]        |.yes        | /embedded(COL) | MARK            |>> :content
+    ; Inside embedded, | without { is just text
+    |default     |.no         | MARK | PREPEND(|)                |>> :content
+
+  |state[:check_comment]
+    |c[{]        |.yes        | /brace_comment | MARK            |>> :content
+    |default     |.no         | MARK | PREPEND(;)                |>> :content
+
+  |state[:check_interp]
+    |c[{]        |.yes        | -> | /inline_dynamic             |>> :content_restart
+    |default     |.no         | MARK | PREPEND(!)                |>> :content
+
+  |state[:content_restart]
+    |eof                      | emit(Error:unclosed_embedded)    |return
+    |c[}]        |.close      | emit(EmbeddedEnd) | ->           |return
+    |default     |.cont       | MARK                             |>> :content
+
+
+; ============================================================================
+; Prose Content
+; ============================================================================
+
+|function[prose]  :line_col :parent_col
+  ; If parent_col >= 0, check for dedent (prose can trigger dedent too)
+  |if[parent_col >= 0]
+    |if[line_col <= parent_col]
+      ; This is a dedent - don't consume, just return
+      ; Caller will see this line and handle it
+      |return
+    |endif
+  |endif
+
+  |state[:content]  | MARK
+    |eof                      | TERM | emit(Text)                |return
+    |c[\n]       |.eol        | TERM | emit(Text)                |return
+    |c[|]        |.pipe       | TERM | emit(Text) | ->           |>> :check_pipe
+    |c[;]        |.semi       | TERM | emit(Text) | ->           |>> :check_comment
+    |c[!]        |.bang       | TERM | emit(Text) | ->           |>> :check_bang
+    |default     |.cont       | ->                               |>>
+
+  |state[:check_pipe]
+    |c[{]        |.embedded   | /embedded(COL) | MARK            |>> :content
+    |default     |.text       | MARK | PREPEND(|)                |>> :content
+
+  |state[:check_comment]
+    |c[{]        |.inline     | /brace_comment | MARK            |>> :content
+    ; ; without { is line comment - rest of line
+    |default     |.line       | MARK                             |>> :line_comment_content
+
+  |state[:line_comment_content]
+    |eof                      | TERM | emit(Comment)             |return
+    |c[\n]       |.eol        | TERM | emit(Comment)             |return
+    |default     |.cont       | ->                               |>>
+
+  |state[:check_bang]
+    |c[{]        |.dynamic    | -> | /inline_dynamic | MARK      |>> :content
+    |default     |.text       | MARK | PREPEND(!)                |>> :content
+
+
+|function[prose_with_pipe]  :line_col :parent_col
+  ; Prose that started with |, which wasn't an element
+  ; Need to include the | in the output
+  |state[:start]  | MARK | PREPEND(|)
+    |                                                            |>> :content
+
+  |state[:content]
+    | /prose(line_col, parent_col)                               |return
+
+
+; ============================================================================
+; Comments
+; ============================================================================
+
+|function[line_comment]
+  |state[:check]
+    |c[{]        |.brace      | /brace_comment                   |return
+    |default     |.line       | MARK                             |>> :content
+    |eof                      |                                  |return
+
+  |state[:content]
+    |eof                      | TERM | emit(Comment)             |return
+    |c[\n]       |.eol        | TERM | emit(Comment)             |return
+    |default     |.cont       | ->                               |>>
+
+
+|function[brace_comment]  | depth = 1 | MARK
+  |state[:content]
+    |eof                      | emit(Error:unclosed_comment)     |return
+    |c[{]        |.nest       | -> | depth += 1                  |>>
+    |c[}]        |.unnest     | -> | depth -= 1                  |>> :check_done
+    |default     |.cont       | ->                               |>>
+
+  |state[:check_done]
+    |if[depth == 0]
+      | TERM(-1) | emit(Comment)                                 |return
+    |endif
+    |                                                            |>> :content
+
+
+|function[check_inline_comment]
+  |state[:main]
+    |c[{]        |.brace      | /brace_comment                   |return
+    ; ; without { in inline context - emit as text? Or line comment?
+    ; For now, treat as end-of-content, rest is comment
+    |default     |.line       |                                  |return
+
+
+; ============================================================================
+; Inline Attributes
+; ============================================================================
+
+|function[inline_attr]
+  |state[:key_start]
+    |c[LETTER]   |.name       | MARK                             |>> :key_name
+    |c[']        |.quoted     | ->                               |>> :key_quoted
+    |default     |.err        | emit(Error:expected_attr_key)    |return
+    |eof                      | emit(Error:expected_attr_key)    |return
+
+  |state[:key_name]
+    |c[LABEL_CONT] |.cont     | ->                               |>>
+    |c[ \t]      |.space      | TERM | emit(Attr) | ->           |>> :value_start
+    |c[\n]       |.flag       | TERM | emit(Attr) | emit(BoolTrue) |return
+    |c[:]        |.next       | TERM | emit(Attr) | emit(BoolTrue) |return  ; another attr follows
+    |c[|]        |.pipe       | TERM | emit(Attr) | emit(BoolTrue) |return  ; inline child follows
+    |default     |.value      | TERM | emit(Attr)                |>> :value_start
+    |eof                      | TERM | emit(Attr) | emit(BoolTrue) |return
+
+  |state[:key_quoted]
+    |eof                      | emit(Error:unclosed_quote)       |return
+    |c[']        |.empty      | MARK | TERM | emit(Attr)         |>> :value_start
+    |default     |.start      | MARK                             |>> :key_quoted_cont
+
+  |state[:key_quoted_cont]
+    |eof                      | emit(Error:unclosed_quote)       |return
+    |c[']        |.close      | TERM | emit(Attr) | ->           |>> :value_start
+    |c[\\]       |.esc        | -> | ->                          |>>
+    |default     |.cont       | ->                               |>>
+
+  |state[:value_start]
+    |c[ \t]      |.space      | ->                               |>>
+    |c[\n]       |.flag       | emit(BoolTrue)                   |return
+    |c[:]        |.next       | emit(BoolTrue)                   |return
+    |c[|]        |.pipe       | emit(BoolTrue)                   |return
+    |default     |.value      | /value                           |return
+    |eof                      | emit(BoolTrue)                   |return
+
+
+; ============================================================================
+; Attribute Values
+; ============================================================================
+
+|function[value]
+  |state[:start]
+    |c["]        |.dquote     | -> | MARK                        |>> :dquote
+    |c[']        |.squote     | -> | MARK                        |>> :squote
+    |c[[]        |.list       | emit(ArrayStart) | ->            |>> :list
+    |c[~]        |.nil        | emit(Nil) | ->                   |return
+    |c[t]        |.t          | MARK                             |>> :maybe_true
+    |c[f]        |.f          | MARK                             |>> :maybe_false
+    |c[n]        |.n          | MARK                             |>> :maybe_null
+    |c[-0-9]     |.num        | MARK                             |>> :number
+    |default     |.bare       | MARK                             |>> :bare
+    |eof                      |                                  |return
+
+  |state[:dquote]  ; SCAN("\)
+    |eof                      | emit(Error:unclosed_string)      |return
+    |c["]        |.close      | TERM | emit(QuotedString) | ->   |return
+    |c[\\]       |.esc        | -> | ->                          |>>
+    |default     |.cont       | ->                               |>>
+
+  |state[:squote]  ; SCAN('\)
+    |eof                      | emit(Error:unclosed_string)      |return
+    |c[']        |.close      | TERM | emit(QuotedString) | ->   |return
+    |c[\\]       |.esc        | -> | ->                          |>>
+    |default     |.cont       | ->                               |>>
+
+  |state[:bare]  ; Until terminator
+    |eof                      | TERM | emit(TypedValue)          |return
+    |c[\n]       |.eol        | TERM | emit(TypedValue)          |return
+    |c[ \t]      |.space      | TERM | emit(TypedValue)          |return
+    |c[]]        |.bracket    | TERM | emit(TypedValue)          |return
+    |c[}]        |.brace      | TERM | emit(TypedValue)          |return
+    |default     |.cont       | ->                               |>>
+
+  |state[:number]
+    |eof                      | TERM | emit(TypedValue)          |return
+    |c[0-9._]    |.cont       | ->                               |>>
+    |c[eE]       |.exp        | ->                               |>>
+    |c[+-]       |.sign       | ->                               |>>  ; in exponent
+    |c[xXoObBdD] |.base       | ->                               |>>
+    |c[a-fA-F]   |.hex        | ->                               |>>
+    |c[/]        |.ratio      | ->                               |>>
+    |c[r]        |.ratio_end  | -> | TERM | emit(TypedValue)     |return
+    |c[i]        |.complex    | -> | TERM | emit(TypedValue)     |return
+    |default     |.done       | TERM | emit(TypedValue)          |return
+
+  |state[:maybe_true]  ; t, tr, tru, true
+    |c[r]                     | ->                               |>> :maybe_true2
+    |default                  |                                  |>> :bare
+  |state[:maybe_true2]
+    |c[u]                     | ->                               |>> :maybe_true3
+    |default                  |                                  |>> :bare
+  |state[:maybe_true3]
+    |c[e]                     | ->                               |>> :maybe_true4
+    |default                  |                                  |>> :bare
+  |state[:maybe_true4]
+    |c[LABEL_CONT]            |                                  |>> :bare  ; truex is bare string
+    |default                  | TERM | emit(BoolTrue)            |return
+
+  |state[:maybe_false]  ; f, fa, fal, fals, false
+    |c[a]                     | ->                               |>> :maybe_false2
+    |default                  |                                  |>> :bare
+  |state[:maybe_false2]
+    |c[l]                     | ->                               |>> :maybe_false3
+    |default                  |                                  |>> :bare
+  |state[:maybe_false3]
+    |c[s]                     | ->                               |>> :maybe_false4
+    |default                  |                                  |>> :bare
+  |state[:maybe_false4]
+    |c[e]                     | ->                               |>> :maybe_false5
+    |default                  |                                  |>> :bare
+  |state[:maybe_false5]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | emit(BoolFalse)           |return
+
+  |state[:maybe_null]  ; n, nu, nul, null OR n, ni, nil
+    |c[u]                     | ->                               |>> :maybe_null2
+    |c[i]                     | ->                               |>> :maybe_nil2
+    |default                  |                                  |>> :bare
+  |state[:maybe_null2]
+    |c[l]                     | ->                               |>> :maybe_null3
+    |default                  |                                  |>> :bare
+  |state[:maybe_null3]
+    |c[l]                     | ->                               |>> :maybe_null4
+    |default                  |                                  |>> :bare
+  |state[:maybe_null4]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | emit(Nil)                 |return
+  |state[:maybe_nil2]
+    |c[l]                     | ->                               |>> :maybe_nil3
+    |default                  |                                  |>> :bare
+  |state[:maybe_nil3]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | emit(Nil)                 |return
+
+  |state[:list]
+    |eof                      | emit(Error:unclosed_list) | emit(ArrayEnd) |return
+    |c[]]        |.close      | emit(ArrayEnd) | ->              |return
+    |c[ \t]      |.space      | ->                               |>>
+    |default     |.item       | /value                           |>>
+
+
+; ============================================================================
+; Block Attributes
+; ============================================================================
+
+|function[attribute]  :line_col
+  ; Block-level attribute: :key value
+  |state[:key_start]
+    |c[LETTER]   |.name       | MARK                             |>> :key_name
+    |c[']        |.quoted     | ->                               |>> :key_quoted
+    |default     |.err        | emit(Error:expected_attr_key)    |return
+    |eof                      |                                  |return
+
+  |state[:key_name]
+    |c[LABEL_CONT] |.cont     | ->                               |>>
+    |c[ \t]      |.space      | TERM | emit(Attr) | ->           |>> :value_start
+    |c[\n]       |.flag       | TERM | emit(Attr) | emit(BoolTrue) |return
+    |default     |.done       | TERM | emit(Attr)                |>> :value_start
+    |eof                      | TERM | emit(Attr) | emit(BoolTrue) |return
+
+  |state[:key_quoted]
+    |eof                      | emit(Error:unclosed_quote)       |return
+    |c[']        |.empty      | MARK | TERM | emit(Attr)         |>> :value_start
+    |default     |.start      | MARK                             |>> :key_quoted_cont
+
+  |state[:key_quoted_cont]
+    |eof                      | emit(Error:unclosed_quote)       |return
+    |c[']        |.close      | TERM | emit(Attr) | ->           |>> :value_start
+    |c[\\]       |.esc        | -> | ->                          |>>
+    |default     |.cont       | ->                               |>>
+
+  |state[:value_start]
+    |c[ \t]      |.space      | ->                               |>>
+    |c[\n]       |.eol        | emit(BoolTrue)                   |return  ; TODO: block value on next line?
+    |default     |.value      | /value                           |return
+    |eof                      | emit(BoolTrue)                   |return
+
+
+; ============================================================================
+; Dynamics
+; ============================================================================
+
+|function[dynamic]  :line_col
+  |state[:start]
+    |c[{]        |.inline     | ->                               |>> :inline
+    |c[:]        |.raw_block  | -> | MARK                        |>> :raw_name
+    |c[LETTER]   |.block      | MARK                             |>> :block_name
+    |default     |.err        | emit(Error:expected_directive)   |return
+    |eof                      | emit(Error:expected_directive)   |return
+
+  ; !:lang: - raw block
+  |state[:raw_name]
+    |c[LABEL_CONT] |.cont     | ->                               |>>
+    |c[:]        |.close      | TERM | emit(DirectiveStart:raw) | -> |>> :raw_content
+    |default     |.err        | emit(Error:expected_colon)       |return
+    |eof                      | emit(Error:unclosed_directive)   |return
+
+  |state[:raw_content]
+    ; Raw content until dedent - for now just consume to EOL
+    ; TODO: proper multi-line raw with dedent tracking
+    |eof                      | emit(DirectiveEnd)               |return
+    |c[\n]       |.eol        | emit(DirectiveEnd)               |return
+    |default     |.cont       | ->                               |>>
+
+  ; !name ... - block directive
+  |state[:block_name]
+    |c[LABEL_CONT] |.cont     | ->                               |>>
+    |c[ \t]      |.space      | TERM | emit(DirectiveStart) | -> |>> :statement
+    |c[\n]       |.eol        | TERM | emit(DirectiveStart)      |return
+    |default     |.done       | TERM | emit(DirectiveStart)      |>> :statement
+    |eof                      | TERM | emit(DirectiveStart)      |return
+
+  |state[:statement]  | MARK
+    |eof                      | TERM | emit(DirectiveStatement)  |return
+    |c[\n]       |.eol        | TERM | emit(DirectiveStatement)  |return
+    |default     |.cont       | ->                               |>>
+
+  ; !{...} - inline forms
+  |state[:inline]
+    |c[{]        |.interp     | -> | MARK                        |>> :interp
+    |c[:]        |.raw        | -> | MARK                        |>> :inline_raw_name
+    |c[LETTER]   |.dir        | MARK                             |>> :inline_dir_name
+    |default     |.err        | emit(Error:expected_directive)   |return
+    |eof                      | emit(Error:unclosed_directive)   |return
+
+  ; !{{...}} - interpolation
+  |state[:interp]  | depth = 1
+    |eof                      | emit(Error:unclosed_interp)      |return
+    |c[{]        |.nest       | -> | depth += 1                  |>>
+    |c[}]        |.unnest     | -> | depth -= 1                  |>> :interp_check
+    |default     |.cont       | ->                               |>>
+
+  |state[:interp_check]
+    |if[depth == 0]
+      ; One more } needed to close !{{...}}
+      |                                                          |>> :interp_final
+    |endif
+    |                                                            |>> :interp
+
+  |state[:interp_final]
+    |c[}]        |.close      | TERM(-2) | emit(Interpolation) | -> |return
+    |default     |.reopen     | depth += 1                       |>> :interp
+
+  ; !{:kind: ...} - inline raw
+  |state[:inline_raw_name]
+    |c[LABEL_CONT] |.cont     | ->                               |>>
+    |c[:]        |.close      | TERM | emit(DirectiveStart:raw) | -> | MARK |>> :inline_raw_body
+    |default     |.err        | emit(Error:expected_colon)       |return
+    |eof                      | emit(Error:unclosed_directive)   |return
+
+  |state[:inline_raw_body]  | depth = 1
+    |eof                      | emit(Error:unclosed_directive)   |return
+    |c[{]        |.nest       | -> | depth += 1                  |>>
+    |c[}]        |.unnest     | -> | depth -= 1                  |>> :inline_raw_check
+    |default     |.cont       | ->                               |>>
+
+  |state[:inline_raw_check]
+    |if[depth == 0]
+      | TERM(-1) | emit(DirectiveBody) | emit(DirectiveEnd)      |return
+    |endif
+    |                                                            |>> :inline_raw_body
+
+  ; !{name ...} - inline directive
+  |state[:inline_dir_name]
+    |c[LABEL_CONT] |.cont     | ->                               |>>
+    |c[ \t]      |.space      | TERM | emit(DirectiveStart) | -> |>> :inline_dir_body_start
+    |c[}]        |.close      | TERM | emit(DirectiveStart) | emit(DirectiveEnd) | -> |return
+    |default     |.err        | emit(Error:invalid_directive)    |return
+    |eof                      | emit(Error:unclosed_directive)   |return
+
+  |state[:inline_dir_body_start]
+    |c[ \t]      |.space      | ->                               |>>
+    |c[}]        |.close      | emit(DirectiveEnd) | ->          |return
+    |default     |.body       | MARK                             |>> :inline_dir_body
+
+  |state[:inline_dir_body]  | depth = 1
+    ; Non-raw body can contain UDON - but for simplicity, just brace-count for now
+    ; TODO: full UDON parsing inside
+    |eof                      | emit(Error:unclosed_directive)   |return
+    |c[{]        |.nest       | -> | depth += 1                  |>>
+    |c[}]        |.unnest     | -> | depth -= 1                  |>> :inline_dir_check
+    |default     |.cont       | ->                               |>>
+
+  |state[:inline_dir_check]
+    |if[depth == 0]
+      | TERM(-1) | emit(DirectiveBody) | emit(DirectiveEnd)      |return
+    |endif
+    |                                                            |>> :inline_dir_body
+
+
+|function[inline_dynamic]
+  | /dynamic(COL)
+  |return
+
+
+|function[inline_bang]
+  ; ! in inline content - check for interpolation/directive
+  |state[:main]
+    |c[{]        |.brace      | -> | /inline_dynamic             |return
+    ; ! without { is just text
+    |default     |.text       | emit(Text:!)                     |return
+    |eof                      | emit(Text:!)                     |return
+
+
+; ============================================================================
+; Freeform Blocks (```)
+; ============================================================================
+
+|function[check_freeform]  :line_col
+  |state[:check]
+    |c[`]        |.tick2      | ->                               |>> :check2
+    |default     |.not        | /prose(line_col, -1)             |return
+
+  |state[:check2]
+    |c[`]        |.tick3      | -> | emit(FreeformStart)         |>> :content_first_line
+    |default     |.not        | emit(Text:`) | /prose(line_col, -1) |return
+
+  |state[:content_first_line]  | MARK
+    |eof                      | TERM | emit(RawContent) | emit(FreeformEnd) |return
+    |c[\n]       |.eol        | TERM | emit(RawContent) | ->     |>> :content
+    |default     |.cont       | ->                               |>>
+
+  |state[:content]  | MARK
+    |eof                      | TERM | emit(RawContent) | emit(FreeformEnd) |return
+    |c[`]        |.tick       | TERM | emit(RawContent) | ->     |>> :maybe_close
+    |c[\n]       |.eol        | ->                               |>>  ; include newlines in content
+    |default     |.cont       | ->                               |>>
+
+  |state[:maybe_close]
+    |c[`]        |.tick2      | ->                               |>> :maybe_close2
+    |default     |.not        | MARK | PREPEND(`)                |>> :content
+
+  |state[:maybe_close2]
+    |c[`]        |.tick3      | -> | emit(FreeformEnd)           |return
+    |default     |.not        | MARK | PREPEND(``)               |>> :content
+
+
+; ============================================================================
+; References @[id] and :[id]
+; ============================================================================
+
+; TODO: Add reference parsing - @[id] for full reference, :[id] for attr merge
+
+
+; ============================================================================
+; Character Classes (for generator)
+; ============================================================================
+;
+; LETTER     = Unicode letter (\p{L}) or _
+; LABEL_CONT = LETTER or digit (\p{N}) or -
+; ELEMENT_START = LETTER or ' or [ or . or ? or ! or * or +
+;
