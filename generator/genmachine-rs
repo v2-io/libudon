@@ -580,16 +580,6 @@ class GMState < GMGenericChild
       code << "                    #{cmd.to_rust}"
     end
 
-    # Handle state-specific EOF - but skip if SCAN-first (handled in None case)
-    if !scan_first_cmd && @local_eof && @local_eof.body.any?
-      code << "                    if self.eof() {"
-      @local_eof.body.each do |cmd|
-        rust = cmd.to_rust
-        code << "                        #{rust}" if rust && !rust.empty?
-      end
-      code << "                    }"
-    end
-
     # Separate conditionals from match cases
     # Conditionals (|if[...]) go before the match block
     conditionals = @body.select { |obj| obj.is_a?(GMConditional) }
@@ -624,12 +614,24 @@ class GMState < GMGenericChild
         code << "                        _ => {} // Other bytes not possible after SCAN"
         code << "                    }"
       else
-        # Normal mode: peek then match
-        code << "                    if let Some(b) = self.peek() {"
-        code << "                        match b {"
+        # Fused eof+peek: single match eliminates redundant bounds check
+        code << "                    match self.peek() {"
+        code << "                        None => {"
+        if @local_eof && @local_eof.body.any?
+          @local_eof.body.each do |cmd|
+            rust = cmd.to_rust
+            code << "                            #{rust}" if rust && !rust.empty?
+          end
+        else
+          code << "                            return;"
+        end
+        code << "                        }"
+        code << "                        Some(b) => {"
+        code << "                            match b {"
         match_cases.each do |case_obj|
           code << case_obj.to_rust(state_names)
         end
+        code << "                            }"
         code << "                        }"
         code << "                    }"
       end
@@ -656,6 +658,8 @@ class GMCase < GMGenericChild
       processed = chars_str
         .gsub('<L>', "\x01LEFT_BRACKET\x01")
         .gsub('<R>', "\x01RIGHT_BRACKET\x01")
+        .gsub('<LB>', "\x01LEFT_BRACE\x01")
+        .gsub('<RB>', "\x01RIGHT_BRACE\x01")
         .gsub('<P>', "\x01PIPE\x01")
         .gsub('<BS>', "\x01BACKSLASH\x01")
         .gsub('\\\\', "\x01BACKSLASH\x01")
@@ -670,6 +674,8 @@ class GMCase < GMGenericChild
         processed = processed
           .gsub("\x01LEFT_BRACKET\x01", '[')
           .gsub("\x01RIGHT_BRACKET\x01", ']')
+          .gsub("\x01LEFT_BRACE\x01", '{')
+          .gsub("\x01RIGHT_BRACE\x01", '}')
           .gsub("\x01PIPE\x01", '|')
           .gsub("\x01BACKSLASH\x01", '\\')
         @chars = processed.chars
@@ -873,6 +879,8 @@ class GMCommand < GMGenericChild
         .gsub('<BS>', '\\')
         .gsub('<L>', '[')
         .gsub('<R>', ']')
+        .gsub('<LB>', '{')
+        .gsub('<RB>', '}')
         .chars
       return
     end

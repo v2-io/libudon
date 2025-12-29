@@ -72,7 +72,7 @@ pub struct StreamingParser {
     current_chunk: u32,
 
     /// Cached pointer to current chunk data (hot path optimization)
-    /// This avoids repeated arena lookups in peek()/eof()
+    /// This avoids repeated arena lookups in peek()
     current_ptr: *const u8,
     current_len: usize,
 
@@ -282,12 +282,6 @@ impl StreamingParser {
     //
     // These methods provide compatibility with the generated state machine code.
     // Hot path methods use cached pointer to avoid arena lookups.
-
-    /// Check if at end of current chunk.
-    #[inline(always)]
-    fn eof(&self) -> bool {
-        self.pos >= self.current_len
-    }
 
     /// Get current byte without advancing.
     #[inline(always)]

@@ -2835,7 +2835,7 @@ mod value_types {
 // Unified inline syntax:
 // - !{{expr}} — interpolation (double-brace)
 // - !{directive ...} — inline directive
-// - !{raw:kind ...} — raw inline directive
+// - !{:kind: ...} — raw inline directive (colon-wrapped label)
 
 mod dynamics {
     use super::*;

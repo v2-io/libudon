@@ -48,12 +48,12 @@ Key rules:
 The parser uses a `raw` flag to distinguish raw vs non-raw directives:
 
 **Block directives:**
-- `!raw:lang` → DirectiveStart{name: "lang", raw: true}, content as prose until dedent
+- `!:lang:` → DirectiveStart{name: "lang", raw: true}, content as prose until dedent
 - `!if condition` → DirectiveStart{name: "if", raw: false}, rest of line is statement,
   then normal UDON children until dedent
 
 **Inline directives:**
-- `!{raw:json {"key": "val"}}` → raw=true, content is brace-counted opaque bytes
+- `!{:json: {"key": "val"}}` → raw=true, content is brace-counted opaque bytes
 - `!{include |{em content}}` → raw=false, content is parsed as UDON
 
 **Interpolation in typed contexts (attribute values, element IDs):**
@@ -232,6 +232,8 @@ This generates SIMD-accelerated memchr scanning. Characters:
 - `<BS>` — backslash
 - `<L>` — left bracket ([)
 - `<R>` — right bracket (])
+- `<LB>` — left brace ({)
+- `<RB>` — right brace (})
 
 ### Emit Actions
 
@@ -350,15 +352,18 @@ from generated Rust code.
 
 ## Performance Characteristics
 
-Current benchmarks (streaming-parser branch):
+Current benchmarks (main branch, full feature set):
 
-| Test | Time | Throughput | vs Old Parser |
-|------|------|------------|---------------|
-| comprehensive.udon (15KB) | 17.9 µs | 813 MiB/s | 1.83x faster |
-| minimal.udon (52 bytes) | 73.5 ns | 700 MiB/s | 1.53x faster |
+| Test | Time | Throughput |
+|------|------|------------|
+| comprehensive.udon (15KB) | ~28 µs | ~520 MiB/s |
+| minimal.udon (52 bytes) | ~105 ns | ~470 MiB/s |
+| mathml-to-latex.udon (112KB) | ~189 µs | ~565 MiB/s |
 
 Key optimizations:
-- SCAN-first with memchr for SIMD scanning
+- Fused eof+peek pattern: single `match self.peek()` replaces separate `if eof()` + `if let peek()`
+- SCAN-first with memchr for SIMD scanning (39 states optimized)
+- Brace symbols `<LB>` and `<RB>` for embedded content SCAN
 - Cached chunk pointer (avoids arena lookup in hot path)
 - Power-of-2 ring buffer with bitmask modulo
 - ParseErrorCode enum instead of String
@@ -381,8 +386,8 @@ Tests exist for all these features; implement to make tests pass.
 | Double-brace interpolation `!{{...}}` | PARTIAL | 7/13 tests pass - works in prose/inline, attr/id pending |
 | Inline directives `!{name ...}` | TODO | Tests are placeholders |
 | Block directives (`!if`, `!for`) | TODO | Tests are placeholders |
-| Raw block `!raw:lang` | TODO | Tests are placeholders |
-| Raw inline `!{raw:kind ...}` | TODO | Tests are placeholders |
+| Raw block `!:lang:` | TODO | Tests are placeholders |
+| Raw inline `!{:kind: ...}` | TODO | Tests are placeholders |
 
 ### FFI (udon-ffi/src/lib.rs) - BROKEN
 The FFI code uses the old Event enum and deprecated Parser API:

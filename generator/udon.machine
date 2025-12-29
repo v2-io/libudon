@@ -451,15 +451,15 @@
     |c[;]         |.semi     | ->                                |>> :embed_comment_check
     |default      |.content  | MARK                              |>> :embed_content
 
-  |state[:embed_content]
+  |state[:embed_content] SCAN(<RB><LB><P>;)
     ; Content inside embedded element - brace-counted
     ; SPEC.md:213-223 - Bracket mode stays bracket mode
+    ; SCAN-first: bulk scan to }, {, |, or ;
     |eof                     | emit(Text) | emit(Error:unclosed) | emit(EmbeddedEnd) |return
     |c[}]         |.close    | emit(Text) | emit(EmbeddedEnd) | -> |return
     |c[{]         |.nest     | ->                                |>> :embed_content_nested
     |c[<P>]       |.pipe     | emit(Text) | ->                   |>> :embed_check_nested
     |c[;]         |.semi     | emit(Text) | ->                   |>> :embed_comment_check
-    |default      |.collect  | ->                                |>>
 
   |state[:embed_content_nested]
     ; Nested braces in embedded content
@@ -803,12 +803,12 @@
 
   ;--- Interpolation in element inline content ---
 
-  |state[:inline_interp]
+  |state[:inline_interp] SCAN(<RB><LB>)
     ; !{{...}} interpolation with brace-counting in inline context
+    ; SCAN-first: bulk scan to } or {
     |eof                   | emit(Error:unclosed) | emit(ElementEnd) |return
     |c[}]       |.close    | emit(Interpolation)               |>> :inline_interp_close
     |c[{]       |.nest     | ->                                |>> :inline_interp_nested
-    |default    |.collect  | ->                                |>>
 
   |state[:inline_interp_close]
     ; After first } - we're AT it. Need to advance past it and check for second }.
@@ -1438,11 +1438,11 @@
     |c["]         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :values
     |default      |.content  | MARK                             |>> :dquote_content
 
-  |state[:dquote_content]
+  |state[:dquote_content] SCAN("<BS>)
+    ; SCAN-first: bulk scan to " or backslash
     |eof                      | emit(Error:unclosed_string)     |return
     |c["]         |.close    | emit(QuotedStringValue) | ->     |>> :values
     |c[\\]        |.escape   | ->                               |>> :dquote_esc
-    |default      |.collect  | ->                               |>>
 
   |state[:dquote_esc]
     |eof                      | emit(Error:unclosed_string)     |return
@@ -1455,11 +1455,11 @@
     |c[']         |.empty    | MARK | emit(QuotedStringValue) | -> |>> :values
     |default      |.content  | MARK                             |>> :squote_content
 
-  |state[:squote_content]
+  |state[:squote_content] SCAN('<BS>)
+    ; SCAN-first: bulk scan to ' or backslash
     |eof                      | emit(Error:unclosed_string)     |return
     |c[']         |.close    | emit(QuotedStringValue) | ->     |>> :values
     |c[\\]        |.escape   | ->                               |>> :squote_esc
-    |default      |.collect  | ->                               |>>
 
   |state[:squote_esc]
     |eof                      | emit(Error:unclosed_string)     |return
@@ -1642,12 +1642,12 @@
 
   ;--- Inline interpolation: !{{expr}} ---
 
-  |state[:inline_interp]
+  |state[:inline_interp] SCAN(<RB><LB>)
     ; Inside interpolation - brace-counting
+    ; SCAN-first: bulk scan to } or {
     |eof                       | emit(Error:unclosed) |return
     |c[}]       |.close        | emit(Interpolation)              |>> :inline_interp_close
     |c[{]       |.nest         | ->                               |>> :inline_interp_n1
-    |default    |.collect      | ->                               |>>
 
   |state[:inline_interp_close]
     ; After first } in interpolation - advance and check for second
@@ -1715,32 +1715,32 @@
     |c[}]       |.close        | emit(DirectiveEnd)               |return
     |default    |.content      | MARK                             |>> :inline_body
 
-  |state[:inline_body]
+  |state[:inline_body] SCAN(<RB><LB>)
     ; Inline directive body - brace-counted
+    ; SCAN-first: bulk scan to } or {
     |eof                       | emit(Error:unclosed) |return
     |c[}]       |.close        | emit(DirectiveBody) | emit(DirectiveEnd) |return
     |c[{]       |.nest         | ->                               |>> :inline_body_n1
-    |default    |.collect      | ->                               |>>
 
-  |state[:inline_body_n1]
+  |state[:inline_body_n1] SCAN(<RB><LB>)
     ; Nested braces in body - depth 1
+    ; SCAN-first: bulk scan to } or {
     |eof                       | emit(Error:unclosed) |return
     |c[}]       |.unnest       | ->                               |>> :inline_body
     |c[{]       |.deeper       | ->                               |>> :inline_body_n2
-    |default    |.collect      | ->                               |>>
 
-  |state[:inline_body_n2]
+  |state[:inline_body_n2] SCAN(<RB><LB>)
     ; Nested braces - depth 2
+    ; SCAN-first: bulk scan to } or {
     |eof                       | emit(Error:unclosed) |return
     |c[}]       |.unnest       | ->                               |>> :inline_body_n1
     |c[{]       |.deeper       | ->                               |>> :inline_body_n3
-    |default    |.collect      | ->                               |>>
 
-  |state[:inline_body_n3]
-    ; Nested braces - depth 3
+  |state[:inline_body_n3] SCAN(<RB>)
+    ; Nested braces - depth 3 (deepest - just scan for })
+    ; SCAN-first: bulk scan to }
     |eof                       | emit(Error:unclosed) |return
     |c[}]       |.unnest       | ->                               |>> :inline_body_n2
-    |default    |.collect      | ->                               |>>
 
   |state[:inline_skip]
     ; Error recovery - skip to closing brace
