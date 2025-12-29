@@ -1,0 +1,732 @@
+; UDON Parser - Clean Recursive Descent (v4)
+;
+; Design:
+;   1. Type system declares emit behavior
+;   2. EOF handling inferred from context
+;   3. No explicit emit() calls
+;   4. DSL describes grammar, generator infers mechanics
+;
+; Type categories:
+;   BRACKET  - emits Start on entry, End on exit (Element, Embedded, Directive, Array)
+;   CONTENT  - emits event on return (Name, Text, Comment, Attr, Value, etc.)
+;   INTERNAL - no emit, used for intermediate values (indent count, flags)
+
+|parser udon
+
+; ============================================================================
+; Type Declarations
+; ============================================================================
+
+|type[Element]       BRACKET    ; ElementStart on entry, ElementEnd on exit
+|type[Embedded]      BRACKET    ; EmbeddedStart/End
+|type[Directive]     BRACKET    ; DirectiveStart/End
+|type[Array]         BRACKET    ; ArrayStart/End
+|type[Freeform]      BRACKET    ; FreeformStart/End
+
+|type[Name]          CONTENT    ; emits Name event on return
+|type[Text]          CONTENT    ; emits Text event
+|type[Comment]       CONTENT    ; emits Comment event
+|type[Attr]          CONTENT    ; emits Attr event
+|type[StringValue]   CONTENT    ; emits StringValue event
+|type[BareValue]     CONTENT    ; emits BareValue event
+|type[BoolTrue]      CONTENT    ; emits BoolTrue event
+|type[BoolFalse]     CONTENT    ; emits BoolFalse event
+|type[Nil]           CONTENT    ; emits Nil event
+|type[Interpolation] CONTENT    ; emits Interpolation event
+|type[Reference]     CONTENT    ; emits Reference event
+|type[RawContent]    CONTENT    ; emits RawContent event
+|type[Raw]           CONTENT    ; emits Raw flag event
+
+|type[INT]           INTERNAL   ; no emit - internal integer
+|type[BOOL]          INTERNAL   ; no emit - internal boolean
+
+
+; ============================================================================
+; Entry Point
+; ============================================================================
+
+|entry-point /document
+
+|function[document]
+  |state[:line]
+    |c[\n]                    | ->                               |>>
+    |c[ ]                     | col = /count_indent              |>> :dispatch
+    |c[\t]                    | /error(no_tabs) | ->[\n]         |>> :line
+    |default                  | col = 0                          |>> :dispatch
+
+  |state[:dispatch]
+    |c[|]                     | ->                               |>> :check_pipe
+    |c[:]                     | -> | /block_attr                 |>> :line
+    |c[!]                     | -> | /block_directive(col)       |>> :line
+    |c[;]                     | -> | /line_comment               |>> :line
+    |c[']                     | -> | /prose(col, -1)             |>> :line
+    |default                  | /prose(col, -1)                  |>> :line
+
+  |state[:check_pipe]
+    |c[LETTER'[.?!*+]         | /element(col, -1)                |>> :line
+    |c[{]                     | /embedded                        |>> :line
+    |default                  | /prose_pipe(col, -1)             |>> :line
+
+
+; ============================================================================
+; Utilities
+; ============================================================================
+
+|function[count_indent:INT]  | result = 0
+  |state[:main]
+    |c[ ]                     | -> | result += 1                 |>>
+    |default                  |                                  |return result
+
+
+|function[error:Error]  :code
+  ; Emits error event with code
+  |                                                              |return
+
+
+; ============================================================================
+; Element
+; ============================================================================
+
+|function[element:Element]  :elem_col :parent_col
+
+  |state[:identity]
+    |c[LETTER]                | /name                            |>> :post_name
+    |c[']                     | ->                               |>> :quoted_name
+    |c[[]                     |                                  |>> :bracket
+    |c[.]                     |                                  |>> :class
+    |c[?!*+]                  | /suffix                          |>> :post_identity
+
+  |state[:quoted_name]  | EXPECTS(')
+    |c[']                     | ->                               |>> :post_name
+    |default                  | /quoted_name                     |>> :post_name
+
+  |state[:post_name]
+    |c[[]                     | ->                               |>> :bracket
+    |c[.]                     |                                  |>> :class
+    |c[?!*+]                  | /suffix                          |>> :post_identity
+    |default                  |                                  |>> :post_identity
+
+  |state[:bracket]  | EXPECTS(])
+    |c[]]                     | ->                               |>> :post_bracket
+    |default                  | Attr($id) | /value               |>> :bracket_close
+
+  |state[:bracket_close]  | EXPECTS(])
+    |c[]]                     | ->                               |>> :post_bracket
+
+  |state[:post_bracket]
+    |c[.]                     |                                  |>> :class
+    |c[?!*+]                  | /suffix                          |>> :post_identity
+    |default                  |                                  |>> :post_identity
+
+  |state[:class]
+    |c[.]                     | ->                               |>>
+    |c[LETTER]                | Attr($class) | /class_name       |>> :post_class
+    |c[']                     | Attr($class) | -> | /quoted_class |>> :post_class
+
+  |state[:post_class]
+    |c[.]                     |                                  |>> :class
+    |c[?!*+]                  | /suffix                          |>> :post_identity
+    |default                  |                                  |>> :post_identity
+
+  |state[:post_identity]
+    |c[\n]                    | ->                               |>> :children
+    |c[ \t]                   | ->                               |>> :pre_content
+    |default                  | /inline_text(elem_col)           |>> :children
+
+  |state[:pre_content]
+    |c[\n]                    | ->                               |>> :children
+    |c[ \t]                   | ->                               |>>
+    |c[:]                     | -> | /inline_attr                |>>
+    |c[|]                     | ->                               |>> :check_inline_pipe
+    |c[;]                     | ->                               |>> :check_inline_semi
+    |c[!]                     | ->                               |>> :check_inline_bang
+    |default                  | /inline_text(elem_col)           |>> :children
+
+  |state[:check_inline_pipe]
+    |c[{]                     | /embedded                        |>> :post_child
+    |c[LETTER'[.?!*+]         | /element(COL, elem_col)          |>> :post_child
+    |default                  | /inline_text_pipe(elem_col)      |>> :children
+
+  |state[:check_inline_semi]
+    |c[{]                     | /brace_comment                   |>> :pre_content
+    |default                  | /inline_line_comment             |>> :children
+
+  |state[:check_inline_bang]
+    |c[{]                     | -> | /inline_directive           |>> :pre_content
+    |default                  | /inline_text_bang(elem_col)      |>> :children
+
+  |state[:post_child]
+    |c[\n]                    | ->                               |>> :children
+    |c[ \t]                   | ->                               |>>
+    |c[|]                     | ->                               |>> :check_inline_pipe
+    |default                  | /inline_text(elem_col)           |>> :children
+
+  ; === Children Loop ===
+  |state[:children]
+    |c[\n]                    | ->                               |>>
+    |c[ ]                     | col = /count_indent              |>> :check_child
+    |c[\t]                    | /error(no_tabs) | ->[\n]         |>>
+    |default                  | col = 0                          |>> :check_child
+
+  |state[:check_child]
+    |if[col <= elem_col]                                         |return  ; dedent
+    |                                                            |>> :child_dispatch
+
+  |state[:child_dispatch]
+    |c[|]                     | ->                               |>> :child_pipe
+    |c[:]                     | -> | /block_attr                 |>> :children
+    |c[!]                     | -> | /block_directive(col)       |>> :children
+    |c[;]                     | -> | /line_comment               |>> :children
+    |c[']                     | -> | /prose(col, elem_col)       |>> :children
+    |default                  | /prose(col, elem_col)            |>> :children
+
+  |state[:child_pipe]
+    |c[{]                     | /embedded                        |>> :children
+    |c[LETTER'[.?!*+]         | /element(col, elem_col)          |>> :children
+    |default                  | /prose_pipe(col, elem_col)       |>> :children
+
+
+; ============================================================================
+; Names (element/class names)
+; ============================================================================
+
+|function[name:Name]  | MARK
+  |state[:main]
+    |c[LABEL_CONT]            | ->                               |>>
+    |default                  | TERM                             |return
+
+
+|function[quoted_name:Name]  | MARK | EXPECTS(')
+  |state[:main]
+    |c[']                     | TERM | ->                        |return
+    |c[\\]                    | -> | ->                          |>>
+    |default                  | ->                               |>>
+
+
+|function[class_name:StringValue]  | MARK
+  |state[:main]
+    |c[LABEL_CONT]            | ->                               |>>
+    |default                  | TERM                             |return
+
+
+|function[quoted_class:StringValue]  | MARK | EXPECTS(')
+  |state[:main]
+    |c[']                     | TERM | ->                        |return
+    |c[\\]                    | -> | ->                          |>>
+    |default                  | ->                               |>>
+
+
+; ============================================================================
+; Attributes
+; ============================================================================
+
+|function[suffix]
+  |state[:main]
+    |c[?]                     | Attr(?) | BoolTrue | ->          |return
+    |c[!]                     | Attr(!) | BoolTrue | ->          |return
+    |c[*]                     | Attr(*) | BoolTrue | ->          |return
+    |c[+]                     | Attr(+) | BoolTrue | ->          |return
+    |default                  |                                  |return
+
+
+|function[block_attr]
+  |state[:key]
+    |c[LETTER]                | /attr_key                        |>> :value_start
+    |c[']                     | -> | /attr_key_quoted            |>> :value_start
+
+  |state[:value_start]
+    |c[ \t]                   | ->                               |>>
+    |c[\n]                    | BoolTrue                         |return
+    |default                  | /value                           |return
+
+
+|function[inline_attr]
+  |state[:key]
+    |c[LETTER]                | /attr_key                        |>> :value_start
+    |c[']                     | -> | /attr_key_quoted            |>> :value_start
+
+  |state[:value_start]
+    |c[ \t]                   | ->                               |>>
+    |c[\n:|]}]                | BoolTrue                         |return
+    |default                  | /value_inline                    |return
+
+
+|function[attr_key:Attr]  | MARK
+  |state[:main]
+    |c[LABEL_CONT]            | ->                               |>>
+    |default                  | TERM                             |return
+
+
+|function[attr_key_quoted:Attr]  | MARK | EXPECTS(')
+  |state[:main]
+    |c[']                     | TERM | ->                        |return
+    |c[\\]                    | -> | ->                          |>>
+    |default                  | ->                               |>>
+
+
+; ============================================================================
+; Values
+; ============================================================================
+
+|function[value]
+  |state[:start]
+    |c["]                     | -> | /dquote_string              |return
+    |c[']                     | -> | /squote_string              |return
+    |c[[]                     | /array                           |return
+    |c[~]                     | Nil | ->                         |return
+    |c[t]                     | /maybe_true                      |return
+    |c[f]                     | /maybe_false                     |return
+    |c[n]                     | /maybe_null                      |return
+    |default                  | /bare_value                      |return
+
+
+|function[value_inline]
+  |state[:start]
+    |c["]                     | -> | /dquote_string              |return
+    |c[']                     | -> | /squote_string              |return
+    |c[[]                     | /array_inline                    |return
+    |c[~]                     | Nil | ->                         |return
+    |c[t]                     | /maybe_true_inline               |return
+    |c[f]                     | /maybe_false_inline              |return
+    |c[n]                     | /maybe_null_inline               |return
+    |default                  | /bare_value_inline               |return
+
+
+|function[dquote_string:StringValue]  | MARK | EXPECTS(")
+  |state[:main]
+    |c["]                     | TERM | ->                        |return
+    |c[\\]                    | -> | ->                          |>>
+    |default                  | ->                               |>>
+
+
+|function[squote_string:StringValue]  | MARK | EXPECTS(')
+  |state[:main]
+    |c[']                     | TERM | ->                        |return
+    |c[\\]                    | -> | ->                          |>>
+    |default                  | ->                               |>>
+
+
+|function[bare_value:BareValue]  | MARK
+  |state[:main]
+    |c[\n ]}]                 | TERM                             |return
+    |default                  | ->                               |>>
+
+
+|function[bare_value_inline:BareValue]  | MARK
+  |state[:main]
+    |c[\n :|]}]               | TERM                             |return
+    |default                  | ->                               |>>
+
+
+|function[maybe_true]  | MARK
+  |state[:t]
+    |c[r]                     | ->                               |>> :tr
+    |default                  |                                  |>> :bare
+  |state[:tr]
+    |c[u]                     | ->                               |>> :tru
+    |default                  |                                  |>> :bare
+  |state[:tru]
+    |c[e]                     | ->                               |>> :true
+    |default                  |                                  |>> :bare
+  |state[:true]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | BoolTrue                  |return
+  |state[:bare]
+    |c[\n ]}]                 | TERM | BareValue(USE_MARK)       |return
+    |default                  | ->                               |>>
+
+|function[maybe_false]  | MARK
+  |state[:f]
+    |c[a]                     | ->                               |>> :fa
+    |default                  |                                  |>> :bare
+  |state[:fa]
+    |c[l]                     | ->                               |>> :fal
+    |default                  |                                  |>> :bare
+  |state[:fal]
+    |c[s]                     | ->                               |>> :fals
+    |default                  |                                  |>> :bare
+  |state[:fals]
+    |c[e]                     | ->                               |>> :false
+    |default                  |                                  |>> :bare
+  |state[:false]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | BoolFalse                 |return
+  |state[:bare]
+    |c[\n ]}]                 | TERM | BareValue(USE_MARK)       |return
+    |default                  | ->                               |>>
+
+|function[maybe_null]  | MARK
+  |state[:n]
+    |c[u]                     | ->                               |>> :nu
+    |c[i]                     | ->                               |>> :ni
+    |default                  |                                  |>> :bare
+  |state[:nu]
+    |c[l]                     | ->                               |>> :nul
+    |default                  |                                  |>> :bare
+  |state[:nul]
+    |c[l]                     | ->                               |>> :null
+    |default                  |                                  |>> :bare
+  |state[:null]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | Nil                       |return
+  |state[:ni]
+    |c[l]                     | ->                               |>> :nil
+    |default                  |                                  |>> :bare
+  |state[:nil]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | Nil                       |return
+  |state[:bare]
+    |c[\n ]}]                 | TERM | BareValue(USE_MARK)       |return
+    |default                  | ->                               |>>
+
+|function[maybe_true_inline]  | MARK
+  |state[:t]
+    |c[r]                     | ->                               |>> :tr
+    |default                  |                                  |>> :bare
+  |state[:tr]
+    |c[u]                     | ->                               |>> :tru
+    |default                  |                                  |>> :bare
+  |state[:tru]
+    |c[e]                     | ->                               |>> :true
+    |default                  |                                  |>> :bare
+  |state[:true]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | BoolTrue                  |return
+  |state[:bare]
+    |c[\n :|]}]               | TERM | BareValue(USE_MARK)       |return
+    |default                  | ->                               |>>
+
+|function[maybe_false_inline]  | MARK
+  |state[:f]
+    |c[a]                     | ->                               |>> :fa
+    |default                  |                                  |>> :bare
+  |state[:fa]
+    |c[l]                     | ->                               |>> :fal
+    |default                  |                                  |>> :bare
+  |state[:fal]
+    |c[s]                     | ->                               |>> :fals
+    |default                  |                                  |>> :bare
+  |state[:fals]
+    |c[e]                     | ->                               |>> :false
+    |default                  |                                  |>> :bare
+  |state[:false]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | BoolFalse                 |return
+  |state[:bare]
+    |c[\n :|]}]               | TERM | BareValue(USE_MARK)       |return
+    |default                  | ->                               |>>
+
+|function[maybe_null_inline]  | MARK
+  |state[:n]
+    |c[u]                     | ->                               |>> :nu
+    |c[i]                     | ->                               |>> :ni
+    |default                  |                                  |>> :bare
+  |state[:nu]
+    |c[l]                     | ->                               |>> :nul
+    |default                  |                                  |>> :bare
+  |state[:nul]
+    |c[l]                     | ->                               |>> :null
+    |default                  |                                  |>> :bare
+  |state[:null]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | Nil                       |return
+  |state[:ni]
+    |c[l]                     | ->                               |>> :nil
+    |default                  |                                  |>> :bare
+  |state[:nil]
+    |c[LABEL_CONT]            |                                  |>> :bare
+    |default                  | TERM | Nil                       |return
+  |state[:bare]
+    |c[\n :|]}]               | TERM | BareValue(USE_MARK)       |return
+    |default                  | ->                               |>>
+
+
+|function[array:Array]
+  |state[:items]
+    |c[]]                     | ->                               |return
+    |c[ \t\n]                 | ->                               |>>
+    |default                  | /value                           |>>
+
+
+|function[array_inline:Array]
+  |state[:items]
+    |c[]]                     | ->                               |return
+    |c[ \t\n]                 | ->                               |>>
+    |default                  | /value_inline                    |>>
+
+
+; ============================================================================
+; Prose / Text
+; ============================================================================
+
+|function[prose]  :line_col :parent_col
+  |if[parent_col >= 0 && line_col <= parent_col]             |return  ; dedent
+
+  |state[:content]
+    | /text(line_col, parent_col)                                |return
+
+
+|function[prose_pipe]  :line_col :parent_col
+  |if[parent_col >= 0 && line_col <= parent_col]             |return  ; dedent
+
+  |state[:content]
+    | /text_pipe(line_col, parent_col)                           |return
+
+
+|function[text:Text]  :line_col :parent_col  | MARK
+  |state[:main]
+    |c[\n]                    | TERM                             |return
+    |c[|]                     | TERM | ->                        |>> :check_pipe
+    |c[;]                     | TERM | ->                        |>> :check_semi
+    |c[!]                     | TERM | ->                        |>> :check_bang
+    |default                  | ->                               |>>
+
+  |state[:check_pipe]
+    |c[{]                     | /embedded | MARK                 |>> :main
+    |default                  | MARK | PREPEND(|)                |>> :main
+
+  |state[:check_semi]
+    |c[{]                     | /brace_comment | MARK            |>> :main
+    |default                  | /text_line_comment               |return
+
+  |state[:check_bang]
+    |c[{]                     | -> | /inline_directive | MARK    |>> :main
+    |default                  | MARK | PREPEND(!)                |>> :main
+
+
+|function[text_pipe:Text]  :line_col :parent_col  | MARK | PREPEND(|)
+  |state[:main]
+    |c[\n]                    | TERM                             |return
+    |c[|]                     | TERM | ->                        |>> :check_pipe
+    |c[;]                     | TERM | ->                        |>> :check_semi
+    |c[!]                     | TERM | ->                        |>> :check_bang
+    |default                  | ->                               |>>
+
+  |state[:check_pipe]
+    |c[{]                     | /embedded | MARK                 |>> :main
+    |default                  | MARK | PREPEND(|)                |>> :main
+
+  |state[:check_semi]
+    |c[{]                     | /brace_comment | MARK            |>> :main
+    |default                  | /text_line_comment               |return
+
+  |state[:check_bang]
+    |c[{]                     | -> | /inline_directive | MARK    |>> :main
+    |default                  | MARK | PREPEND(!)                |>> :main
+
+
+|function[inline_text:Text]  :elem_col  | MARK
+  |state[:main]
+    |c[\n]                    | TERM                             |return
+    |c[|]                     | TERM | ->                        |>> :check_pipe
+    |c[;]                     | TERM | ->                        |>> :check_semi
+    |c[!]                     | TERM | ->                        |>> :check_bang
+    |default                  | ->                               |>>
+
+  |state[:check_pipe]
+    |c[{]                     | /embedded | MARK                 |>> :main
+    |c[LETTER'[.?!*+]         | /element(COL, elem_col) | MARK   |>> :main
+    |default                  | MARK | PREPEND(|)                |>> :main
+
+  |state[:check_semi]
+    |c[{]                     | /brace_comment | MARK            |>> :main
+    |default                  | TERM | /inline_line_comment      |return
+
+  |state[:check_bang]
+    |c[{]                     | -> | /inline_directive | MARK    |>> :main
+    |default                  | MARK | PREPEND(!)                |>> :main
+
+
+|function[inline_text_pipe:Text]  :elem_col  | MARK | PREPEND(|)
+  ; Same as inline_text but started with |
+  |state[:main]
+    |c[\n]                    | TERM                             |return
+    |c[|;!]                   | TERM | ->                        |>> :check
+    |default                  | ->                               |>>
+
+  |state[:check]
+    ; ... same checks as inline_text ...
+    |default                  | MARK                             |>> :main
+
+
+|function[inline_text_bang:Text]  :elem_col  | MARK | PREPEND(!)
+  ; Same as inline_text but started with !
+  |state[:main]
+    |c[\n]                    | TERM                             |return
+    |default                  | ->                               |>>
+
+
+; ============================================================================
+; Comments
+; ============================================================================
+
+|function[line_comment]
+  |state[:check]
+    |c[{]                     | /brace_comment                   |return
+    |default                  | /comment_content                 |return
+
+
+|function[comment_content:Comment]  | MARK
+  |state[:main]
+    |c[\n]                    | TERM                             |return
+    |default                  | ->                               |>>
+
+
+|function[brace_comment:Comment]  | MARK | depth = 1 | EXPECTS(})
+  |state[:main]
+    |c[{]                     | -> | depth += 1                  |>>
+    |c[}]                     | -> | depth -= 1                  |>> :check
+    |default                  | ->                               |>>
+
+  |state[:check]
+    |if[depth == 0] | TERM(-1)                                   |return
+    |                                                            |>> :main
+
+
+|function[inline_line_comment:Comment]  | MARK
+  |state[:main]
+    |c[\n]                    | TERM                             |return
+    |default                  | ->                               |>>
+
+
+|function[text_line_comment:Comment]  | MARK
+  ; Line comment that ends text parsing
+  |state[:main]
+    |c[\n]                    | TERM                             |return
+    |default                  | ->                               |>>
+
+
+; ============================================================================
+; Embedded |{...}
+; ============================================================================
+
+|function[embedded:Embedded]  | EXPECTS(})
+
+  |state[:identity]
+    |c[}]                     | ->                               |return
+    |c[LETTER]                | /name                            |>> :post_name
+    |c[']                     | ->                               |>> :quoted_name
+    |c[[]                     | ->                               |>> :bracket
+    |c[.]                     |                                  |>> :class
+    |c[ \t]                   | ->                               |>> :pre_content
+    |default                  | /embed_content                   |return
+
+  |state[:quoted_name]  | EXPECTS(')
+    |c[']                     | ->                               |>> :post_name
+    |default                  | /quoted_name                     |>> :post_name
+
+  |state[:post_name]
+    |c[}]                     | ->                               |return
+    |c[[]                     | ->                               |>> :bracket
+    |c[.]                     |                                  |>> :class
+    |c[ \t]                   | ->                               |>> :pre_content
+    |default                  | /embed_content                   |return
+
+  |state[:bracket]  | EXPECTS(])
+    |c[]]                     | ->                               |>> :post_bracket
+    |default                  | Attr($id) | /value_inline        |>> :bracket_close
+
+  |state[:bracket_close]  | EXPECTS(])
+    |c[]]                     | ->                               |>> :post_bracket
+
+  |state[:post_bracket]
+    |c[}]                     | ->                               |return
+    |c[.]                     |                                  |>> :class
+    |c[ \t]                   | ->                               |>> :pre_content
+    |default                  | /embed_content                   |return
+
+  |state[:class]
+    |c[.]                     | ->                               |>>
+    |c[LETTER]                | Attr($class) | /class_name       |>> :post_class
+    |c[']                     | Attr($class) | -> | /quoted_class |>> :post_class
+
+  |state[:post_class]
+    |c[}]                     | ->                               |return
+    |c[.]                     |                                  |>> :class
+    |c[ \t]                   | ->                               |>> :pre_content
+    |default                  | /embed_content                   |return
+
+  |state[:pre_content]
+    |c[}]                     | ->                               |return
+    |c[ \t]                   | ->                               |>>
+    |c[:]                     | -> | /inline_attr                |>>
+    |default                  | /embed_content                   |return
+
+
+|function[embed_content:Text]  | MARK | EXPECTS(})
+  |state[:main]
+    |c[}]                     | TERM                             |return
+    |c[|]                     | TERM | ->                        |>> :check_pipe
+    |c[;]                     | TERM | ->                        |>> :check_semi
+    |c[!]                     | TERM | ->                        |>> :check_bang
+    |default                  | ->                               |>>
+
+  |state[:check_pipe]
+    ; Inside embedded, only |{...} allowed
+    |c[{]                     | /embedded | MARK                 |>> :main
+    |default                  | MARK | PREPEND(|)                |>> :main
+
+  |state[:check_semi]
+    |c[{]                     | /brace_comment | MARK            |>> :main
+    |default                  | MARK | PREPEND(;)                |>> :main
+
+  |state[:check_bang]
+    |c[{]                     | -> | /inline_directive | MARK    |>> :main
+    |default                  | MARK | PREPEND(!)                |>> :main
+
+
+; ============================================================================
+; Directives (stub)
+; ============================================================================
+
+|function[block_directive:Directive]  :line_col
+  ; TODO: full implementation
+  |state[:main]
+    |c[\n]                    |                                  |return
+    |default                  | ->                               |>>
+
+
+|function[inline_directive:Directive]  | EXPECTS(})
+  ; TODO: full implementation with !{{...}}, !{:kind: ...}, !{name ...}
+  |state[:main]  | depth = 1
+    |c[{]                     | -> | depth += 1                  |>>
+    |c[}]                     | -> | depth -= 1                  |>> :check
+    |default                  | ->                               |>>
+
+  |state[:check]
+    |if[depth == 0]                                              |return
+    |                                                            |>> :main
+
+
+; ============================================================================
+; DSL Features Used
+; ============================================================================
+;
+; Type declarations:
+;   |type[Name]  BRACKET|CONTENT|INTERNAL
+;
+; Function with return type (parsed content):
+;   |function[name:ReturnType]  | MARK
+;     ... | TERM | return    ; emits ReturnType with accumulated content
+;
+; Inline literal events:
+;   TypeName              ; emit event with no payload (BoolTrue, Nil)
+;   TypeName(literal)     ; emit event with literal value (Attr($id), Attr(?))
+;   TypeName(USE_MARK)    ; emit event using current MARK/TERM content
+;
+; Inferred EOF:
+;   - MARK active → TERM
+;   - EXPECTS(x) → emit unclosed error for x
+;   - Return (BRACKET types emit End, CONTENT types emit event)
+;
+; EXPECTS(x):
+;   Declares this state/function expects closing delimiter x
+;   On EOF: emit(Error:unclosed_x)
+;
+; Other features:
+;   MARK, TERM, TERM(-N), PREPEND(x)
+;   |if[cond] | actions | transition
+;   /function(args) - call with args
+;   variable = value, variable += 1
+;   COL - current column
+;

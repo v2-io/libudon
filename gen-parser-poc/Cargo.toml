@@ -1,0 +1,22 @@
+[package]
+name = "gen-parser-poc"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+
+[workspace]
+
+[dependencies]
+memchr = "2.7"
+genawaiter = "0.99"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[features]
+default = []
+nightly = []
+
+[[bench]]
+name = "parser_comparison"
+harness = false
