@@ -10,7 +10,7 @@ library that language bindings (Ruby, Python, etc.) link against.
 
 Current state (main branch):
 - Streaming parser with ring buffer architecture
-- 1.83x faster than old batch parser (17.9 µs vs 32.8 µs for comprehensive.udon)
+- comprehensive.udon (15KB): ~30 µs @ 490 MiB/s (with all features enabled)
 - 242 tests in udon-core (all passing)
 - Embedded elements `|{...}` fully working
 - Freeform blocks (```) fully working
