@@ -223,3 +223,39 @@ This is a complete rewrite, not incremental improvement. Estimated phases:
 - Callback-based design enables future async support without redesign
 - True recursion means the compiler does optimization work for us
 - This is consciousness infrastructure - build it worthy of study
+
+## Update: Standalone `descent` Gem
+
+The parser generator has been moved to a standalone Ruby gem for cleaner separation
+and future bootstrapping potential:
+
+**Repository:** `~/src/descent/`
+**Gem name:** `descent`
+**CLI command:** `descent`
+**File extension:** `.desc` (parser description files)
+
+### Why a Separate Gem?
+
+1. **Clean separation** - Parser generator is independent of libudon
+2. **Bootstrapping** - `.desc` files are valid UDON; when libudon is mature,
+   `descent` can use the UDON parser (that it generated!) to parse its own input
+3. **Reusability** - Can generate parsers for any language, not just UDON
+4. **Installable** - `gem install descent` makes it globally available
+
+### Usage
+
+```bash
+# Generate Rust parser from .desc specification
+descent --target rust generator/udon.desc > udon-core/src/parser.rs
+
+# Generate C parser
+descent --target c generator/udon.desc --output parser
+```
+
+### Migration
+
+The `.pspec` files in this repository will be renamed to `.desc` once the
+gem is functional. The specification in `parser-gen.md` remains authoritative
+for the DSL syntax.
+
+See `~/src/descent/implementation-spec.md` for the gem's architecture.
