@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+#
+# regenerate-parser - Regenerate the UDON parser from .desc files
+#
+# Concatenates udon.desc and values.desc, runs descent, and optionally builds.
+#
+# Usage:
+#   ./regenerate-parser           # Generate parser and build
+#   ./regenerate-parser --no-build # Generate parser only
+#   ./regenerate-parser --check    # Check descent availability only
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GENERATOR_DIR="$SCRIPT_DIR/generator"
+OUTPUT_FILE="$SCRIPT_DIR/udon-core/src/parser.rs"
+
+# Default descent location - check common places
+DESCENT_DIR="${DESCENT_DIR:-$HOME/src/descent}"
+
+# Colors for output (if terminal supports it)
+if [[ -t 1 ]]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m' # No Color
+else
+    RED='' GREEN='' YELLOW='' BLUE='' NC=''
+fi
+
+info() { echo -e "${BLUE}==>${NC} $*"; }
+success() { echo -e "${GREEN}==>${NC} $*"; }
+warn() { echo -e "${YELLOW}warning:${NC} $*"; }
+error() { echo -e "${RED}error:${NC} $*" >&2; }
+
+# Check if descent is available
+check_descent() {
+    if [[ ! -d "$DESCENT_DIR" ]]; then
+        error "descent not found at $DESCENT_DIR"
+        echo ""
+        echo "Please either:"
+        echo "  1. Clone descent to ~/src/descent"
+        echo "  2. Set DESCENT_DIR environment variable to its location"
+        echo ""
+        echo "  git clone https://github.com/josephwecker/descent.git ~/src/descent"
+        echo "  cd ~/src/descent && bundle install"
+        return 1
+    fi
+
+    if [[ ! -f "$DESCENT_DIR/exe/descent" ]]; then
+        error "descent executable not found at $DESCENT_DIR/exe/descent"
+        return 1
+    fi
+
+    # Get version info
+    local version
+    if [[ -f "$DESCENT_DIR/lib/descent/version.rb" ]]; then
+        version=$(grep -o 'VERSION = "[^"]*"' "$DESCENT_DIR/lib/descent/version.rb" 2>/dev/null | cut -d'"' -f2 || echo "unknown")
+    else
+        version="unknown"
+    fi
+
+    # Get git info if available
+    local git_info=""
+    if [[ -d "$DESCENT_DIR/.git" ]]; then
+        git_info=$(cd "$DESCENT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo "")
+        if [[ -n "$git_info" ]]; then
+            git_info=" (${git_info})"
+        fi
+    fi
+
+    success "descent v${version}${git_info} at $DESCENT_DIR"
+    return 0
+}
+
+# Generate the parser
+generate_parser() {
+    info "Concatenating .desc files..."
+
+    local desc_files=(
+        "$GENERATOR_DIR/udon.desc"
+        "$GENERATOR_DIR/values.desc"
+    )
+
+    for f in "${desc_files[@]}"; do
+        if [[ ! -f "$f" ]]; then
+            error "Missing: $f"
+            return 1
+        fi
+    done
+
+    # Create temp file for concatenated input
+    local tmp_file
+    tmp_file=$(mktemp "${TMPDIR:-/tmp}/udon-combined.XXXXXX.desc")
+    trap "rm -f '$tmp_file'" EXIT
+
+    cat "${desc_files[@]}" > "$tmp_file"
+
+    info "Running descent..."
+
+    # Run descent on the combined file
+    if (cd "$DESCENT_DIR" && bundle exec exe/descent generate "$tmp_file") > "$OUTPUT_FILE" 2>/dev/null; then
+        success "Generated $OUTPUT_FILE"
+    else
+        error "descent failed"
+        # Show actual error
+        (cd "$DESCENT_DIR" && bundle exec exe/descent generate "$tmp_file") 2>&1 | head -20 || true
+        return 1
+    fi
+}
+
+# Build with cargo
+build_project() {
+    info "Building with cargo..."
+    cd "$SCRIPT_DIR"
+    cargo build 2>&1 | grep -v "^warning:" | head -20 || true
+
+    if cargo build 2>/dev/null; then
+        success "Build complete"
+    else
+        warn "Build had warnings (run 'cargo build' for details)"
+    fi
+}
+
+# Main
+main() {
+    local no_build=false
+    local check_only=false
+
+    for arg in "$@"; do
+        case "$arg" in
+            --no-build) no_build=true ;;
+            --check) check_only=true ;;
+            --help|-h)
+                echo "Usage: $0 [--no-build] [--check]"
+                echo ""
+                echo "Options:"
+                echo "  --no-build  Generate parser but don't run cargo build"
+                echo "  --check     Only check if descent is available"
+                echo ""
+                echo "Environment:"
+                echo "  DESCENT_DIR  Path to descent (default: ~/src/descent)"
+                exit 0
+                ;;
+            *)
+                error "Unknown option: $arg"
+                exit 1
+                ;;
+        esac
+    done
+
+    if ! check_descent; then
+        exit 1
+    fi
+
+    if $check_only; then
+        exit 0
+    fi
+
+    if ! generate_parser; then
+        exit 1
+    fi
+
+    if ! $no_build; then
+        build_project
+    fi
+}
+
+main "$@"

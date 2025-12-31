@@ -1,4 +1,14 @@
-; UDON Parser - Clean Recursive Descent (v4)
+; UDON Parser - Main Grammar Definition
+;
+; This file defines the core UDON grammar: elements, attributes, nesting,
+; prose, comments, directives, and embedded content.
+;
+; DEPENDENCIES:
+;   This file is concatenated with values.desc before generation.
+;   Values.desc provides: /typed_value (emits Integer or Float)
+;
+; GENERATION:
+;   ./regenerate-parser  # concatenates *.desc files and runs descent
 ;
 ; Design:
 ;   1. Type system declares emit behavior
@@ -36,6 +46,8 @@
 |type[Reference]     CONTENT    ; emits Reference event
 |type[RawContent]    CONTENT    ; emits RawContent event
 |type[Raw]           CONTENT    ; emits Raw flag event
+|type[Integer]       CONTENT    ; emits Integer event (from values.desc)
+|type[Float]         CONTENT    ; emits Float event (from values.desc)
 
 |type[INT]           INTERNAL   ; no emit - internal integer
 |type[BOOL]          INTERNAL   ; no emit - internal boolean

@@ -1,27 +1,30 @@
-; UDON Value Type Parser - Minimal Benchmarking Version
+; UDON Value Type Parser Functions
 ;
-; Stripped down to just what lexical-core can handle:
-; - Decimal integers (with optional sign)
-; - Hex integers (0x prefix)
-; - Octal integers (0o prefix)
-; - Binary integers (0b prefix)
-; - Floats (with optional exponent)
+; This file provides typed value parsing for UDON. It is concatenated
+; with udon.desc during parser generation.
 ;
-; No rationals, complex, quoted strings, or keywords.
+; CONCATENATED WITH:
+;   udon.desc - Main UDON grammar (provides type declarations, entry point)
+;
+; GENERATION:
+;   ./regenerate-parser  # concatenates *.desc files and runs descent
+;
+; PROVIDES:
+;   /typed_value - Parses numeric literals, emits Integer or Float events
+;
+; Handles:
+;   - Decimal integers (42, -17, 1_000_000)
+;   - Hex integers (0xFF, 0xDEAD_BEEF)
+;   - Octal integers (0o755)
+;   - Binary integers (0b1010)
+;   - Floats (3.14, 1.5e-3, -2.5)
+;
+; TODO: Add rationals (1/3r), complex (3+4i), keywords (true/false/null/nil)
 
-|parser values
-
-; Event types - just Integer and Float for parity with lexical-core
-|type[Integer]    CONTENT
-|type[Float]      CONTENT
-
-|entry-point /value
-
+; Entry point for value parsing - returns typed value
 ; CONTENT function - auto-MARKs at entry, emits Integer at EOF/return.
 ; Float paths emit Float inline BEFORE returning.
-; NOTE: CONTENT functions emit on return, so Float paths will double-emit
-; (Float inline + Integer auto). Consumer should take FIRST event only.
-|function[value:Integer]
+|function[typed_value:Integer]
   |state[:main]
     |c[-]         |.neg        | ->                                        |>> :after_sign
     |c[+]         |.pos        | ->                                        |>> :after_sign

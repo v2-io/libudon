@@ -32,6 +32,8 @@ pub enum Event<'a> {
     Reference { content: &'a [u8], span: Range<usize> },
     RawContent { content: &'a [u8], span: Range<usize> },
     Raw { content: &'a [u8], span: Range<usize> },
+    Integer { content: &'a [u8], span: Range<usize> },
+    Float { content: &'a [u8], span: Range<usize> },
     Error { code: ParseErrorCode, span: Range<usize> },
 }
 impl<'a> Event<'a> {
@@ -119,6 +121,14 @@ impl<'a> Event<'a> {
             Event::Raw { content, span } => {
                 let s = std::str::from_utf8(content).unwrap_or("<invalid utf8>");
                 format!("Raw {:?} @ {}..{}", s, span.start, span.end)
+            }
+            Event::Integer { content, span } => {
+                let s = std::str::from_utf8(content).unwrap_or("<invalid utf8>");
+                format!("Integer {:?} @ {}..{}", s, span.start, span.end)
+            }
+            Event::Float { content, span } => {
+                let s = std::str::from_utf8(content).unwrap_or("<invalid utf8>");
+                format!("Float {:?} @ {}..{}", s, span.start, span.end)
             }
             Event::Error { code, span } => {
                 format!("Error {:?} @ {}..{}", code, span.start, span.end)
@@ -2447,6 +2457,252 @@ impl<'a> Parser<'a> {
                     self.parse_skip_brace_balanced(on_event);
                     on_event(Event::DirectiveEnd { span: self.span() });
                     return;
+                }
+            }
+        }
+    }
+
+    /// Parse typed_value -> Integer
+    fn parse_typed_value<F>(&mut self, on_event: &mut F)
+    where
+        F: FnMut(Event<'a>),
+    {
+        self.mark();
+        #[derive(Clone, Copy)]
+        enum State { Main, AfterSign, ZeroPrefix, DecDigits, HexDigits, OctDigits, BinDigits, FloatFrac, FloatExpSign, FloatExp,  }
+        let mut state = State::Main;
+        loop {
+            match state {
+                State::Main => {
+                    if self.eof() {
+                        on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'-') => {
+                    self.advance();
+                    state = State::AfterSign;
+                    continue;
+                        }
+                        Some(b'+') => {
+                    self.advance();
+                    state = State::AfterSign;
+                    continue;
+                        }
+                        Some(b'0') => {
+                    self.advance();
+                    state = State::ZeroPrefix;
+                    continue;
+                        }
+                        Some(b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::DecDigits;
+                    continue;
+                        }
+                        _ => {
+                    self.advance();
+                    continue;
+                        }
+                    }
+                }
+                State::AfterSign => {
+                    if self.eof() {
+                        on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0') => {
+                    self.advance();
+                    state = State::ZeroPrefix;
+                    continue;
+                        }
+                        Some(b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::DecDigits;
+                    continue;
+                        }
+                        _ => {
+                    self.advance();
+                    state = State::Main;
+                    continue;
+                        }
+                    }
+                }
+                State::ZeroPrefix => {
+                    if self.eof() {
+                        on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'x' | b'X') => {
+                    self.advance();
+                    state = State::HexDigits;
+                    continue;
+                        }
+                        Some(b'o' | b'O') => {
+                    self.advance();
+                    state = State::OctDigits;
+                    continue;
+                        }
+                        Some(b'b' | b'B') => {
+                    self.advance();
+                    state = State::BinDigits;
+                    continue;
+                        }
+                        Some(b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::DecDigits;
+                    continue;
+                        }
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::FloatFrac;
+                    continue;
+                        }
+                        Some(b'e' | b'E') => {
+                    self.advance();
+                    state = State::FloatExpSign;
+                    continue;
+                        }
+                        Some(b'_') => {
+                    self.advance();
+                    state = State::DecDigits;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::DecDigits => {
+                    if self.eof() {
+                        on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::FloatFrac;
+                    continue;
+                        }
+                        Some(b'e' | b'E') => {
+                    self.advance();
+                    state = State::FloatExpSign;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::HexDigits => {
+                    if self.eof() {
+                        on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'a' | b'b' | b'c' | b'd' | b'e' | b'f' | b'A' | b'B' | b'C' | b'D' | b'E' | b'F' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::OctDigits => {
+                    if self.eof() {
+                        on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::BinDigits => {
+                    if self.eof() {
+                        on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::FloatFrac => {
+                    if self.eof() {
+                        on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'e' | b'E') => {
+                    self.advance();
+                    state = State::FloatExpSign;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::FloatExpSign => {
+                    if self.eof() {
+                        on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'+' | b'-') => {
+                    self.advance();
+                    state = State::FloatExp;
+                    continue;
+                        }
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::FloatExp;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::FloatExp => {
+                    if self.eof() {
+                        on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
                 }
             }
         }
