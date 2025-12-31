@@ -531,6 +531,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         Some(b'{') => {
+                    self.advance();
                     self.parse_embedded(on_event);
                     state = State::Line;
                     continue;
@@ -772,7 +773,7 @@ impl<'a> Parser<'a> {
         on_event(Event::ElementStart { span: start_span.clone() });
         let mut col: i32 = 0;
         #[derive(Clone, Copy)]
-        enum State { Identity, PostIdentity, PreContent, CheckInlinePipe, CheckInlineSemi, CheckInlineBang, PostChild, Children, CheckChild, ChildDispatch, ChildPipe,  }
+        enum State { Identity, PostIdentity, PreContent, CheckInlinePipe, CheckInlineSemi, CheckInlineBang, PostChild, Children, CheckChild, ChildDispatch, ChildPipe, AfterChild,  }
         let mut state = State::Identity;
         loop {
             match state {
@@ -861,6 +862,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_embedded(on_event);
                     state = State::PostChild;
                     continue;
@@ -884,6 +886,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_brace_comment(on_event);
                     state = State::PreContent;
                     continue;
@@ -1034,18 +1037,36 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_embedded(on_event);
-                    state = State::Children;
+                    state = State::AfterChild;
                     continue;
                         }
                         Some(b) if Self::is_letter(b) || b == b'\'' || b == b'[' || b == b'.' || b == b'?' || b == b'!' || b == b'*' || b == b'+' => {
                     self.parse_element(col, elem_col, on_event);
-                    state = State::Children;
+                    state = State::AfterChild;
                     continue;
                         }
                         _ => {
                     self.parse_prose_pipe(col, elem_col, on_event);
                     state = State::Children;
+                    continue;
+                        }
+                    }
+                }
+                State::AfterChild => {
+                    if self.eof() {
+                        on_event(Event::ElementEnd { span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'\n') => {
+                    self.advance();
+                    state = State::Children;
+                    continue;
+                        }
+                        _ => {
+                    state = State::ChildDispatch;
                     continue;
                         }
                     }
@@ -1468,8 +1489,8 @@ impl<'a> Parser<'a> {
     {
         self.mark();
         loop {
-            match self.scan_to2(b'\n', b' ') {
-                Some(b'\n' | b' ') => {
+            match self.scan_to4(b'\n', b' ', b']', b'}') {
+                Some(b'\n' | b' ' | b']' | b'}') => {
                     self.set_term(0);
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
@@ -1490,8 +1511,8 @@ impl<'a> Parser<'a> {
     {
         self.mark();
         loop {
-            match self.scan_to4(b'\n', b' ', b':', b'|') {
-                Some(b'\n' | b' ' | b':' | b'|') => {
+            match self.scan_to6(b'\n', b' ', b':', b'|', b']', b'}') {
+                Some(b'\n' | b' ' | b':' | b'|' | b']' | b'}') => {
                     self.set_term(0);
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
@@ -1620,47 +1641,8 @@ impl<'a> Parser<'a> {
                     match self.peek() {
                         _ => {
                     if prepend != 0 {
-                        let content: &'static [u8] = match prepend {
-                            b'|' => b"|",
-                            b'!' => b"!",
-                            b';' => b";",
-                            b':' => b":",
-                            b'#' => b"#",
-                            b'*' => b"*",
-                            b'-' => b"-",
-                            b'_' => b"_",
-                            b'[' => b"[",
-                            b']' => b"]",
-                            b'{' => b"{",
-                            b'}' => b"}",
-                            b'(' => b"(",
-                            b')' => b")",
-                            b'<' => b"<",
-                            b'>' => b">",
-                            b'/' => b"/",
-                            b'\\' => b"\\",
-                            b'\'' => b"'",
-                            b'"' => b"\"",
-                            b'`' => b"`",
-                            b'~' => b"~",
-                            b'@' => b"@",
-                            b'$' => b"$",
-                            b'%' => b"%",
-                            b'^' => b"^",
-                            b'&' => b"&",
-                            b'+' => b"+",
-                            b'=' => b"=",
-                            b'?' => b"?",
-                            b',' => b",",
-                            b'.' => b".",
-                            b' ' => b" ",
-                            b'\t' => b"\t",
-                            b'\n' => b"\n",
-                            _ => b"",
-                        };
-                        if !content.is_empty() {
-                            on_event(Event::Text { content, span: self.span() });
-                        }
+                        // WARNING: No call sites found for PREPEND(:prepend) - cannot determine valid values
+                        unreachable!("PREPEND(:prepend) has no traced call sites");
                     }
                     state = State::Main;
                     continue;
@@ -1706,6 +1688,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_embedded(on_event);
                     self.mark();
                     state = State::Main;
@@ -1727,6 +1710,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_brace_comment(on_event);
                     self.mark();
                     state = State::Main;
@@ -1814,6 +1798,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_embedded(on_event);
                     self.mark();
                     state = State::Main;
@@ -1841,6 +1826,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_brace_comment(on_event);
                     self.mark();
                     state = State::Main;
@@ -1929,6 +1915,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_embedded(on_event);
                     self.mark();
                     state = State::Main;
@@ -1956,6 +1943,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_brace_comment(on_event);
                     self.mark();
                     state = State::Main;
@@ -2044,6 +2032,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_embedded(on_event);
                     self.mark();
                     state = State::Main;
@@ -2071,6 +2060,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_brace_comment(on_event);
                     self.mark();
                     state = State::Main;
@@ -2120,6 +2110,7 @@ impl<'a> Parser<'a> {
             }
             match self.peek() {
                 Some(b'{') => {
+                    self.advance();
                     self.parse_brace_comment(on_event);
                     return;
                 }
@@ -2318,6 +2309,7 @@ impl<'a> Parser<'a> {
                     match self.scan_to4(b'}', b'|', b';', b'!') {
                         Some(b'}') => {
                     self.set_term(0);
+                    self.advance();
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
@@ -2355,6 +2347,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_embedded(on_event);
                     self.mark();
                     state = State::Main;
@@ -2377,6 +2370,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    self.advance();
                     self.parse_brace_comment(on_event);
                     self.mark();
                     state = State::Main;

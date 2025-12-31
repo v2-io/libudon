@@ -64,7 +64,7 @@
 
   |state[:check_pipe]
     |c[LETTER'[.?!*+]         | /element(col, -1)                |>> :line
-    |c[{]                     | /embedded                        |>> :line
+    |c[{]                     | -> | /embedded                   |>> :line
     |default                  | /prose_pipe(col, -1)             |>> :line
 
 
@@ -162,12 +162,12 @@
     |default                  | /inline_text(elem_col)           |>> :children
 
   |state[:check_inline_pipe]
-    |c[{]                     | /embedded                        |>> :post_child
+    |c[{]                     | -> | /embedded                   |>> :post_child
     |c[LETTER'[.?!*+]         | /element(COL, elem_col)          |>> :post_child
     |default                  | /inline_text_pipe(elem_col)      |>> :children
 
   |state[:check_inline_semi]
-    |c[{]                     | /brace_comment                   |>> :pre_content
+    |c[{]                     | -> | /brace_comment              |>> :pre_content
     |default                  | /line_comment_content            |>> :children
 
   |state[:check_inline_bang]
@@ -200,9 +200,14 @@
     |default                  | /prose(col, elem_col)            |>> :children
 
   |state[:child_pipe]
-    |c[{]                     | /embedded                        |>> :children
-    |c[LETTER'[.?!*+]         | /element(col, elem_col)          |>> :children
+    |c[{]                     | -> | /embedded                   |>> :after_child
+    |c[LETTER'[.?!*+]         | /element(col, elem_col)          |>> :after_child
     |default                  | /prose_pipe(col, elem_col)       |>> :children
+
+  ; After child element/embedded returns - check if on new line or same line (dedent)
+  |state[:after_child]
+    |c[\n]                    | ->                               |>> :children
+    |default                  |                                  |>> :child_dispatch
 
 
 ; ============================================================================
@@ -319,13 +324,13 @@
 
 |function[bare_value:BareValue]  | MARK
   |state[:main]
-    |c[\n ]}]                 | TERM                             |return
+    |c[\n <R>}]               | TERM                             |return
     |default                  | ->                               |>>
 
 
 |function[bare_value_inline:BareValue]  | MARK
   |state[:main]
-    |c[\n :|]}]               | TERM                             |return
+    |c[\n :|<R>}]             | TERM                             |return
     |default                  | ->                               |>>
 
 
@@ -377,11 +382,11 @@
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | /embedded | MARK                 |>> :main
+    |c[{]                     | -> | /embedded | MARK            |>> :main
     |default                  | MARK | PREPEND(|)                |>> :main
 
   |state[:check_semi]
-    |c[{]                     | /brace_comment | MARK            |>> :main
+    |c[{]                     | -> | /brace_comment | MARK       |>> :main
     |default                  | /line_comment_content            |return
 
   |state[:check_bang]
@@ -398,12 +403,12 @@
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | /embedded | MARK                 |>> :main
+    |c[{]                     | -> | /embedded | MARK            |>> :main
     |c[LETTER'[.?!*+]         | /element(COL, elem_col) | MARK   |>> :main
     |default                  | MARK | PREPEND(|)                |>> :main
 
   |state[:check_semi]
-    |c[{]                     | /brace_comment | MARK            |>> :main
+    |c[{]                     | -> | /brace_comment | MARK       |>> :main
     |default                  | TERM | /line_comment_content     |return
 
   |state[:check_bang]
@@ -424,12 +429,12 @@
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | /embedded | MARK                 |>> :main
+    |c[{]                     | -> | /embedded | MARK            |>> :main
     |c[LETTER'[.?!*+]         | /element(COL, elem_col) | MARK   |>> :main
     |default                  | MARK | PREPEND(|)                |>> :main
 
   |state[:check_semi]
-    |c[{]                     | /brace_comment | MARK            |>> :main
+    |c[{]                     | -> | /brace_comment | MARK       |>> :main
     |default                  | TERM | /line_comment_content     |return
 
   |state[:check_bang]
@@ -446,12 +451,12 @@
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | /embedded | MARK                 |>> :main
+    |c[{]                     | -> | /embedded | MARK            |>> :main
     |c[LETTER'[.?!*+]         | /element(COL, elem_col) | MARK   |>> :main
     |default                  | MARK | PREPEND(|)                |>> :main
 
   |state[:check_semi]
-    |c[{]                     | /brace_comment | MARK            |>> :main
+    |c[{]                     | -> | /brace_comment | MARK       |>> :main
     |default                  | TERM | /line_comment_content     |return
 
   |state[:check_bang]
@@ -465,7 +470,7 @@
 
 |function[line_comment]
   |state[:check]
-    |c[{]                     | /brace_comment                   |return
+    |c[{]                     | -> | /brace_comment              |return
     |default                  | /line_comment_content            |return
 
 
@@ -519,7 +524,7 @@
 
 |function[embed_content:Text]  | MARK | EXPECTS(})
   |state[:main]
-    |c[}]                     | TERM                             |return
+    |c[}]                     | TERM | ->                        |return
     |c[|]                     | TERM | ->                        |>> :check_pipe
     |c[;]                     | TERM | ->                        |>> :check_semi
     |c[!]                     | TERM | ->                        |>> :check_bang
@@ -527,11 +532,11 @@
 
   |state[:check_pipe]
     ; Inside embedded, only |{...} allowed
-    |c[{]                     | /embedded | MARK                 |>> :main
+    |c[{]                     | -> | /embedded | MARK            |>> :main
     |default                  | MARK | PREPEND(|)                |>> :main
 
   |state[:check_semi]
-    |c[{]                     | /brace_comment | MARK            |>> :main
+    |c[{]                     | -> | /brace_comment | MARK       |>> :main
     |default                  | MARK | PREPEND(;)                |>> :main
 
   |state[:check_bang]
