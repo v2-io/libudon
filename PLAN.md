@@ -50,9 +50,19 @@ The tree builder (when implemented) will be just another event consumer.
 
 ## Phase 3: Build Forward (IN PROGRESS)
 
-### 3.1 Core Grammar Completion
+### 3.1 Test Infrastructure (NEXT)
 
-Priority order based on SPEC.md and implementation-phase-2.md:
+Tests come first. Every grammar feature gets tests before implementation.
+
+- [ ] Delete old tests (reference deleted infrastructure)
+- [ ] Build test harness for descent event model
+- [ ] Extract test cases from SPEC.md examples
+- [ ] Property-based / permutation testing framework
+- [ ] Tests for what already works (baseline)
+
+### 3.2 Core Grammar Completion
+
+Test-driven. Each feature: write tests → implement → verify.
 
 1. **Quoted strings** - `"double"` and `'single'` quoted values
 2. **Arrays** - `[item1 item2 item3]` inline lists
@@ -61,7 +71,7 @@ Priority order based on SPEC.md and implementation-phase-2.md:
 5. **Comments** - `;` at line start and inline (context-aware)
 6. **Escape sequences** - `'|`, `'\`, etc.
 
-### 3.2 Directive System
+### 3.3 Directive System
 
 The parser's only directive-level knowledge is body mode (per parser-strategy.md):
 
@@ -75,19 +85,10 @@ The parser's only directive-level knowledge is body mode (per parser-strategy.md
 3. **Raw directives** - `!:lang:` block and `!{:lang: content}` inline
 4. **Interpolation** - `!{{expr}}`, `!{{expr | filter}}`
 
-### 3.3 Testing Infrastructure
-
-- [ ] New test suite for descent event model
-- [ ] Tests derived from SPEC.md examples
-- [ ] Property-based testing for value parsing
-- [ ] Edge case coverage (mid-line, deeply nested, boundary conditions)
-
 ### 3.4 Cleanup
 
 - [ ] Remove `udon-core/src/values_parser.rs` (obsolete)
 - [ ] Evaluate `udon-core/src/value.rs` (post-hoc classification may be redundant)
-- [ ] Update README.md for new architecture
-- [ ] Update CLAUDE.md terminology
 
 ## Phase 4: Multi-Chunk Streaming & Performance
 
