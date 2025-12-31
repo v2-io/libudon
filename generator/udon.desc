@@ -354,41 +354,21 @@
   |if[parent_col >= 0 && line_col <= parent_col]             |return  ; dedent
 
   |state[:content]
-    | /text(line_col, parent_col)                                |return
+    | /text(line_col, parent_col, 0)                             |return
 
 
 |function[prose_pipe]  :line_col :parent_col
   |if[parent_col >= 0 && line_col <= parent_col]             |return  ; dedent
 
   |state[:content]
-    | /text_pipe(line_col, parent_col)                           |return
+    | /text(line_col, parent_col, <P>)                           |return
 
 
-; NOTE: text and text_pipe have identical check states. text_pipe differs
-; only in PREPEND(|) at entry. Keep them in sync!
+; text takes optional prepend byte (0 = none, | = pipe for prose_pipe)
+|function[text:Text]  :line_col :parent_col :prepend
+  |state[:entry]
+    | PREPEND(:prepend)                                          |>> :main
 
-|function[text:Text]  :line_col :parent_col  | MARK
-  |state[:main]
-    |c[\n]                    | TERM                             |return
-    |c[|]                     | TERM | ->                        |>> :check_pipe
-    |c[;]                     | TERM | ->                        |>> :check_semi
-    |c[!]                     | TERM | ->                        |>> :check_bang
-    |default                  | ->                               |>>
-
-  |state[:check_pipe]
-    |c[{]                     | /embedded | MARK                 |>> :main
-    |default                  | MARK | PREPEND(|)                |>> :main
-
-  |state[:check_semi]
-    |c[{]                     | /brace_comment | MARK            |>> :main
-    |default                  | /line_comment_content            |return
-
-  |state[:check_bang]
-    |c[{]                     | -> | /inline_directive | MARK    |>> :main
-    |default                  | MARK | PREPEND(!)                |>> :main
-
-
-|function[text_pipe:Text]  :line_col :parent_col  | MARK | PREPEND(|)
   |state[:main]
     |c[\n]                    | TERM                             |return
     |c[|]                     | TERM | ->                        |>> :check_pipe
