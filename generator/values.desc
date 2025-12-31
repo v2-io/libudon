@@ -1,0 +1,95 @@
+; UDON Value Type Parser - Minimal Benchmarking Version
+;
+; Stripped down to just what lexical-core can handle:
+; - Decimal integers (with optional sign)
+; - Hex integers (0x prefix)
+; - Octal integers (0o prefix)
+; - Binary integers (0b prefix)
+; - Floats (with optional exponent)
+;
+; No rationals, complex, quoted strings, or keywords.
+
+|parser values
+
+; Event types - just Integer and Float for parity with lexical-core
+|type[Integer]    CONTENT
+|type[Float]      CONTENT
+
+|entry-point /value
+
+; CONTENT function - auto-MARKs at entry, emits Integer at EOF/return.
+; Float paths emit Float inline BEFORE returning.
+; NOTE: CONTENT functions emit on return, so Float paths will double-emit
+; (Float inline + Integer auto). Consumer should take FIRST event only.
+|function[value:Integer]
+  |state[:main]
+    |c[-]         |.neg        | ->                                        |>> :after_sign
+    |c[+]         |.pos        | ->                                        |>> :after_sign
+    |c[0]         |.zero       | ->                                        |>> :zero_prefix
+    |c[123456789] |.digit      |                                           |>> :dec_digits
+    ; Anything else - consume and emit as Integer at EOF
+    |default      |.other      | ->                                        |>>
+
+  ; After +/- sign
+  |state[:after_sign]
+    |c[0]         |.zero       | ->                                        |>> :zero_prefix
+    |c[123456789] |.digit      |                                           |>> :dec_digits
+    |default      |.other      | ->                                        |>> :main
+
+  ; 0 prefix - check for base specifiers
+  |state[:zero_prefix]
+    |c[xX]        |.hex        | ->                                        |>> :hex_digits
+    |c[oO]        |.oct        | ->                                        |>> :oct_digits
+    |c[bB]        |.bin        | ->                                        |>> :bin_digits
+    |c[123456789] |.digit      |                                           |>> :dec_digits
+    |c[.]         |.dot        | ->                                        |>> :float_frac
+    |c[eE]        |.exp        | ->                                        |>> :float_exp_sign
+    |c[_]         |.sep        | ->                                        |>> :dec_digits
+    ; Just 0 - Integer emitted by function return
+    |default      |.end        |                                           |return
+
+  ; Decimal digits
+  |state[:dec_digits]
+    |c[0123456789_] |.digit    | ->                                        |>>
+    |c[.]         |.dot        | ->                                        |>> :float_frac
+    |c[eE]        |.exp        | ->                                        |>> :float_exp_sign
+    ; Integer - emitted by function return
+    |default      |.end        |                                           |return
+
+  ; Hex digits (0xFF)
+  |state[:hex_digits]
+    |c[0123456789abcdefABCDEF_] |.digit | ->                               |>>
+    ; Integer - emitted by function return
+    |default      |.end        |                                           |return
+
+  ; Octal digits (0o755)
+  |state[:oct_digits]
+    |c[01234567_] |.digit      | ->                                        |>>
+    ; Integer - emitted by function return
+    |default      |.end        |                                           |return
+
+  ; Binary digits (0b1010)
+  |state[:bin_digits]
+    |c[01_]       |.digit      | ->                                        |>>
+    ; Integer - emitted by function return
+    |default      |.end        |                                           |return
+
+  ; Float fractional part (after .)
+  |state[:float_frac]
+    |c[0123456789_] |.digit    | ->                                        |>>
+    |c[eE]        |.exp        | ->                                        |>> :float_exp_sign
+    ; Float - explicit emit FIRST, then function auto-emits Integer
+    |default      |.end        | Float(USE_MARK)                           |return
+
+  ; Float exponent sign (after e/E)
+  |state[:float_exp_sign]
+    |c[+-]        |.sign       | ->                                        |>> :float_exp
+    |c[0123456789] |.digit     |                                           |>> :float_exp
+    ; Float - explicit emit FIRST
+    |default      |.end        | Float(USE_MARK)                           |return
+
+  ; Float exponent digits
+  |state[:float_exp]
+    |c[0123456789_] |.digit    | ->                                        |>>
+    ; Float - explicit emit FIRST
+    |default      |.end        | Float(USE_MARK)                           |return
