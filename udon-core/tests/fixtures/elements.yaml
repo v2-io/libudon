@@ -1,0 +1,89 @@
+# Element parsing tests
+# Extracted from SPEC.md and old parsing.rs
+
+- id: simple_element
+  desc: Basic element with name only
+  udon: "|div\n"
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - ElementEnd
+
+- id: element_with_id
+  desc: Element with bracket-delimited id
+  udon: "|div[main]\n"
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Attr, "id"]
+    - [BareValue, "main"]
+    - ElementEnd
+
+- id: element_with_classes
+  desc: Element with dot-prefixed classes
+  udon: "|div.container.wide\n"
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Attr, "class"]
+    - [BareValue, "container"]
+    - [Attr, "class"]
+    - [BareValue, "wide"]
+    - ElementEnd
+
+- id: element_with_id_and_classes
+  desc: Element with both id and classes
+  udon: "|div[main].container.wide\n"
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Attr, "id"]
+    - [BareValue, "main"]
+    - [Attr, "class"]
+    - [BareValue, "container"]
+    - [Attr, "class"]
+    - [BareValue, "wide"]
+    - ElementEnd
+
+- id: anonymous_element_with_id
+  desc: Anonymous element (no name) with id only
+  udon: "|[only-id]\n"
+  events:
+    - ElementStart
+    - [Attr, "id"]
+    - [BareValue, "only-id"]
+    - ElementEnd
+
+- id: class_only_element
+  desc: Anonymous element with classes only
+  udon: "|.mixin.another\n"
+  events:
+    - ElementStart
+    - [Attr, "class"]
+    - [BareValue, "mixin"]
+    - [Attr, "class"]
+    - [BareValue, "another"]
+    - ElementEnd
+
+- id: element_with_inline_content
+  desc: Element with prose on same line
+  udon: "|div Hello world\n"
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Text, "Hello world"]
+    - ElementEnd
+
+- id: nested_elements_rightward
+  desc: Rightward nesting via |a |b |c
+  udon: "|a |b |c\n"
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementStart
+    - [Name, "c"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd

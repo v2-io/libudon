@@ -651,6 +651,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         Some(b'[') => {
+                    self.advance();
                     state = State::Bracket;
                     continue;
                         }
@@ -721,7 +722,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    on_event(Event::Attr { content: b"$id", span: self.span() });
+                    on_event(Event::Attr { content: b"id", span: self.span() });
                     self.parse_value_sameline(on_event);
                     state = State::BracketClose;
                     continue;
@@ -774,13 +775,13 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         Some(b) if Self::is_letter(b) => {
-                    on_event(Event::Attr { content: b"$class", span: self.span() });
+                    on_event(Event::Attr { content: b"class", span: self.span() });
                     self.parse_class_name(on_event);
                     state = State::PostClass;
                     continue;
                         }
                         Some(b'\'') => {
-                    on_event(Event::Attr { content: b"$class", span: self.span() });
+                    on_event(Event::Attr { content: b"class", span: self.span() });
                     self.advance();
                     self.parse_quoted_class(on_event);
                     state = State::PostClass;
@@ -920,7 +921,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         Some(b) if Self::is_letter(b) || b == b'\'' || b == b'[' || b == b'.' || b == b'?' || b == b'!' || b == b'*' || b == b'+' => {
-                    self.parse_element(self.col(), elem_col, on_event);
+                    self.parse_element(self.col() - 1, elem_col, on_event);
                     state = State::PostChild;
                     continue;
                         }
@@ -1018,7 +1019,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    col = 0;
+                    col = self.col() - 1;
                     state = State::CheckChild;
                     continue;
                         }
@@ -1112,13 +1113,8 @@ impl<'a> Parser<'a> {
                         return;
                     }
                     match self.peek() {
-                        Some(b'\n') => {
-                    self.advance();
-                    state = State::Children;
-                    continue;
-                        }
                         _ => {
-                    state = State::ChildDispatch;
+                    state = State::Children;
                     continue;
                         }
                     }
@@ -1199,7 +1195,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse class_name -> StringValue
+    /// Parse class_name -> BareValue
     fn parse_class_name<F>(&mut self, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
@@ -1207,7 +1203,7 @@ impl<'a> Parser<'a> {
         self.mark();
         loop {
             if self.eof() {
-                on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
+                on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                 return;
             }
             match self.peek() {
@@ -1217,14 +1213,14 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     self.set_term(0);
-                    on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
             }
         }
     }
 
-    /// Parse quoted_class -> StringValue
+    /// Parse quoted_class -> BareValue
     fn parse_quoted_class<F>(&mut self, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
@@ -1232,14 +1228,14 @@ impl<'a> Parser<'a> {
         self.mark();
         loop {
             if self.eof() {
-                on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
+                on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                 return;
             }
             match self.peek() {
                 _ => {
                     self.parse_skip_single_quoted(on_event);
                     self.set_term(-1);
-                    on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
             }
@@ -1951,7 +1947,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         Some(b) if Self::is_letter(b) || b == b'\'' || b == b'[' || b == b'.' || b == b'?' || b == b'!' || b == b'*' || b == b'+' => {
-                    self.parse_element(self.col(), elem_col, on_event);
+                    self.parse_element(self.col() - 1, elem_col, on_event);
                     self.mark();
                     state = State::Main;
                     continue;
@@ -2364,15 +2360,13 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse emit_bare_value -> BareValue
+    /// Parse emit_bare_value
     fn parse_emit_bare_value<F>(&mut self, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
-        self.mark();
         loop {
             if self.eof() {
-                on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                 return;
             }
             match self.peek() {
@@ -2384,12 +2378,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse typed_value -> BareValue
+    /// Parse typed_value
     fn parse_typed_value<F>(&mut self, space_term: i32, bracket: u8, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
-        self.mark();
         #[derive(Clone, Copy)]
         enum State { Main, CheckSpace, BlockSpace, Accumulate, AccumSpace, AccumBlock, NumSign, NumZero, NumZeroSpace, NumZeroBlock, NumDec, NumDecSpace, NumDecBlock, NumHex, NumHexSpace, NumHexBlock, NumOct, NumOctSpace, NumOctBlock, NumBin, NumBinSpace, NumBinBlock, NumFloatFrac, NumFloatFracSpace, NumFloatFracBlock, NumFloatExp, NumFloatExpSpace, NumFloatExpBlock, NumFloatExpDigits, NumFloatExpDSpace, NumFloatExpDBlock, String, StringSpace, StringBlock,  }
         let mut state = State::Main;
@@ -2397,7 +2390,6 @@ impl<'a> Parser<'a> {
             match state {
                 State::Main => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2440,7 +2432,6 @@ impl<'a> Parser<'a> {
                 }
                 State::CheckSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2456,7 +2447,6 @@ impl<'a> Parser<'a> {
                 }
                 State::BlockSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2476,14 +2466,12 @@ impl<'a> Parser<'a> {
                     if self.eof() {
                     self.set_term(0);
                     self.lookup_bare_kw_or_fallback(on_event);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                     }
                     match self.peek() {
                         Some(b'\n') => {
                     self.set_term(0);
                     self.lookup_bare_kw_or_fallback(on_event);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                         Some(b' ') => {
@@ -2493,7 +2481,6 @@ impl<'a> Parser<'a> {
                         Some(b) if b == bracket => {
                     self.set_term(0);
                     self.lookup_bare_kw_or_fallback(on_event);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                         Some(b) if Self::is_label_cont(b) => {
@@ -2503,14 +2490,12 @@ impl<'a> Parser<'a> {
                         _ => {
                     self.set_term(0);
                     self.lookup_bare_kw_or_fallback(on_event);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                     }
                 }
                 State::AccumSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2521,21 +2506,18 @@ impl<'a> Parser<'a> {
                         _ => {
                     self.set_term(0);
                     self.lookup_bare_kw_or_fallback(on_event);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                     }
                 }
                 State::AccumBlock => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
                         Some(b';') => {
                     self.set_term(-1);
                     self.lookup_bare_kw_or_fallback(on_event);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                         _ => {
@@ -2547,7 +2529,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumSign => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2622,7 +2603,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumZeroSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2638,7 +2618,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumZeroBlock => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2693,7 +2672,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumDecSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2709,7 +2687,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumDecBlock => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2754,7 +2731,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumHexSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2770,7 +2746,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumHexBlock => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2815,7 +2790,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumOctSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2831,7 +2805,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumOctBlock => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2876,7 +2849,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumBinSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2892,7 +2864,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumBinBlock => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2942,7 +2913,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumFloatFracSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -2958,7 +2928,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumFloatFracBlock => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -3008,7 +2977,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumFloatExpSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -3024,7 +2992,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumFloatExpBlock => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -3069,7 +3036,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumFloatExpDSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -3085,7 +3051,6 @@ impl<'a> Parser<'a> {
                 }
                 State::NumFloatExpDBlock => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -3123,7 +3088,6 @@ impl<'a> Parser<'a> {
                 }
                 State::StringSpace => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
@@ -3139,7 +3103,6 @@ impl<'a> Parser<'a> {
                 }
                 State::StringBlock => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {

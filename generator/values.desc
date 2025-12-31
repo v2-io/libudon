@@ -34,18 +34,19 @@
   | nil    => Nil
 
 ; Fallback: emit accumulated content as BareValue
-|function[emit_bare_value:BareValue]
+; MUST be void - uses caller's MARK, not its own
+|function[emit_bare_value]
   |state[:main]
-    |default                  |                                  |return
+    |default                  | BareValue(USE_MARK)              |return
 
 ; ============================================================================
 ; Main Entry - Context-Aware Value Parser
 ; ============================================================================
 
 ; typed_value parses a bare (unquoted) value with context-aware termination.
-; CONTENT function returning BareValue - ensures EOF handling emits.
-; Inline emits for specific types override the default BareValue.
-|function[typed_value:BareValue]  :space_term :bracket  | MARK
+; Void function - emits polymorphic types (Integer, Float, BoolTrue, etc.)
+; All emits are explicit inline; no auto-emit on return.
+|function[typed_value]  :space_term :bracket  | MARK
   |state[:main]
     |c[\n]                    | BareValue(USE_MARK)              |return
     |c[ ]                     |                                  |>> :check_space

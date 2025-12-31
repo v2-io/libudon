@@ -1,0 +1,72 @@
+# Indentation and nesting tests
+
+- id: child_by_indent
+  desc: Child element via indentation
+  udon: "|parent\n  |child\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd
+    - ElementEnd
+
+- id: sibling_by_same_indent
+  desc: Siblings at same indentation level
+  udon: "|parent\n  |child1\n  |child2\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child1"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "child2"]
+    - ElementEnd
+    - ElementEnd
+
+- id: dedent_closes_multiple
+  desc: Dedent closes multiple open elements
+  udon: "|a\n  |b\n    |c\n|d\n"
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementStart
+    - [Name, "c"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementStart
+    - [Name, "d"]
+    - ElementEnd
+
+- id: block_attributes
+  desc: Attributes on indented lines
+  udon: "|div\n  :title Hello\n  :author Joseph\n"
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Attr, "title"]
+    - [BareValue, "Hello"]
+    - [Attr, "author"]
+    - [BareValue, "Joseph"]
+    - ElementEnd
+
+- id: deeply_nested
+  desc: Three levels of nesting
+  udon: "|a\n  |b\n    |c\n      |d\n"
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementStart
+    - [Name, "c"]
+    - ElementStart
+    - [Name, "d"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd

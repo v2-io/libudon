@@ -107,7 +107,7 @@
     |c[:close]                |                                  |return  ; closer hit (empty)
     |c[LETTER]                | /name                            |>> :post_name
     |c[']                     | ->                               |>> :quoted_name
-    |c[<L>]                     |                                  |>> :bracket
+    |c[<L>]                     | ->                               |>> :bracket
     |c[.]                     |                                  |>> :class
     |c[?!*+]                  | /suffix                          |return  ; identity done
     |default                  |                                  |return  ; anonymous, identity done
@@ -175,7 +175,7 @@
 
   |state[:check_sameline_pipe]
     |c[{]                     | -> | /embedded                   |>> :post_child
-    |c[LETTER'[.?!*+]         | /element(COL, elem_col)          |>> :post_child
+    |c[LETTER'[.?!*+]         | /element(COL - 1, elem_col)      |>> :post_child
     |default                  | /sameline_text(elem_col, <P>)      |>> :children
 
   |state[:check_sameline_semi]
@@ -193,11 +193,12 @@
     |default                  | /sameline_text(elem_col, 0)        |>> :children
 
   ; === Children Loop ===
+  ; NOTE: count_indent returns 0-based column, but COL is 1-based
   |state[:children]
     |c[\n]                    | ->                               |>>
     |c[ ]                     | col = /count_indent              |>> :check_child
     |c[\t]                    | /error(no_tabs) | ->[\n]         |>>
-    |default                  | col = 0                          |>> :check_child
+    |default                  | col = COL - 1                    |>> :check_child
 
   |state[:check_child]
     |if[col <= elem_col]                                         |return  ; dedent
@@ -216,10 +217,9 @@
     |c[LETTER'[.?!*+]         | /element(col, elem_col)          |>> :after_child
     |default                  | /prose_pipe(col, elem_col)       |>> :children
 
-  ; After child element/embedded returns - check if on new line or same line (dedent)
+  ; After child element/embedded returns - always re-check column for potential dedent
   |state[:after_child]
-    |c[\n]                    | ->                               |>> :children
-    |default                  |                                  |>> :child_dispatch
+    |                                                            |>> :children
 
 
 ; ============================================================================
@@ -246,13 +246,13 @@
     | /skip_single_quoted | TERM(-1)                             |return
 
 
-|function[class_name:StringValue]  | MARK
+|function[class_name:BareValue]  | MARK
   |state[:main]
     |c[LABEL_CONT]            | ->                               |>>
     |default                  | TERM                             |return
 
 
-|function[quoted_class:StringValue]  | MARK
+|function[quoted_class:BareValue]  | MARK
   |state[:main]
     | /skip_single_quoted | TERM(-1)                             |return
 
@@ -430,7 +430,7 @@
 
   |state[:check_pipe]
     |c[{]                     | -> | /embedded | MARK            |>> :main
-    |c[LETTER'[.?!*+]         | /element(COL, elem_col) | MARK   |>> :main
+    |c[LETTER'[.?!*+]         | /element(COL - 1, elem_col) | MARK   |>> :main
     |default                  | MARK | PREPEND(|)                |>> :main
 
   |state[:check_semi]

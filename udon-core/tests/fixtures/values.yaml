@@ -1,0 +1,146 @@
+# Value type parsing tests
+# Tests typed value detection in various contexts
+
+- id: integer_decimal
+  desc: Decimal integer value
+  udon: "|el :count 42\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "count"]
+    - [Integer, "42"]
+    - ElementEnd
+
+- id: integer_negative
+  desc: Negative integer
+  udon: "|el :val -17\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Integer, "-17"]
+    - ElementEnd
+
+- id: integer_hex
+  desc: Hexadecimal integer
+  udon: "|el :color 0xFF00FF\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "color"]
+    - [Integer, "0xFF00FF"]
+    - ElementEnd
+
+- id: integer_octal
+  desc: Octal integer
+  udon: "|el :perms 0o755\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "perms"]
+    - [Integer, "0o755"]
+    - ElementEnd
+
+- id: integer_binary
+  desc: Binary integer
+  udon: "|el :flags 0b1010\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "flags"]
+    - [Integer, "0b1010"]
+    - ElementEnd
+
+- id: float_simple
+  desc: Simple float with decimal
+  udon: "|el :pi 3.14159\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "pi"]
+    - [Float, "3.14159"]
+    - ElementEnd
+
+- id: float_exponent
+  desc: Float with exponent
+  udon: "|el :big 1.5e10\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "big"]
+    - [Float, "1.5e10"]
+    - ElementEnd
+
+- id: bool_true
+  desc: Boolean true
+  udon: "|el :enabled true\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "enabled"]
+    - BoolTrue
+    - ElementEnd
+
+- id: bool_false
+  desc: Boolean false
+  udon: "|el :disabled false\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "disabled"]
+    - BoolFalse
+    - ElementEnd
+
+- id: nil_null
+  desc: Nil via null keyword
+  udon: "|el :value null\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "value"]
+    - Nil
+    - ElementEnd
+
+- id: nil_nil
+  desc: Nil via nil keyword
+  udon: "|el :value nil\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "value"]
+    - Nil
+    - ElementEnd
+
+- id: bare_value
+  desc: Unquoted string (bare value)
+  udon: "|el :name hello-world\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "name"]
+    - [BareValue, "hello-world"]
+    - ElementEnd
+
+- id: multiple_attrs_sameline
+  desc: Multiple attributes on same line
+  udon: "|el :a 1 :b 2 :c 3\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "a"]
+    - [Integer, "1"]
+    - [Attr, "b"]
+    - [Integer, "2"]
+    - [Attr, "c"]
+    - [Integer, "3"]
+    - ElementEnd
+
+- id: value_without_trailing_newline
+  desc: Value at EOF (no trailing newline)
+  udon: "|el :count 42"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "count"]
+    - [Integer, "42"]
+    - ElementEnd
