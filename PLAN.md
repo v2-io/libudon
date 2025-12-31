@@ -1,114 +1,169 @@
-# descent Integration Plan
+# libudon Development Plan
 
-Parser generator rewrite using descent (~/src/descent/).
+Parser implementation using descent (~/src/descent/).
 
-## Guiding Principle
+## Architecture
 
-descent **replaces** libudon's parser infrastructure entirely. The old ring-buffer,
-ChunkSlice, ChunkArena, 24-variant StreamingEvent architecture is gone. descent
-generates clean callback-based recursive descent parsers that are 2-7x faster.
+descent **replaces** the old parser infrastructure entirely. The old ring-buffer,
+ChunkSlice, ChunkArena, genmachine architecture is gone. descent generates clean
+callback-based recursive descent parsers from `.desc` specifications.
 
-## Status
+**Key insight from implementation-phase-2.md:** The streaming event model is the
+foundation, not a feature. The parser emits events as it parses—no accumulation.
+The tree builder (when implemented) will be just another event consumer.
+
+## Current Status
 
 **Branch:** `phase-3-genmachine-rewrite`
 
-**Current work:** Parser generates and compiles! Basic parsing works.
+### What Works
 
-## Phase 1: Development Workflow (DONE)
+- [x] Elements with names (`|element`)
+- [x] Element identity (`|element[id].class1.class2`)
+- [x] Sameline attributes (`:key value`)
+- [x] Block (indented) attributes
+- [x] Multiple sameline attributes (`:a 1 :b 2 :c 3`)
+- [x] Typed values via context-aware parsing:
+  - Integer (decimal, hex 0x, octal 0o, binary 0b)
+  - Float (with decimal or exponent)
+  - BoolTrue, BoolFalse (`true`, `false`)
+  - Nil (`null`, `nil`)
+  - BareValue (unquoted strings)
+- [x] Keywords via PHF perfect hash (`|keywords` directive)
+- [x] Context-aware terminators (block/sameline/embedded/array)
+- [x] Proper EOF handling via `|eof` directive
+- [x] Text/prose content
+- [x] Basic indentation hierarchy
+- [x] Nested elements
 
-- [x] `dx gem install` in descent works
-- [x] `descent` CLI accessible from libudon
+### What's Incomplete
 
-## Phase 2: Clean Slate (DONE)
-
-- [x] Deleted `parser.rs` (307KB generated garbage)
-- [x] Deleted `streaming.rs` (ChunkArena, ChunkSlice, EventRing, StreamingEvent)
-- [x] Updated lib.rs to use descent-generated parser
-- [x] Old tests reference deleted infrastructure (need rewrite)
+- [ ] Element suffixes (`?`, `!`, `*`, `+`)
+- [ ] Embedded elements (`|{name attrs content}`)
+- [ ] Directives (`!if`, `!for`, `!include`, etc.)
+- [ ] Raw blocks (`!:lang:`)
+- [ ] Interpolation (`!{{expr}}`)
+- [ ] Escape sequences (`'|` escapes pipe in prose)
+- [ ] Comments (`;` handling in various contexts)
+- [ ] Quoted strings in values
+- [ ] Arrays (`[a b c]`)
 
 ## Phase 3: Build Forward (IN PROGRESS)
 
-- [x] Get udon.desc generating valid Rust
-  - Fixed: Removed explicit EXPECTS (now inferred)
-  - Fixed: Removed error function stub (use built-in /error)
-  - Fixed: Added missing |default cases
-  - Fixed: BoolTrue/BoolFalse/Nil with literals for content
-  - Fixed: Escape sequences (<R>, <RB>, <P>, <L>) in character classes
-- [x] Basic parsing works (elements, attributes, text, nesting)
-- [x] Created `regenerate-parser` script (concatenates .desc files, runs descent)
-- [x] Integrated values.desc into main parser via concatenation
-- [ ] **Nomenclature refactor** - see ~/src/udon/SPEC-UPDATE.md
-  - Rename `inline_*` → `sameline_*` for element-line contexts
-  - Fix value terminators by context (block/sameline/embedded/array)
-  - Clarify comment behavior (`;` literal in block prose, comment in sameline)
-- [ ] New testing infrastructure against descent's event model
-- [ ] Complete directive parsing in udon.desc (currently stubs)
+### 3.1 Core Grammar Completion
 
-## udon.desc Implementation Checklist
+Priority order based on SPEC.md and implementation-phase-2.md:
 
-From SPEC.md, ensure these are implemented correctly:
+1. **Quoted strings** - `"double"` and `'single'` quoted values
+2. **Arrays** - `[item1 item2 item3]` inline lists
+3. **Element suffixes** - `?`, `!`, `*`, `+` expand to attributes
+4. **Embedded elements** - `|{name attrs content}` inline in prose
+5. **Comments** - `;` at line start and inline (context-aware)
+6. **Escape sequences** - `'|`, `'\`, etc.
 
-### Core Syntax
-- [ ] Inline escape mid-line (`'|` in prose escapes the pipe)
-- [ ] Pipe-as-text (` | ` in prose is text, not element)
-- [ ] Arbitrary brace depth (use counter or recursion, not hardcoded states)
+### 3.2 Directive System
 
-### Span Accuracy
-- [ ] Correct spans for suffix/ID/class attributes (MARK at right position)
+The parser's only directive-level knowledge is body mode (per parser-strategy.md):
 
-### Testing Philosophy
-- Tests MUST be derived from SPEC.md, not from implementation
-- Tests should cover edge cases: mid-line, mid-content, deeply nested, boundary conditions
-- Use property-based testing where applicable
-- All features should work at any column, not just column 0
+| Syntax | Body | Parser Behavior |
+|--------|------|-----------------|
+| `!foo` | UDON | Parse body recursively as UDON |
+| `!:foo:` | Raw | Capture body verbatim, tag with "foo" |
 
-## Phase 4: Performance & Streaming
+1. **Block directives** - `!if`, `!elif`, `!else`, `!for`, `!let`
+2. **Inline directives** - `!name{content}` with balanced braces
+3. **Raw directives** - `!:lang:` block and `!{:lang: content}` inline
+4. **Interpolation** - `!{{expr}}`, `!{{expr | filter}}`
 
-- [ ] Comprehensive benchmarks (criterion)
-- [ ] Multi-chunk streaming support (in descent)
-- [ ] Backpressure handling (solved by multi-chunk)
+### 3.3 Testing Infrastructure
 
-## Phase 5: Language Bindings
+- [ ] New test suite for descent event model
+- [ ] Tests derived from SPEC.md examples
+- [ ] Property-based testing for value parsing
+- [ ] Edge case coverage (mid-line, deeply nested, boundary conditions)
 
-- [ ] Update ~/src/udon-ruby to use new SAX/streaming API
-- [ ] FFI layer (thin wrapper around callback API)
-- [ ] WASM target
+### 3.4 Cleanup
 
-## Phase 6: Higher-Level APIs
+- [ ] Remove `udon-core/src/values_parser.rs` (obsolete)
+- [ ] Evaluate `udon-core/src/value.rs` (post-hoc classification may be redundant)
+- [ ] Update README.md for new architecture
+- [ ] Update CLAUDE.md terminology
 
-- [ ] Full parse + lazy AST (built on event stream)
+## Phase 4: Multi-Chunk Streaming & Performance
+
+From descent TODO #10 - resumable state machine for true streaming:
+
+```rust
+loop {
+    match parser.parse(chunk, on_event) {
+        ParseResult::Complete => break,
+        ParseResult::NeedMoreData => {
+            chunk = get_next_chunk();  // Caller controls flow
+        }
+    }
+}
+```
+
+**Design:**
+- Zero-copy for 99% of input (tokens within chunks)
+- Small internal buffer (~256 bytes) for cross-boundary tokens only
+- Backpressure via blocking callbacks (caller controls chunk feed rate)
+- No ring buffer needed - callbacks are 2-7x faster
+
+**Tasks:**
+- [ ] Multi-chunk streaming in descent (ParseResult enum)
+- [ ] Cross-boundary token handling
+- [ ] Benchmark suite (criterion)
+- [ ] Memory profiling on large files
+
+## Phase 5: Tree Builder
+
+Build arena-allocated tree from events (event consumer pattern):
+
+- [ ] `Document` and `Node` structs with arena allocation
+- [ ] Tree builder that consumes parser events
+- [ ] Navigation (parent, children, siblings)
+- [ ] Simple selectors
+- [ ] String interning for element/attribute names
+
+## Phase 6: Language Bindings
+
+### Ruby (udon-ruby)
+- [ ] FFI layer for streaming API
+- [ ] Lazy tree projection (Ruby objects created on access)
+- [ ] Update to use new callback-based parser
+
+### Other Targets
+- [ ] WASM build (`wasm32-unknown-unknown`)
+- [ ] Python via PyO3
+- [ ] C ABI shared library
 
 ## Key Files
 
 | File | Purpose |
 |------|---------|
 | `generator/udon.desc` | Main parser grammar |
-| `generator/values.desc` | Value type parsing (concatenated with udon.desc) |
-| `udon-core/src/parser.rs` | GENERATED by descent |
-| `udon-core/src/value.rs` | Post-hoc value classification (may be replaced) |
-| `regenerate-parser` | Script to regenerate parser from .desc files |
+| `generator/values.desc` | Value type parsing (concatenated) |
+| `udon-core/src/parser.rs` | GENERATED by descent - do not edit |
+| `regenerate-parser` | Script to regenerate parser |
 
 ## descent Workflow
 
 ```bash
-# Install descent locally (from ~/src/descent/)
-dx gem install
-
-# Regenerate parser (concatenates udon.desc + values.desc, runs descent, builds)
+# Regenerate parser (concatenates .desc files, runs descent, builds)
 ./regenerate-parser
 
 # Generate only (no build)
 ./regenerate-parser --no-build
 
-# Check descent availability
-./regenerate-parser --check
-
-# Debug parsing stages (on individual .desc files)
+# Debug parsing stages
 descent debug generator/udon.desc
 descent debug generator/udon.desc --tokens
 ```
 
 ## Reference
 
-- ~/src/descent/CLAUDE.md - descent usage guide
-- ~/src/udon/SPEC.md - Authoritative UDON specification
+- `~/src/descent/CLAUDE.md` - descent usage guide
+- `~/src/udon/SPEC.md` - Authoritative UDON specification
+- `~/src/udon/implementation-phase-2.md` - Ideal streaming architecture
+- `~/src/udon/parser-strategy.md` - Multi-language strategy
