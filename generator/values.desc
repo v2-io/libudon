@@ -37,6 +37,7 @@
 ; MUST be void - uses caller's MARK, not its own
 |function[emit_bare_value]
   |state[:main]
+    |eof                      | BareValue(USE_MARK)              |return
     |default                  | BareValue(USE_MARK)              |return
 
 ; ============================================================================
@@ -48,6 +49,7 @@
 ; All emits are explicit inline; no auto-emit on return.
 |function[typed_value]  :space_term :bracket  | MARK
   |state[:main]
+    |eof                      | BareValue(USE_MARK)              |return
     |c[\n]                    | BareValue(USE_MARK)              |return
     |c[ ]                     |                                  |>> :check_space
     |c[:bracket]              | BareValue(USE_MARK)              |return

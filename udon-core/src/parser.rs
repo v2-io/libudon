@@ -2367,7 +2367,8 @@ impl<'a> Parser<'a> {
     {
         loop {
             if self.eof() {
-                return;
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
             }
             match self.peek() {
                 _ => {
@@ -2390,7 +2391,8 @@ impl<'a> Parser<'a> {
             match state {
                 State::Main => {
                     if self.eof() {
-                        return;
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
                     }
                     match self.peek() {
                         Some(b'\n') => {
