@@ -125,7 +125,7 @@
 
   |state[:bracket]
     |c[<R>]                     | ->                               |>> :post_bracket
-    |default                  | Attr($id) | /value               |>> :bracket_close
+    |default                  | Attr($id) | /value_sameline      |>> :bracket_close
 
   |state[:bracket_close]
     |c[<R>]                     | ->                               |>> :post_bracket
@@ -162,35 +162,35 @@
   |state[:post_identity]
     |c[\n]                    | ->                               |>> :children
     |c[ \t]                   | ->                               |>> :pre_content
-    |default                  | /inline_text(elem_col, 0)        |>> :children
+    |default                  | /sameline_text(elem_col, 0)        |>> :children
 
   |state[:pre_content]
     |c[\n]                    | ->                               |>> :children
     |c[ \t]                   | ->                               |>>
-    |c[:]                     | -> | /inline_attr                |>>
-    |c[|]                     | ->                               |>> :check_inline_pipe
-    |c[;]                     | ->                               |>> :check_inline_semi
-    |c[!]                     | ->                               |>> :check_inline_bang
-    |default                  | /inline_text(elem_col, 0)        |>> :children
+    |c[:]                     | -> | /sameline_attr                |>>
+    |c[|]                     | ->                               |>> :check_sameline_pipe
+    |c[;]                     | ->                               |>> :check_sameline_semi
+    |c[!]                     | ->                               |>> :check_sameline_bang
+    |default                  | /sameline_text(elem_col, 0)        |>> :children
 
-  |state[:check_inline_pipe]
+  |state[:check_sameline_pipe]
     |c[{]                     | -> | /embedded                   |>> :post_child
     |c[LETTER'[.?!*+]         | /element(COL, elem_col)          |>> :post_child
-    |default                  | /inline_text(elem_col, <P>)      |>> :children
+    |default                  | /sameline_text(elem_col, <P>)      |>> :children
 
-  |state[:check_inline_semi]
+  |state[:check_sameline_semi]
     |c[{]                     | -> | /brace_comment              |>> :pre_content
     |default                  | /line_comment_content            |>> :children
 
-  |state[:check_inline_bang]
+  |state[:check_sameline_bang]
     |c[{]                     | -> | /inline_directive           |>> :pre_content
-    |default                  | /inline_text(elem_col, '!')      |>> :children
+    |default                  | /sameline_text(elem_col, '!')      |>> :children
 
   |state[:post_child]
     |c[\n]                    | ->                               |>> :children
     |c[ \t]                   | ->                               |>>
-    |c[|]                     | ->                               |>> :check_inline_pipe
-    |default                  | /inline_text(elem_col, 0)        |>> :children
+    |c[|]                     | ->                               |>> :check_sameline_pipe
+    |default                  | /sameline_text(elem_col, 0)        |>> :children
 
   ; === Children Loop ===
   |state[:children]
@@ -278,18 +278,29 @@
   |state[:value_start]
     |c[ \t]                   | ->                               |>>
     |c[\n]                    | BoolTrue                         |return
-    |default                  | /value                           |return
+    |default                  | /value_block                     |return
 
 
-|function[inline_attr]
+|function[sameline_attr]
   |state[:key]
     |c[LETTER]                | /attr_key                        |>> :value_start
     |c[']                     | -> | /attr_key_quoted            |>> :value_start
 
   |state[:value_start]
     |c[ \t]                   | ->                               |>>
-    |c[\n:|]}]                | BoolTrue                         |return
-    |default                  | /value_inline                    |return
+    |c[\n:|]                  | BoolTrue                         |return
+    |default                  | /value_sameline                  |return
+
+
+|function[sameline_attr_embedded]
+  |state[:key]
+    |c[LETTER]                | /attr_key                        |>> :value_start
+    |c[']                     | -> | /attr_key_quoted            |>> :value_start
+
+  |state[:value_start]
+    |c[ \t]                   | ->                               |>>
+    |c[\n:|<RB>]              | BoolTrue                         |return
+    |default                  | /value_embedded                  |return
 
 
 |function[attr_key:Attr]  | MARK
@@ -307,24 +318,33 @@
 ; Values
 ; ============================================================================
 
-; Value parsing is minimal here - type detection delegated to values parser
-; udon.desc handles structure (arrays, quoted strings), values.desc handles types
+; Value parsing uses typed_value from values.desc with context parameters:
+;   :space_term = 0 (block: space is content) or 1 (space terminates)
+;   :bracket = 0 (none), } (embedded), ] (array)
 
-|function[value]
+; Block attribute value - space is content, ` ;` starts comment
+|function[value_block]
   |state[:start]
     |c["]                     | -> | /quoted_string(")           |return
     |c[']                     | -> | /quoted_string(')           |return
-    |c[<L>]                   | /array                           |return
-    |default                  | /bare_value                      |return
+    |c[<L>]                   | /array_block                     |return
+    |default                  | MARK | /typed_value(0, 0)        |return
 
-
-|function[value_inline]
+; Sameline attribute value - space terminates
+|function[value_sameline]
   |state[:start]
     |c["]                     | -> | /quoted_string(")           |return
     |c[']                     | -> | /quoted_string(')           |return
-    |c[<L>]                   | /array_inline                    |return
-    |default                  | /bare_value_inline               |return
+    |c[<L>]                   | /array_sameline                  |return
+    |default                  | MARK | /typed_value(1, 0)        |return
 
+; Embedded attribute value - space or } terminates
+|function[value_embedded]
+  |state[:start]
+    |c["]                     | -> | /quoted_string(")           |return
+    |c[']                     | -> | /quoted_string(')           |return
+    |c[<L>]                   | /array_embedded                  |return
+    |default                  | MARK | /typed_value(1, <RB>)     |return
 
 ; DRYed: quoted_string(:quote) - parameterized by quote character
 |function[quoted_string:StringValue]  :quote  | MARK
@@ -333,34 +353,24 @@
     |c[\\]                    | -> | ->                          |>>
     |default                  | ->                               |>>
 
-
-|function[bare_value:BareValue]  | MARK
-  |state[:main]
-    |c[\n <R>}]               | TERM                             |return
-    |default                  | ->                               |>>
-
-
-|function[bare_value_inline:BareValue]  | MARK
-  |state[:main]
-    |c[\n :|<R>}]             | TERM                             |return
-    |default                  | ->                               |>>
-
-
-; NOTE: Type detection (true/false/null/numbers) moved to values.desc
-; BareValue events are post-processed by values parser for type classification
-
-|function[array:Array]
+; Arrays - items are space-separated, ] terminates
+|function[array_block:Array]
   |state[:items]
-    |c[<R>]                     | ->                               |return
+    |c[<R>]                   | ->                               |return
     |c[ \t\n]                 | ->                               |>>
-    |default                  | /value                           |>>
+    |default                  | MARK | /typed_value(1, <R>)      |>>
 
-
-|function[array_inline:Array]
+|function[array_sameline:Array]
   |state[:items]
-    |c[<R>]                     | ->                               |return
+    |c[<R>]                   | ->                               |return
     |c[ \t\n]                 | ->                               |>>
-    |default                  | /value_inline                    |>>
+    |default                  | MARK | /typed_value(1, <R>)      |>>
+
+|function[array_embedded:Array]
+  |state[:items]
+    |c[<R>]                   | ->                               |return
+    |c[ \t\n]                 | ->                               |>>
+    |default                  | MARK | /typed_value(1, <R>)      |>>
 
 
 ; ============================================================================
@@ -406,8 +416,8 @@
     |default                  | MARK | PREPEND(!)                |>> :main
 
 
-; inline_text with optional prepend byte (0 = none, | or ! for pipe/bang variants)
-|function[inline_text:Text]  :elem_col :prepend  | MARK
+; sameline_text with optional prepend byte (0 = none, | or ! for pipe/bang variants)
+|function[sameline_text:Text]  :elem_col :prepend  | MARK
   |state[:entry]
     | PREPEND(:prepend)                                          |>> :main
 
@@ -486,7 +496,7 @@
   |state[:pre_content]
     |c[}]                     | ->                               |return
     |c[ \t]                   | ->                               |>>
-    |c[:]                     | -> | /inline_attr                |>>
+    |c[:]                     | -> | /sameline_attr_embedded      |>>
     |default                  | /embed_content                   |return
 
 
