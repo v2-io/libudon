@@ -1,0 +1,248 @@
+# Attribute parsing tests
+# Extracted from SPEC.md sections on attributes
+
+# Block attributes (indented under element)
+- id: block_attr_basic
+  desc: Basic block attribute with string value
+  udon: "|el\n  :name hello\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "name"]
+    - [BareValue, "hello"]
+    - ElementEnd
+
+- id: block_attr_integer
+  desc: Block attribute with integer value
+  udon: "|el\n  :count 42\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "count"]
+    - [Integer, "42"]
+    - ElementEnd
+
+- id: block_attr_float
+  desc: Block attribute with float value
+  udon: "|el\n  :price 3.14\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "price"]
+    - [Float, "3.14"]
+    - ElementEnd
+
+- id: block_attr_true
+  desc: Block attribute with boolean true
+  udon: "|el\n  :enabled true\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "enabled"]
+    - BoolTrue
+    - ElementEnd
+
+- id: block_attr_false
+  desc: Block attribute with boolean false
+  udon: "|el\n  :debug false\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "debug"]
+    - BoolFalse
+    - ElementEnd
+
+- id: block_attr_null
+  desc: Block attribute with null value
+  udon: "|el\n  :deprecated null\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "deprecated"]
+    - Nil
+    - ElementEnd
+
+- id: block_attr_flag
+  desc: Block attribute with no value (flag = true)
+  udon: "|el\n  :enabled\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "enabled"]
+    - BoolTrue
+    - ElementEnd
+
+- id: block_attr_quoted_string
+  desc: Block attribute with quoted string
+  udon: "|el\n  :name \"hello world\"\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "name"]
+    - [StringValue, "hello world"]
+    - ElementEnd
+
+- id: block_attr_multiple
+  desc: Multiple block attributes
+  udon: "|el\n  :host db.example.com\n  :port 5432\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "host"]
+    - [BareValue, "db.example.com"]
+    - [Attr, "port"]
+    - [Integer, "5432"]
+    - ElementEnd
+
+# Inline/sameline attributes
+- id: inline_attr_basic
+  desc: Inline attribute on element line
+  udon: "|el :name hello\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "name"]
+    - [BareValue, "hello"]
+    - ElementEnd
+
+- id: inline_attr_multiple
+  desc: Multiple inline attributes
+  udon: "|el :key value :another more\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "key"]
+    - [BareValue, "value"]
+    - [Attr, "another"]
+    - [BareValue, "more"]
+    - ElementEnd
+
+- id: inline_attr_flag
+  desc: Inline flag attribute (no value)
+  udon: "|el :enabled :debug\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "enabled"]
+    - BoolTrue
+    - [Attr, "debug"]
+    - BoolTrue
+    - ElementEnd
+
+- id: inline_attr_typed
+  desc: Inline attributes with typed values
+  udon: "|el :count 42 :enabled true\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "count"]
+    - [Integer, "42"]
+    - [Attr, "enabled"]
+    - BoolTrue
+    - ElementEnd
+
+# Mixed element identity and attributes
+- id: element_id_and_attrs
+  desc: Element with id and attributes
+  udon: "|el[main] :class container\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "id"]
+    - [BareValue, "main"]
+    - [Attr, "class"]
+    - [BareValue, "container"]
+    - ElementEnd
+
+- id: element_class_and_attrs
+  desc: Element with class and attributes
+  udon: "|el.featured :count 5\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "class"]
+    - [BareValue, "featured"]
+    - [Attr, "count"]
+    - [Integer, "5"]
+    - ElementEnd
+
+# Attribute key formats
+- id: attr_hyphenated_key
+  desc: Hyphenated attribute key
+  udon: "|el\n  :data-value test\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "data-value"]
+    - [BareValue, "test"]
+    - ElementEnd
+
+- id: attr_underscore_key
+  desc: Underscore in attribute key
+  udon: "|el\n  :my_attr test\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "my_attr"]
+    - [BareValue, "test"]
+    - ElementEnd
+
+# Array values
+- id: attr_array_integers
+  desc: Array of integers
+  udon: "|el :ports [8080 8443 9000]\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "ports"]
+    - ArrayStart
+    - [Integer, "8080"]
+    - [Integer, "8443"]
+    - [Integer, "9000"]
+    - ArrayEnd
+    - ElementEnd
+
+- id: attr_array_strings
+  desc: Array of strings
+  udon: "|el :tags [api public]\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "tags"]
+    - ArrayStart
+    - [BareValue, "api"]
+    - [BareValue, "public"]
+    - ArrayEnd
+    - ElementEnd
+
+# Hex, octal, binary numbers
+- id: attr_hex_value
+  desc: Hexadecimal value
+  udon: "|el :color 0xFF00FF\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "color"]
+    - [Integer, "0xFF00FF"]
+    - ElementEnd
+
+- id: attr_octal_value
+  desc: Octal value
+  udon: "|el :mode 0o755\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "mode"]
+    - [Integer, "0o755"]
+    - ElementEnd
+
+- id: attr_binary_value
+  desc: Binary value
+  udon: "|el :flags 0b1010\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "flags"]
+    - [Integer, "0b1010"]
+    - ElementEnd
+

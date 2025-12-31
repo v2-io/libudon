@@ -68,13 +68,14 @@
     |default                  | ->                               |>> :main
 
   ; === Accumulate identifier for keyword lookup ===
+  ; If we see non-label chars (like .), it's not a keyword - continue as string
   |state[:accumulate]
     |eof                      | TERM | KEYWORDS(bare_kw)         |return
     |c[\n]                    | TERM | KEYWORDS(bare_kw)         |return
     |c[ ]                     |                                  |>> :accum_space
     |c[:bracket]              | TERM | KEYWORDS(bare_kw)         |return
     |LABEL_CONT               | ->                               |>>
-    |default                  | TERM | KEYWORDS(bare_kw)         |return
+    |default                  | ->                               |>> :string
   |state[:accum_space]
     |if[space_term == 0]                                         |>> :accum_block
     |default                  | TERM | KEYWORDS(bare_kw)         |return

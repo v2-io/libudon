@@ -325,25 +325,25 @@
 ; Block attribute value - space is content, ` ;` starts comment
 |function[value_block]
   |state[:start]
-    |c["]                     | -> | /quoted_string(")           |return
-    |c[']                     | -> | /quoted_string(')           |return
-    |c[<L>]                   | /array_block                     |return
+    |c["]                     | -> | /double_quoted              |return
+    |c[']                     | -> | /single_quoted              |return
+    |c[<L>]                   | -> | /array_block                |return
     |default                  | MARK | /typed_value(0, 0)        |return
 
 ; Sameline attribute value - space terminates
 |function[value_sameline]
   |state[:start]
-    |c["]                     | -> | /quoted_string(")           |return
-    |c[']                     | -> | /quoted_string(')           |return
-    |c[<L>]                   | /array_sameline                  |return
+    |c["]                     | -> | /double_quoted              |return
+    |c[']                     | -> | /single_quoted              |return
+    |c[<L>]                   | -> | /array_sameline             |return
     |default                  | MARK | /typed_value(1, 0)        |return
 
 ; Embedded attribute value - space or } terminates
 |function[value_embedded]
   |state[:start]
-    |c["]                     | -> | /quoted_string(")           |return
-    |c[']                     | -> | /quoted_string(')           |return
-    |c[<L>]                   | /array_embedded                  |return
+    |c["]                     | -> | /double_quoted              |return
+    |c[']                     | -> | /single_quoted              |return
+    |c[<L>]                   | -> | /array_embedded             |return
     |default                  | MARK | /typed_value(1, <RB>)     |return
 
 ; Bracket ID value - IDs are always BareValue (no type detection)
@@ -354,10 +354,17 @@
     |c[ ]                     | TERM                             |return
     |default                  | ->                               |>>
 
-; DRYed: quoted_string(:quote) - parameterized by quote character
-|function[quoted_string:StringValue]  :quote  | MARK
+; Quoted string parsing - separate functions for each quote type
+; (parameterized version had scan optimization issues with :quote)
+|function[double_quoted:StringValue]  | MARK
   |state[:main]
-    |c[:quote]                | TERM | ->                        |return
+    |c["]                     | TERM | ->                        |return
+    |c[\\]                    | -> | ->                          |>>
+    |default                  | ->                               |>>
+
+|function[single_quoted:StringValue]  | MARK
+  |state[:main]
+    |c[']                     | TERM | ->                        |return
     |c[\\]                    | -> | ->                          |>>
     |default                  | ->                               |>>
 

@@ -152,6 +152,7 @@ pub enum ParseErrorCode {
     UnexpectedEof,
     UnexpectedChar,
     Unclosed,
+    UnclosedStringValue,
     UnclosedArray,
     UnclosedComment,
     UnclosedText,
@@ -1504,15 +1505,16 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some(b'"') => {
                     self.advance();
-                    self.parse_quoted_string(b'"', on_event);
+                    self.parse_double_quoted(on_event);
                     return;
                 }
                 Some(b'\'') => {
                     self.advance();
-                    self.parse_quoted_string(b'\'', on_event);
+                    self.parse_single_quoted(on_event);
                     return;
                 }
                 Some(b'[') => {
+                    self.advance();
                     self.parse_array_block(on_event);
                     return;
                 }
@@ -1537,15 +1539,16 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some(b'"') => {
                     self.advance();
-                    self.parse_quoted_string(b'"', on_event);
+                    self.parse_double_quoted(on_event);
                     return;
                 }
                 Some(b'\'') => {
                     self.advance();
-                    self.parse_quoted_string(b'\'', on_event);
+                    self.parse_single_quoted(on_event);
                     return;
                 }
                 Some(b'[') => {
+                    self.advance();
                     self.parse_array_sameline(on_event);
                     return;
                 }
@@ -1570,15 +1573,16 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some(b'"') => {
                     self.advance();
-                    self.parse_quoted_string(b'"', on_event);
+                    self.parse_double_quoted(on_event);
                     return;
                 }
                 Some(b'\'') => {
                     self.advance();
-                    self.parse_quoted_string(b'\'', on_event);
+                    self.parse_single_quoted(on_event);
                     return;
                 }
                 Some(b'[') => {
+                    self.advance();
                     self.parse_array_embedded(on_event);
                     return;
                 }
@@ -1618,15 +1622,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse quoted_string -> StringValue
-    fn parse_quoted_string<F>(&mut self, quote: u8, on_event: &mut F)
+    /// Parse double_quoted -> StringValue
+    fn parse_double_quoted<F>(&mut self, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
         self.mark();
         loop {
-            match self.scan_to1(b'\\') {
-                Some(b) if b == quote => {
+            match self.scan_to2(b'"', b'\\') {
+                Some(b'"') => {
                     self.set_term(0);
                     self.advance();
                     on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
@@ -1639,6 +1643,36 @@ impl<'a> Parser<'a> {
                 }
                 None => {
                     on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
+                    on_event(Event::Error { code: ParseErrorCode::UnclosedStringValue, span: self.span() });
+                    return;
+                }
+                _ => unreachable!("scan_to only returns target chars"),
+            }
+        }
+    }
+
+    /// Parse single_quoted -> StringValue
+    fn parse_single_quoted<F>(&mut self, on_event: &mut F)
+    where
+        F: FnMut(Event<'a>),
+    {
+        self.mark();
+        loop {
+            match self.scan_to2(b'\'', b'\\') {
+                Some(b'\'') => {
+                    self.set_term(0);
+                    self.advance();
+                    on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                }
+                Some(b'\\') => {
+                    self.advance();
+                    self.advance();
+                    continue;
+                }
+                None => {
+                    on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
+                    on_event(Event::Error { code: ParseErrorCode::UnclosedStringValue, span: self.span() });
                     return;
                 }
                 _ => unreachable!("scan_to only returns target chars"),
@@ -2519,9 +2553,9 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    self.set_term(0);
-                    self.lookup_bare_kw_or_fallback(on_event);
-                    return;
+                    self.advance();
+                    state = State::String;
+                    continue;
                         }
                     }
                 }
