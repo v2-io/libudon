@@ -51,7 +51,7 @@
   |state[:line]
     |c[\n]                    | ->                               |>>
     |c[ ]                     | col = /count_indent              |>> :dispatch
-    |c[\t]                    | Error(no_tabs) | ->[\n]          |>> :line
+    |c[\t]                    | /error(no_tabs) | ->[\n]         |>> :line
     |default                  | col = 0                          |>> :dispatch
 
   |state[:dispatch]
@@ -184,7 +184,7 @@
   |state[:children]
     |c[\n]                    | ->                               |>>
     |c[ ]                     | col = /count_indent              |>> :check_child
-    |c[\t]                    | Error(no_tabs) | ->[\n]          |>>
+    |c[\t]                    | /error(no_tabs) | ->[\n]         |>>
     |default                  | col = 0                          |>> :check_child
 
   |state[:check_child]

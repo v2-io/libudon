@@ -132,13 +132,12 @@ impl<'a> Event<'a> {
 pub enum ParseErrorCode {
     UnexpectedEof,
     UnexpectedChar,
-    UnclosedName,
-    UnclosedStringValue,
-    UnclosedAttr,
+    Unclosed,
     UnclosedArray,
-    UnclosedText,
     UnclosedComment,
+    UnclosedText,
     UnclosedDirective,
+    NoTabs,
 }
 
 /// Callback-based parser.
@@ -259,6 +258,16 @@ impl<'a> Parser<'a> {
     #[inline(always)]
     fn is_label_cont(b: u8) -> bool {
         b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
+    }
+
+    #[inline(always)]
+    fn is_digit(b: u8) -> bool {
+        b.is_ascii_digit()
+    }
+
+    #[inline(always)]
+    fn is_hex_digit(b: u8) -> bool {
+        b.is_ascii_hexdigit()
     }
 
     // ========== SCAN Methods (SIMD-accelerated via memchr) ==========
@@ -457,7 +466,10 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         Some(b'\t') => {
-                    self.advance();
+                    on_event(Event::Error { code: ParseErrorCode::NoTabs, span: self.span() });
+                    return;
+                    self.scan_to1(b'\n');
+                    state = State::Line;
                     continue;
                         }
                         _ => {
@@ -557,25 +569,24 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse element -> Element
-    fn parse_element<F>(&mut self, elem_col: i32, parent_col: i32, on_event: &mut F)
+    /// Parse parse_element_identity
+    fn parse_parse_element_identity<F>(&mut self, close: u8, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
-        let start_span = self.span();
-        on_event(Event::ElementStart { span: start_span.clone() });
-        let mut col: i32 = 0;
         #[derive(Clone, Copy)]
-        enum State { Identity, QuotedName, PostName, Bracket, BracketClose, PostBracket, Class, PostClass, PostIdentity, PreContent, CheckInlinePipe, CheckInlineSemi, CheckInlineBang, PostChild, Children, CheckChild, ChildDispatch, ChildPipe,  }
+        enum State { Identity, QuotedName, PostName, Bracket, BracketClose, PostBracket, Class, PostClass,  }
         let mut state = State::Identity;
         loop {
             match state {
                 State::Identity => {
                     if self.eof() {
-                        on_event(Event::ElementEnd { span: self.span() });
                         return;
                     }
                     match self.peek() {
+                        Some(b) if b == close => {
+                    return;
+                        }
                         Some(b) if Self::is_letter(b) => {
                     self.parse_name(on_event);
                     state = State::PostName;
@@ -596,18 +607,15 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'?' | b'!' | b'*' | b'+') => {
                     self.parse_suffix(on_event);
-                    state = State::PostIdentity;
-                    continue;
+                    return;
                         }
                         _ => {
-                    state = State::PostIdentity;
-                    continue;
+                    return;
                         }
                     }
                 }
                 State::QuotedName => {
                     if self.eof() {
-                        on_event(Event::ElementEnd { span: self.span() });
                         return;
                     }
                     match self.peek() {
@@ -625,10 +633,12 @@ impl<'a> Parser<'a> {
                 }
                 State::PostName => {
                     if self.eof() {
-                        on_event(Event::ElementEnd { span: self.span() });
                         return;
                     }
                     match self.peek() {
+                        Some(b) if b == close => {
+                    return;
+                        }
                         Some(b'[') => {
                     self.advance();
                     state = State::Bracket;
@@ -640,18 +650,15 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'?' | b'!' | b'*' | b'+') => {
                     self.parse_suffix(on_event);
-                    state = State::PostIdentity;
-                    continue;
+                    return;
                         }
                         _ => {
-                    state = State::PostIdentity;
-                    continue;
+                    return;
                         }
                     }
                 }
                 State::Bracket => {
                     if self.eof() {
-                        on_event(Event::ElementEnd { span: self.span() });
                         return;
                     }
                     match self.peek() {
@@ -670,7 +677,6 @@ impl<'a> Parser<'a> {
                 }
                 State::BracketClose => {
                     if self.eof() {
-                        on_event(Event::ElementEnd { span: self.span() });
                         return;
                     }
                     match self.peek() {
@@ -680,35 +686,33 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    on_event(Event::ElementEnd { span: self.span() });
                     return;
                         }
                     }
                 }
                 State::PostBracket => {
                     if self.eof() {
-                        on_event(Event::ElementEnd { span: self.span() });
                         return;
                     }
                     match self.peek() {
+                        Some(b) if b == close => {
+                    return;
+                        }
                         Some(b'.') => {
                     state = State::Class;
                     continue;
                         }
                         Some(b'?' | b'!' | b'*' | b'+') => {
                     self.parse_suffix(on_event);
-                    state = State::PostIdentity;
-                    continue;
+                    return;
                         }
                         _ => {
-                    state = State::PostIdentity;
-                    continue;
+                    return;
                         }
                     }
                 }
                 State::Class => {
                     if self.eof() {
-                        on_event(Event::ElementEnd { span: self.span() });
                         return;
                     }
                     match self.peek() {
@@ -730,27 +734,56 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    state = State::PostIdentity;
-                    continue;
+                    return;
                         }
                     }
                 }
                 State::PostClass => {
                     if self.eof() {
-                        on_event(Event::ElementEnd { span: self.span() });
                         return;
                     }
                     match self.peek() {
+                        Some(b) if b == close => {
+                    return;
+                        }
                         Some(b'.') => {
                     state = State::Class;
                     continue;
                         }
                         Some(b'?' | b'!' | b'*' | b'+') => {
                     self.parse_suffix(on_event);
-                    state = State::PostIdentity;
-                    continue;
+                    return;
                         }
                         _ => {
+                    return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Parse element -> Element
+    fn parse_element<F>(&mut self, elem_col: i32, parent_col: i32, on_event: &mut F)
+    where
+        F: FnMut(Event<'a>),
+    {
+        let start_span = self.span();
+        on_event(Event::ElementStart { span: start_span.clone() });
+        let mut col: i32 = 0;
+        #[derive(Clone, Copy)]
+        enum State { Identity, PostIdentity, PreContent, CheckInlinePipe, CheckInlineSemi, CheckInlineBang, PostChild, Children, CheckChild, ChildDispatch, ChildPipe,  }
+        let mut state = State::Identity;
+        loop {
+            match state {
+                State::Identity => {
+                    if self.eof() {
+                        on_event(Event::ElementEnd { span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        _ => {
+                    self.parse_parse_element_identity(0, on_event);
                     state = State::PostIdentity;
                     continue;
                         }
@@ -856,7 +889,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    self.parse_inline_line_comment(on_event);
+                    self.parse_line_comment_content(on_event);
                     state = State::Children;
                     continue;
                         }
@@ -924,7 +957,9 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         Some(b'\t') => {
-                    self.advance();
+                    on_event(Event::Error { code: ParseErrorCode::NoTabs, span: self.span() });
+                    return;
+                    self.scan_to1(b'\n');
                     continue;
                         }
                         _ => {
@@ -1044,18 +1079,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse quoted_name -> Name
-    fn parse_quoted_name<F>(&mut self, on_event: &mut F)
+    /// Parse skip_single_quoted
+    fn parse_skip_single_quoted<F>(&mut self, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
-        self.mark();
         loop {
             match self.scan_to2(b'\'', b'\\') {
                 Some(b'\'') => {
-                    self.set_term(0);
                     self.advance();
-                    on_event(Event::Name { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
                 Some(b'\\') => {
@@ -1064,11 +1096,32 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 None => {
-                    on_event(Event::Name { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedName, span: self.span() });
+                    on_event(Event::Error { code: ParseErrorCode::Unclosed, span: self.span() });
                     return;
                 }
                 _ => unreachable!("scan_to only returns target chars"),
+            }
+        }
+    }
+
+    /// Parse quoted_name -> Name
+    fn parse_quoted_name<F>(&mut self, on_event: &mut F)
+    where
+        F: FnMut(Event<'a>),
+    {
+        self.mark();
+        loop {
+            if self.eof() {
+                on_event(Event::Name { content: self.term(), span: self.span_from_mark() });
+                return;
+            }
+            match self.peek() {
+                _ => {
+                    self.parse_skip_single_quoted(on_event);
+                    self.set_term(-1);
+                    on_event(Event::Name { content: self.term(), span: self.span_from_mark() });
+                    return;
+                }
             }
         }
     }
@@ -1105,24 +1158,17 @@ impl<'a> Parser<'a> {
     {
         self.mark();
         loop {
-            match self.scan_to2(b'\'', b'\\') {
-                Some(b'\'') => {
-                    self.set_term(0);
-                    self.advance();
+            if self.eof() {
+                on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
+                return;
+            }
+            match self.peek() {
+                _ => {
+                    self.parse_skip_single_quoted(on_event);
+                    self.set_term(-1);
                     on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
-                Some(b'\\') => {
-                    self.advance();
-                    self.advance();
-                    continue;
-                }
-                None => {
-                    on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedStringValue, span: self.span() });
-                    return;
-                }
-                _ => unreachable!("scan_to only returns target chars"),
             }
         }
     }
@@ -1139,25 +1185,25 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some(b'?') => {
                     on_event(Event::Attr { content: b"?", span: self.span() });
-                    on_event(Event::BoolTrue { content: b"true", span: self.span() });
+                    on_event(Event::BoolTrue { content: b"", span: self.span() });
                     self.advance();
                     return;
                 }
                 Some(b'!') => {
                     on_event(Event::Attr { content: b"!", span: self.span() });
-                    on_event(Event::BoolTrue { content: b"true", span: self.span() });
+                    on_event(Event::BoolTrue { content: b"", span: self.span() });
                     self.advance();
                     return;
                 }
                 Some(b'*') => {
                     on_event(Event::Attr { content: b"*", span: self.span() });
-                    on_event(Event::BoolTrue { content: b"true", span: self.span() });
+                    on_event(Event::BoolTrue { content: b"", span: self.span() });
                     self.advance();
                     return;
                 }
                 Some(b'+') => {
                     on_event(Event::Attr { content: b"+", span: self.span() });
-                    on_event(Event::BoolTrue { content: b"true", span: self.span() });
+                    on_event(Event::BoolTrue { content: b"", span: self.span() });
                     self.advance();
                     return;
                 }
@@ -1195,7 +1241,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    return;
+                            return;
                         }
                     }
                 }
@@ -1209,7 +1255,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         Some(b'\n') => {
-                    on_event(Event::BoolTrue { content: b"true", span: self.span() });
+                    on_event(Event::BoolTrue { content: b"", span: self.span() });
                     return;
                         }
                         _ => {
@@ -1249,7 +1295,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    return;
+                            return;
                         }
                     }
                 }
@@ -1262,8 +1308,8 @@ impl<'a> Parser<'a> {
                     self.advance();
                     continue;
                         }
-                        Some(b'\n' | b':' | b'|' | b']' | b'}') => {
-                    on_event(Event::BoolTrue { content: b"true", span: self.span() });
+                        Some(b'\n' | b':' | b'|') => {
+                    on_event(Event::BoolTrue { content: b"", span: self.span() });
                     return;
                         }
                         _ => {
@@ -1308,24 +1354,17 @@ impl<'a> Parser<'a> {
     {
         self.mark();
         loop {
-            match self.scan_to2(b'\'', b'\\') {
-                Some(b'\'') => {
-                    self.set_term(0);
-                    self.advance();
+            if self.eof() {
+                on_event(Event::Attr { content: self.term(), span: self.span_from_mark() });
+                return;
+            }
+            match self.peek() {
+                _ => {
+                    self.parse_skip_single_quoted(on_event);
+                    self.set_term(-1);
                     on_event(Event::Attr { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
-                Some(b'\\') => {
-                    self.advance();
-                    self.advance();
-                    continue;
-                }
-                None => {
-                    on_event(Event::Attr { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedAttr, span: self.span() });
-                    return;
-                }
-                _ => unreachable!("scan_to only returns target chars"),
             }
         }
     }
@@ -1342,33 +1381,16 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some(b'"') => {
                     self.advance();
-                    self.parse_dquote_string(on_event);
+                    self.parse_quoted_string(b'"', on_event);
                     return;
                 }
                 Some(b'\'') => {
                     self.advance();
-                    self.parse_squote_string(on_event);
+                    self.parse_quoted_string(b'\'', on_event);
                     return;
                 }
                 Some(b'[') => {
                     self.parse_array(on_event);
-                    return;
-                }
-                Some(b'~') => {
-                    on_event(Event::Nil { content: b"~", span: self.span() });
-                    self.advance();
-                    return;
-                }
-                Some(b't') => {
-                    self.parse_maybe_true(on_event);
-                    return;
-                }
-                Some(b'f') => {
-                    self.parse_maybe_false(on_event);
-                    return;
-                }
-                Some(b'n') => {
-                    self.parse_maybe_null(on_event);
                     return;
                 }
                 _ => {
@@ -1391,33 +1413,16 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Some(b'"') => {
                     self.advance();
-                    self.parse_dquote_string(on_event);
+                    self.parse_quoted_string(b'"', on_event);
                     return;
                 }
                 Some(b'\'') => {
                     self.advance();
-                    self.parse_squote_string(on_event);
+                    self.parse_quoted_string(b'\'', on_event);
                     return;
                 }
                 Some(b'[') => {
                     self.parse_array_inline(on_event);
-                    return;
-                }
-                Some(b'~') => {
-                    on_event(Event::Nil { content: b"~", span: self.span() });
-                    self.advance();
-                    return;
-                }
-                Some(b't') => {
-                    self.parse_maybe_true_inline(on_event);
-                    return;
-                }
-                Some(b'f') => {
-                    self.parse_maybe_false_inline(on_event);
-                    return;
-                }
-                Some(b'n') => {
-                    self.parse_maybe_null_inline(on_event);
                     return;
                 }
                 _ => {
@@ -1428,15 +1433,15 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse dquote_string -> StringValue
-    fn parse_dquote_string<F>(&mut self, on_event: &mut F)
+    /// Parse quoted_string -> StringValue
+    fn parse_quoted_string<F>(&mut self, quote: u8, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
         self.mark();
         loop {
-            match self.scan_to2(b'"', b'\\') {
-                Some(b'"') => {
+            match self.scan_to1(b'\\') {
+                Some(b) if b == quote => {
                     self.set_term(0);
                     self.advance();
                     on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
@@ -1449,36 +1454,6 @@ impl<'a> Parser<'a> {
                 }
                 None => {
                     on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedStringValue, span: self.span() });
-                    return;
-                }
-                _ => unreachable!("scan_to only returns target chars"),
-            }
-        }
-    }
-
-    /// Parse squote_string -> StringValue
-    fn parse_squote_string<F>(&mut self, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        self.mark();
-        loop {
-            match self.scan_to2(b'\'', b'\\') {
-                Some(b'\'') => {
-                    self.set_term(0);
-                    self.advance();
-                    on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
-                    return;
-                }
-                Some(b'\\') => {
-                    self.advance();
-                    self.advance();
-                    continue;
-                }
-                None => {
-                    on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedStringValue, span: self.span() });
                     return;
                 }
                 _ => unreachable!("scan_to only returns target chars"),
@@ -1493,8 +1468,8 @@ impl<'a> Parser<'a> {
     {
         self.mark();
         loop {
-            match self.scan_to4(b'\n', b' ', b']', b'}') {
-                Some(b'\n' | b' ' | b']' | b'}') => {
+            match self.scan_to2(b'\n', b' ') {
+                Some(b'\n' | b' ') => {
                     self.set_term(0);
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
@@ -1515,8 +1490,8 @@ impl<'a> Parser<'a> {
     {
         self.mark();
         loop {
-            match self.scan_to6(b'\n', b' ', b':', b'|', b']', b'}') {
-                Some(b'\n' | b' ' | b':' | b'|' | b']' | b'}') => {
+            match self.scan_to4(b'\n', b' ', b':', b'|') {
+                Some(b'\n' | b' ' | b':' | b'|') => {
                     self.set_term(0);
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
@@ -1526,658 +1501,6 @@ impl<'a> Parser<'a> {
                     return;
                 }
                 _ => unreachable!("scan_to only returns target chars"),
-            }
-        }
-    }
-
-    /// Parse maybe_true
-    fn parse_maybe_true<F>(&mut self, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        #[derive(Clone, Copy)]
-        enum State { T, Tr, Tru, True, Bare,  }
-        let mut state = State::T;
-        loop {
-            match state {
-                State::T => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'r') => {
-                    self.advance();
-                    state = State::Tr;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Tr => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'u') => {
-                    self.advance();
-                    state = State::Tru;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Tru => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'e') => {
-                    self.advance();
-                    state = State::True;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::True => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b) if Self::is_label_cont(b) => {
-                    state = State::Bare;
-                    continue;
-                        }
-                        _ => {
-                    self.set_term(0);
-                    on_event(Event::BoolTrue { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::Bare => {
-                    match self.scan_to4(b'\n', b' ', b']', b'}') {
-                        Some(b'\n' | b' ' | b']' | b'}') => {
-                    self.set_term(0);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        None => {
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
-                }
-            }
-        }
-    }
-
-    /// Parse maybe_false
-    fn parse_maybe_false<F>(&mut self, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        #[derive(Clone, Copy)]
-        enum State { F, Fa, Fal, Fals, False, Bare,  }
-        let mut state = State::F;
-        loop {
-            match state {
-                State::F => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'a') => {
-                    self.advance();
-                    state = State::Fa;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Fa => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::Fal;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Fal => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b's') => {
-                    self.advance();
-                    state = State::Fals;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Fals => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'e') => {
-                    self.advance();
-                    state = State::False;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::False => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b) if Self::is_label_cont(b) => {
-                    state = State::Bare;
-                    continue;
-                        }
-                        _ => {
-                    self.set_term(0);
-                    on_event(Event::BoolFalse { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::Bare => {
-                    match self.scan_to4(b'\n', b' ', b']', b'}') {
-                        Some(b'\n' | b' ' | b']' | b'}') => {
-                    self.set_term(0);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        None => {
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
-                }
-            }
-        }
-    }
-
-    /// Parse maybe_null
-    fn parse_maybe_null<F>(&mut self, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        #[derive(Clone, Copy)]
-        enum State { N, Nu, Nul, Null, Ni, Nil, Bare,  }
-        let mut state = State::N;
-        loop {
-            match state {
-                State::N => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'u') => {
-                    self.advance();
-                    state = State::Nu;
-                    continue;
-                        }
-                        Some(b'i') => {
-                    self.advance();
-                    state = State::Ni;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Nu => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::Nul;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Nul => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::Null;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Null => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b) if Self::is_label_cont(b) => {
-                    state = State::Bare;
-                    continue;
-                        }
-                        _ => {
-                    self.set_term(0);
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::Ni => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::Nil;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Nil => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b) if Self::is_label_cont(b) => {
-                    state = State::Bare;
-                    continue;
-                        }
-                        _ => {
-                    self.set_term(0);
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::Bare => {
-                    match self.scan_to4(b'\n', b' ', b']', b'}') {
-                        Some(b'\n' | b' ' | b']' | b'}') => {
-                    self.set_term(0);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        None => {
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
-                }
-            }
-        }
-    }
-
-    /// Parse maybe_true_inline
-    fn parse_maybe_true_inline<F>(&mut self, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        #[derive(Clone, Copy)]
-        enum State { T, Tr, Tru, True, Bare,  }
-        let mut state = State::T;
-        loop {
-            match state {
-                State::T => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'r') => {
-                    self.advance();
-                    state = State::Tr;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Tr => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'u') => {
-                    self.advance();
-                    state = State::Tru;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Tru => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'e') => {
-                    self.advance();
-                    state = State::True;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::True => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b) if Self::is_label_cont(b) => {
-                    state = State::Bare;
-                    continue;
-                        }
-                        _ => {
-                    self.set_term(0);
-                    on_event(Event::BoolTrue { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::Bare => {
-                    match self.scan_to4(b'\n', b' ', b':', b'|') {
-                        Some(b'\n' | b' ' | b':' | b'|') => {
-                    self.set_term(0);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        None => {
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
-                }
-            }
-        }
-    }
-
-    /// Parse maybe_false_inline
-    fn parse_maybe_false_inline<F>(&mut self, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        #[derive(Clone, Copy)]
-        enum State { F, Fa, Fal, Fals, False, Bare,  }
-        let mut state = State::F;
-        loop {
-            match state {
-                State::F => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'a') => {
-                    self.advance();
-                    state = State::Fa;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Fa => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::Fal;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Fal => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b's') => {
-                    self.advance();
-                    state = State::Fals;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Fals => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'e') => {
-                    self.advance();
-                    state = State::False;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::False => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b) if Self::is_label_cont(b) => {
-                    state = State::Bare;
-                    continue;
-                        }
-                        _ => {
-                    self.set_term(0);
-                    on_event(Event::BoolFalse { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::Bare => {
-                    match self.scan_to4(b'\n', b' ', b':', b'|') {
-                        Some(b'\n' | b' ' | b':' | b'|') => {
-                    self.set_term(0);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        None => {
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
-                }
-            }
-        }
-    }
-
-    /// Parse maybe_null_inline
-    fn parse_maybe_null_inline<F>(&mut self, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        #[derive(Clone, Copy)]
-        enum State { N, Nu, Nul, Null, Ni, Nil, Bare,  }
-        let mut state = State::N;
-        loop {
-            match state {
-                State::N => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'u') => {
-                    self.advance();
-                    state = State::Nu;
-                    continue;
-                        }
-                        Some(b'i') => {
-                    self.advance();
-                    state = State::Ni;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Nu => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::Nul;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Nul => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::Null;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Null => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b) if Self::is_label_cont(b) => {
-                    state = State::Bare;
-                    continue;
-                        }
-                        _ => {
-                    self.set_term(0);
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::Ni => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::Nil;
-                    continue;
-                        }
-                        _ => {
-                    state = State::Bare;
-                    continue;
-                        }
-                    }
-                }
-                State::Nil => {
-                    if self.eof() {
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b) if Self::is_label_cont(b) => {
-                    state = State::Bare;
-                    continue;
-                        }
-                        _ => {
-                    self.set_term(0);
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::Bare => {
-                    match self.scan_to4(b'\n', b' ', b':', b'|') {
-                        Some(b'\n' | b' ' | b':' | b'|') => {
-                    self.set_term(0);
-                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        None => {
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
-                }
             }
         }
     }
@@ -2253,7 +1576,7 @@ impl<'a> Parser<'a> {
             }
             match self.peek() {
                 _ => {
-                    self.parse_text(line_col, parent_col, on_event);
+                    self.parse_text(line_col, parent_col, 0, on_event);
                     return;
                 }
             }
@@ -2271,7 +1594,7 @@ impl<'a> Parser<'a> {
             }
             match self.peek() {
                 _ => {
-                    self.parse_text_pipe(line_col, parent_col, on_event);
+                    self.parse_text(line_col, parent_col, b'|', on_event);
                     return;
                 }
             }
@@ -2279,16 +1602,71 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse text -> Text
-    fn parse_text<F>(&mut self, line_col: i32, parent_col: i32, on_event: &mut F)
+    fn parse_text<F>(&mut self, line_col: i32, parent_col: i32, prepend: u8, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
         self.mark();
         #[derive(Clone, Copy)]
-        enum State { Main, CheckPipe, CheckSemi, CheckBang,  }
-        let mut state = State::Main;
+        enum State { Entry, Main, CheckPipe, CheckSemi, CheckBang,  }
+        let mut state = State::Entry;
         loop {
             match state {
+                State::Entry => {
+                    if self.eof() {
+                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        _ => {
+                    if prepend != 0 {
+                        let content: &'static [u8] = match prepend {
+                            b'|' => b"|",
+                            b'!' => b"!",
+                            b';' => b";",
+                            b':' => b":",
+                            b'#' => b"#",
+                            b'*' => b"*",
+                            b'-' => b"-",
+                            b'_' => b"_",
+                            b'[' => b"[",
+                            b']' => b"]",
+                            b'{' => b"{",
+                            b'}' => b"}",
+                            b'(' => b"(",
+                            b')' => b")",
+                            b'<' => b"<",
+                            b'>' => b">",
+                            b'/' => b"/",
+                            b'\\' => b"\\",
+                            b'\'' => b"'",
+                            b'"' => b"\"",
+                            b'`' => b"`",
+                            b'~' => b"~",
+                            b'@' => b"@",
+                            b'$' => b"$",
+                            b'%' => b"%",
+                            b'^' => b"^",
+                            b'&' => b"&",
+                            b'+' => b"+",
+                            b'=' => b"=",
+                            b'?' => b"?",
+                            b',' => b",",
+                            b'.' => b".",
+                            b' ' => b" ",
+                            b'\t' => b"\t",
+                            b'\n' => b"\n",
+                            _ => b"",
+                        };
+                        if !content.is_empty() {
+                            on_event(Event::Text { content, span: self.span() });
+                        }
+                    }
+                    state = State::Main;
+                    continue;
+                        }
+                    }
+                }
                 State::Main => {
                     match self.scan_to4(b'\n', b'|', b';', b'!') {
                         Some(b'\n') => {
@@ -2355,115 +1733,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    self.parse_text_line_comment(on_event);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::CheckBang => {
-                    if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'{') => {
-                    self.advance();
-                    self.parse_inline_directive(on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
-                        _ => {
-                    self.mark();
-                    on_event(Event::Text { content: b"!", span: self.span() });
-                    state = State::Main;
-                    continue;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Parse text_pipe -> Text
-    fn parse_text_pipe<F>(&mut self, line_col: i32, parent_col: i32, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        self.mark();
-        #[derive(Clone, Copy)]
-        enum State { Main, CheckPipe, CheckSemi, CheckBang,  }
-        let mut state = State::Main;
-        loop {
-            match state {
-                State::Main => {
-                    match self.scan_to4(b'\n', b'|', b';', b'!') {
-                        Some(b'\n') => {
-                    self.set_term(0);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        Some(b'|') => {
-                    self.set_term(0);
-                    self.advance();
-                    state = State::CheckPipe;
-                    continue;
-                        }
-                        Some(b';') => {
-                    self.set_term(0);
-                    self.advance();
-                    state = State::CheckSemi;
-                    continue;
-                        }
-                        Some(b'!') => {
-                    self.set_term(0);
-                    self.advance();
-                    state = State::CheckBang;
-                    continue;
-                        }
-                        None => {
-                            on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
-                }
-                State::CheckPipe => {
-                    if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'{') => {
-                    self.parse_embedded(on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
-                        _ => {
-                    self.mark();
-                    // Unknown command: raw
-                    // Unknown command: raw
-                    state = State::Main;
-                    continue;
-                        }
-                    }
-                }
-                State::CheckSemi => {
-                    if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'{') => {
-                    self.parse_brace_comment(on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
-                        _ => {
-                    self.parse_text_line_comment(on_event);
+                    self.parse_line_comment_content(on_event);
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
@@ -2578,7 +1848,7 @@ impl<'a> Parser<'a> {
                         }
                         _ => {
                     self.set_term(0);
-                    self.parse_inline_line_comment(on_event);
+                    self.parse_line_comment_content(on_event);
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
@@ -2616,7 +1886,7 @@ impl<'a> Parser<'a> {
     {
         self.mark();
         #[derive(Clone, Copy)]
-        enum State { Main, Check,  }
+        enum State { Main, CheckPipe, CheckSemi, CheckBang,  }
         let mut state = State::Main;
         loop {
             match state {
@@ -2627,29 +1897,94 @@ impl<'a> Parser<'a> {
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
-                        Some(b'|' | b';' | b'!') => {
+                        Some(b'|') => {
                     self.set_term(0);
                     self.advance();
-                    state = State::Check;
+                    state = State::CheckPipe;
+                    continue;
+                        }
+                        Some(b';') => {
+                    self.set_term(0);
+                    self.advance();
+                    state = State::CheckSemi;
+                    continue;
+                        }
+                        Some(b'!') => {
+                    self.set_term(0);
+                    self.advance();
+                    state = State::CheckBang;
                     continue;
                         }
                         None => {
                             on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            on_event(Event::Error { code: ParseErrorCode::UnclosedText, span: self.span() });
                             return;
                         }
                         _ => unreachable!("scan_to only returns target chars"),
                     }
                 }
-                State::Check => {
+                State::CheckPipe => {
                     if self.eof() {
                         on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        on_event(Event::Error { code: ParseErrorCode::UnclosedText, span: self.span() });
                         return;
                     }
                     match self.peek() {
+                        Some(b'{') => {
+                    self.parse_embedded(on_event);
+                    self.mark();
+                    state = State::Main;
+                    continue;
+                        }
+                        Some(b) if Self::is_letter(b) || b == b'\'' || b == b'[' || b == b'.' || b == b'?' || b == b'!' || b == b'*' || b == b'+' => {
+                    self.parse_element(self.col(), elem_col, on_event);
+                    self.mark();
+                    state = State::Main;
+                    continue;
+                        }
                         _ => {
                     self.mark();
+                    // Unknown command: raw
+                    // Unknown command: raw
+                    state = State::Main;
+                    continue;
+                        }
+                    }
+                }
+                State::CheckSemi => {
+                    if self.eof() {
+                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'{') => {
+                    self.parse_brace_comment(on_event);
+                    self.mark();
+                    state = State::Main;
+                    continue;
+                        }
+                        _ => {
+                    self.set_term(0);
+                    self.parse_line_comment_content(on_event);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::CheckBang => {
+                    if self.eof() {
+                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'{') => {
+                    self.advance();
+                    self.parse_inline_directive(on_event);
+                    self.mark();
+                    state = State::Main;
+                    continue;
+                        }
+                        _ => {
+                    self.mark();
+                    on_event(Event::Text { content: b"!", span: self.span() });
                     state = State::Main;
                     continue;
                         }
@@ -2665,19 +2000,111 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+        #[derive(Clone, Copy)]
+        enum State { Main, CheckPipe, CheckSemi, CheckBang,  }
+        let mut state = State::Main;
         loop {
-            match self.scan_to1(b'\n') {
-                Some(b'\n') => {
+            match state {
+                State::Main => {
+                    match self.scan_to4(b'\n', b'|', b';', b'!') {
+                        Some(b'\n') => {
                     self.set_term(0);
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     return;
+                        }
+                        Some(b'|') => {
+                    self.set_term(0);
+                    self.advance();
+                    state = State::CheckPipe;
+                    continue;
+                        }
+                        Some(b';') => {
+                    self.set_term(0);
+                    self.advance();
+                    state = State::CheckSemi;
+                    continue;
+                        }
+                        Some(b'!') => {
+                    self.set_term(0);
+                    self.advance();
+                    state = State::CheckBang;
+                    continue;
+                        }
+                        None => {
+                            on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                            return;
+                        }
+                        _ => unreachable!("scan_to only returns target chars"),
+                    }
                 }
-                None => {
+                State::CheckPipe => {
+                    if self.eof() {
+                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'{') => {
+                    self.parse_embedded(on_event);
+                    self.mark();
+                    state = State::Main;
+                    continue;
+                        }
+                        Some(b) if Self::is_letter(b) || b == b'\'' || b == b'[' || b == b'.' || b == b'?' || b == b'!' || b == b'*' || b == b'+' => {
+                    self.parse_element(self.col(), elem_col, on_event);
+                    self.mark();
+                    state = State::Main;
+                    continue;
+                        }
+                        _ => {
+                    self.mark();
+                    // Unknown command: raw
+                    // Unknown command: raw
+                    state = State::Main;
+                    continue;
+                        }
+                    }
+                }
+                State::CheckSemi => {
+                    if self.eof() {
+                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'{') => {
+                    self.parse_brace_comment(on_event);
+                    self.mark();
+                    state = State::Main;
+                    continue;
+                        }
+                        _ => {
+                    self.set_term(0);
+                    self.parse_line_comment_content(on_event);
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedText, span: self.span() });
                     return;
+                        }
+                    }
                 }
-                _ => unreachable!("scan_to only returns target chars"),
+                State::CheckBang => {
+                    if self.eof() {
+                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'{') => {
+                    self.advance();
+                    self.parse_inline_directive(on_event);
+                    self.mark();
+                    state = State::Main;
+                    continue;
+                        }
+                        _ => {
+                    self.mark();
+                    on_event(Event::Text { content: b"!", span: self.span() });
+                    state = State::Main;
+                    continue;
+                        }
+                    }
+                }
             }
         }
     }
@@ -2697,15 +2124,15 @@ impl<'a> Parser<'a> {
                     return;
                 }
                 _ => {
-                    self.parse_comment_content(on_event);
+                    self.parse_line_comment_content(on_event);
                     return;
                 }
             }
         }
     }
 
-    /// Parse comment_content -> Comment
-    fn parse_comment_content<F>(&mut self, on_event: &mut F)
+    /// Parse line_comment_content -> Comment
+    fn parse_line_comment_content<F>(&mut self, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
@@ -2727,12 +2154,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse brace_comment -> Comment
-    fn parse_brace_comment<F>(&mut self, on_event: &mut F)
+    /// Parse skip_brace_balanced
+    fn parse_skip_brace_balanced<F>(&mut self, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
-        self.mark();
         let mut depth: i32 = 0;
         #[derive(Clone, Copy)]
         enum State { Main, Check,  }
@@ -2753,7 +2179,6 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         None => {
-                            on_event(Event::Comment { content: self.term(), span: self.span_from_mark() });
                             return;
                         }
                         _ => unreachable!("scan_to only returns target chars"),
@@ -2761,13 +2186,10 @@ impl<'a> Parser<'a> {
                 }
                 State::Check => {
                     if self.eof() {
-                        on_event(Event::Comment { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
                         _ if depth == 0 => {
-                    self.set_term(-1);
-                    on_event(Event::Comment { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                         _ => {
@@ -2780,48 +2202,24 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse inline_line_comment -> Comment
-    fn parse_inline_line_comment<F>(&mut self, on_event: &mut F)
+    /// Parse brace_comment -> Comment
+    fn parse_brace_comment<F>(&mut self, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
         self.mark();
         loop {
-            match self.scan_to1(b'\n') {
-                Some(b'\n') => {
-                    self.set_term(0);
-                    on_event(Event::Comment { content: self.term(), span: self.span_from_mark() });
-                    return;
-                }
-                None => {
-                    on_event(Event::Comment { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedComment, span: self.span() });
-                    return;
-                }
-                _ => unreachable!("scan_to only returns target chars"),
+            if self.eof() {
+                on_event(Event::Comment { content: self.term(), span: self.span_from_mark() });
+                return;
             }
-        }
-    }
-
-    /// Parse text_line_comment -> Comment
-    fn parse_text_line_comment<F>(&mut self, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        self.mark();
-        loop {
-            match self.scan_to1(b'\n') {
-                Some(b'\n') => {
-                    self.set_term(0);
+            match self.peek() {
+                _ => {
+                    self.parse_skip_brace_balanced(on_event);
+                    self.set_term(-1);
                     on_event(Event::Comment { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
-                None => {
-                    on_event(Event::Comment { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedComment, span: self.span() });
-                    return;
-                }
-                _ => unreachable!("scan_to only returns target chars"),
             }
         }
     }
@@ -2834,7 +2232,7 @@ impl<'a> Parser<'a> {
         let start_span = self.span();
         on_event(Event::EmbeddedStart { span: start_span.clone() });
         #[derive(Clone, Copy)]
-        enum State { Identity, QuotedName, PostName, Bracket, BracketClose, PostBracket, Class, PostClass, PreContent,  }
+        enum State { Identity, PostIdentity, PreContent,  }
         let mut state = State::Identity;
         loop {
             match state {
@@ -2844,61 +2242,14 @@ impl<'a> Parser<'a> {
                         return;
                     }
                     match self.peek() {
-                        Some(b'}') => {
-                    self.advance();
-                    on_event(Event::EmbeddedEnd { span: self.span() });
-                    return;
-                        }
-                        Some(b) if Self::is_letter(b) => {
-                    self.parse_name(on_event);
-                    state = State::PostName;
-                    continue;
-                        }
-                        Some(b'\'') => {
-                    self.advance();
-                    state = State::QuotedName;
-                    continue;
-                        }
-                        Some(b'[') => {
-                    self.advance();
-                    state = State::Bracket;
-                    continue;
-                        }
-                        Some(b'.') => {
-                    state = State::Class;
-                    continue;
-                        }
-                        Some(b' ' | b'\t') => {
-                    self.advance();
-                    state = State::PreContent;
-                    continue;
-                        }
                         _ => {
-                    self.parse_embed_content(on_event);
-                    on_event(Event::EmbeddedEnd { span: self.span() });
-                    return;
-                        }
-                    }
-                }
-                State::QuotedName => {
-                    if self.eof() {
-                        on_event(Event::EmbeddedEnd { span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'\'') => {
-                    self.advance();
-                    state = State::PostName;
-                    continue;
-                        }
-                        _ => {
-                    self.parse_quoted_name(on_event);
-                    state = State::PostName;
+                    self.parse_parse_element_identity(b'}', on_event);
+                    state = State::PostIdentity;
                     continue;
                         }
                     }
                 }
-                State::PostName => {
+                State::PostIdentity => {
                     if self.eof() {
                         on_event(Event::EmbeddedEnd { span: self.span() });
                         return;
@@ -2908,135 +2259,6 @@ impl<'a> Parser<'a> {
                     self.advance();
                     on_event(Event::EmbeddedEnd { span: self.span() });
                     return;
-                        }
-                        Some(b'[') => {
-                    self.advance();
-                    state = State::Bracket;
-                    continue;
-                        }
-                        Some(b'.') => {
-                    state = State::Class;
-                    continue;
-                        }
-                        Some(b' ' | b'\t') => {
-                    self.advance();
-                    state = State::PreContent;
-                    continue;
-                        }
-                        _ => {
-                    self.parse_embed_content(on_event);
-                    on_event(Event::EmbeddedEnd { span: self.span() });
-                    return;
-                        }
-                    }
-                }
-                State::Bracket => {
-                    if self.eof() {
-                        on_event(Event::EmbeddedEnd { span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b']') => {
-                    self.advance();
-                    state = State::PostBracket;
-                    continue;
-                        }
-                        _ => {
-                    on_event(Event::Attr { content: b"$id", span: self.span() });
-                    self.parse_value_inline(on_event);
-                    state = State::BracketClose;
-                    continue;
-                        }
-                    }
-                }
-                State::BracketClose => {
-                    if self.eof() {
-                        on_event(Event::EmbeddedEnd { span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b']') => {
-                    self.advance();
-                    state = State::PostBracket;
-                    continue;
-                        }
-                        _ => {
-                    on_event(Event::EmbeddedEnd { span: self.span() });
-                    return;
-                        }
-                    }
-                }
-                State::PostBracket => {
-                    if self.eof() {
-                        on_event(Event::EmbeddedEnd { span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'}') => {
-                    self.advance();
-                    on_event(Event::EmbeddedEnd { span: self.span() });
-                    return;
-                        }
-                        Some(b'.') => {
-                    state = State::Class;
-                    continue;
-                        }
-                        Some(b' ' | b'\t') => {
-                    self.advance();
-                    state = State::PreContent;
-                    continue;
-                        }
-                        _ => {
-                    self.parse_embed_content(on_event);
-                    on_event(Event::EmbeddedEnd { span: self.span() });
-                    return;
-                        }
-                    }
-                }
-                State::Class => {
-                    if self.eof() {
-                        on_event(Event::EmbeddedEnd { span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'.') => {
-                    self.advance();
-                    continue;
-                        }
-                        Some(b) if Self::is_letter(b) => {
-                    on_event(Event::Attr { content: b"$class", span: self.span() });
-                    self.parse_class_name(on_event);
-                    state = State::PostClass;
-                    continue;
-                        }
-                        Some(b'\'') => {
-                    on_event(Event::Attr { content: b"$class", span: self.span() });
-                    self.advance();
-                    self.parse_quoted_class(on_event);
-                    state = State::PostClass;
-                    continue;
-                        }
-                        _ => {
-                    self.parse_embed_content(on_event);
-                    on_event(Event::EmbeddedEnd { span: self.span() });
-                    return;
-                        }
-                    }
-                }
-                State::PostClass => {
-                    if self.eof() {
-                        on_event(Event::EmbeddedEnd { span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'}') => {
-                    self.advance();
-                    on_event(Event::EmbeddedEnd { span: self.span() });
-                    return;
-                        }
-                        Some(b'.') => {
-                    state = State::Class;
-                    continue;
                         }
                         Some(b' ' | b'\t') => {
                     self.advance();
@@ -3221,47 +2443,16 @@ impl<'a> Parser<'a> {
     {
         let start_span = self.span();
         on_event(Event::DirectiveStart { span: start_span.clone() });
-        let mut depth: i32 = 0;
-        #[derive(Clone, Copy)]
-        enum State { Main, Check,  }
-        let mut state = State::Main;
         loop {
-            match state {
-                State::Main => {
-                    match self.scan_to2(b'{', b'}') {
-                        Some(b'{') => {
-                    self.advance();
-                    depth += 1;
-                    continue;
-                        }
-                        Some(b'}') => {
-                    self.advance();
-                    depth -= 1;
-                    state = State::Check;
-                    continue;
-                        }
-                        None => {
-                            on_event(Event::DirectiveEnd { span: self.span() });
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
-                }
-                State::Check => {
-                    if self.eof() {
-                        on_event(Event::DirectiveEnd { span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        _ if depth == 0 => {
+            if self.eof() {
+                on_event(Event::DirectiveEnd { span: self.span() });
+                return;
+            }
+            match self.peek() {
+                _ => {
+                    self.parse_skip_brace_balanced(on_event);
                     on_event(Event::DirectiveEnd { span: self.span() });
                     return;
-                        }
-                        _ => {
-                    state = State::Main;
-                    continue;
-                        }
-                    }
                 }
             }
         }
