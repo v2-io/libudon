@@ -87,3 +87,113 @@
     - ElementEnd
     - ElementEnd
     - ElementEnd
+
+# Suffix tests (from SPEC.md)
+- id: element_suffix_question
+  desc: Element with ? suffix
+  udon: "|field?\n"
+  events:
+    - ElementStart
+    - [Name, "field"]
+    - [Attr, "?"]
+    - BoolTrue
+    - ElementEnd
+
+- id: element_suffix_bang
+  desc: Element with ! suffix
+  udon: "|required!\n"
+  events:
+    - ElementStart
+    - [Name, "required"]
+    - [Attr, "!"]
+    - BoolTrue
+    - ElementEnd
+
+- id: element_suffix_star
+  desc: Element with * suffix
+  udon: "|repeating*\n"
+  events:
+    - ElementStart
+    - [Name, "repeating"]
+    - [Attr, "*"]
+    - BoolTrue
+    - ElementEnd
+
+- id: element_suffix_plus
+  desc: Element with + suffix
+  udon: "|one-or-more+\n"
+  events:
+    - ElementStart
+    - [Name, "one-or-more"]
+    - [Attr, "+"]
+    - BoolTrue
+    - ElementEnd
+
+- id: element_with_id_and_suffix
+  desc: Element with id then suffix
+  udon: "|field[name]?\n"
+  events:
+    - ElementStart
+    - [Name, "field"]
+    - [Attr, "id"]
+    - [BareValue, "name"]
+    - [Attr, "?"]
+    - BoolTrue
+    - ElementEnd
+
+- id: element_hyphenated_name
+  desc: Element with hyphenated name
+  udon: "|my-element-name\n"
+  events:
+    - ElementStart
+    - [Name, "my-element-name"]
+    - ElementEnd
+
+- id: element_underscore_name
+  desc: Element with underscores
+  udon: "|my_element_name\n"
+  events:
+    - ElementStart
+    - [Name, "my_element_name"]
+    - ElementEnd
+
+- id: element_numeric_id
+  desc: Element with numeric id
+  udon: "|step[1]\n"
+  events:
+    - ElementStart
+    - [Name, "step"]
+    - [Attr, "id"]
+    - [BareValue, "1"]
+    - ElementEnd
+
+- id: element_mixed_alphanumeric_id
+  desc: Element with complex id
+  udon: "|item[abc-123]\n"
+  events:
+    - ElementStart
+    - [Name, "item"]
+    - [Attr, "id"]
+    - [BareValue, "abc-123"]
+    - ElementEnd
+
+- id: element_with_prose
+  desc: Element with inline prose
+  udon: "|p Hello, world!\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Hello, world!"]
+    - ElementEnd
+
+- id: rightward_with_prose
+  desc: Nested elements with prose at end
+  udon: "|a |b Content here\n"
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - [Text, "Content here"]
+    - ElementEnd
+    - ElementEnd

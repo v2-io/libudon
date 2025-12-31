@@ -125,7 +125,7 @@
 
   |state[:bracket]
     |c[<R>]                     | ->                               |>> :post_bracket
-    |default                  | Attr($id) | /value_sameline      |>> :bracket_close
+    |default                  | Attr($id) | /value_bracket       |>> :bracket_close
 
   |state[:bracket_close]
     |c[<R>]                     | ->                               |>> :post_bracket
@@ -176,7 +176,7 @@
   |state[:check_sameline_pipe]
     |c[{]                     | -> | /embedded                   |>> :post_child
     |c[LETTER'[.?!*+]         | /element(COL - 1, elem_col)      |>> :post_child
-    |default                  | /sameline_text(elem_col, <P>)      |>> :children
+    |default                  | /sameline_text(elem_col, 124)      |>> :children
 
   |state[:check_sameline_semi]
     |c[{]                     | -> | /brace_comment              |>> :pre_content
@@ -184,7 +184,7 @@
 
   |state[:check_sameline_bang]
     |c[{]                     | -> | /inline_directive           |>> :pre_content
-    |default                  | /sameline_text(elem_col, '!')      |>> :children
+    |default                  | /sameline_text(elem_col, 33)       |>> :children
 
   |state[:post_child]
     |c[\n]                    | ->                               |>> :children
@@ -346,6 +346,14 @@
     |c[<L>]                   | /array_embedded                  |return
     |default                  | MARK | /typed_value(1, <RB>)     |return
 
+; Bracket ID value - IDs are always BareValue (no type detection)
+; Space or ] terminates
+|function[value_bracket:BareValue]  | MARK
+  |state[:main]
+    |c[<R>]                   | TERM                             |return
+    |c[ ]                     | TERM                             |return
+    |default                  | ->                               |>>
+
 ; DRYed: quoted_string(:quote) - parameterized by quote character
 |function[quoted_string:StringValue]  :quote  | MARK
   |state[:main]
@@ -388,58 +396,67 @@
   |if[parent_col >= 0 && line_col <= parent_col]             |return  ; dedent
 
   |state[:content]
-    | /text(line_col, parent_col, <P>)                           |return
+    | /text(line_col, parent_col, 124)                           |return
 
 
-; text takes optional prepend byte (0 = none, | = pipe for prose_pipe)
+; text - block-level prose content
+; Same pattern as sameline_text: advance past special chars, check what follows.
+; prepend: 0 = none, 124 = '|', 33 = '!'
 |function[text:Text]  :line_col :parent_col :prepend
   |state[:entry]
-    | PREPEND(:prepend)                                          |>> :main
+    |if[prepend == 124]      | PREPEND(|)                       |>> :main
+    |default                  |                                  |>> :main
 
   |state[:main]
     |c[\n]                    | TERM                             |return
-    |c[|]                     | TERM | ->                        |>> :check_pipe
-    |c[;]                     | TERM | ->                        |>> :check_semi
-    |c[!]                     | TERM | ->                        |>> :check_bang
+    |c[|]                     | ->                               |>> :check_pipe
+    |c[;]                     | ->                               |>> :check_semi
+    |c[!]                     | ->                               |>> :check_bang
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | -> | /embedded | MARK            |>> :main
-    |default                  | MARK | PREPEND(|)                |>> :main
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | /embedded | MARK |>> :main
+    |default                  |                                  |>> :main
 
   |state[:check_semi]
-    |c[{]                     | -> | /brace_comment | MARK       |>> :main
-    |default                  | /line_comment_content            |return
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | /brace_comment | MARK |>> :main
+    |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
-    |c[{]                     | -> | /inline_directive | MARK    |>> :main
-    |default                  | MARK | PREPEND(!)                |>> :main
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | /inline_directive | MARK |>> :main
+    |default                  |                                  |>> :main
 
 
-; sameline_text with optional prepend byte (0 = none, | or ! for pipe/bang variants)
+; sameline_text - text on same line as element
+; When special chars (|;!) are encountered, we advance past them, then check
+; what follows. If special construct, emit text before it and parse construct.
+; If not special, just continue (char is included in text).
+; prepend: 0 = none, 124 = '|', 33 = '!'
 |function[sameline_text:Text]  :elem_col :prepend  | MARK
   |state[:entry]
-    | PREPEND(:prepend)                                          |>> :main
+    |if[prepend == 124]      | PREPEND(|)                       |>> :main
+    |if[prepend == 33]       | PREPEND(!)                       |>> :main
+    |default                  |                                  |>> :main
 
   |state[:main]
     |c[\n]                    | TERM                             |return
-    |c[|]                     | TERM | ->                        |>> :check_pipe
-    |c[;]                     | TERM | ->                        |>> :check_semi
-    |c[!]                     | TERM | ->                        |>> :check_bang
+    |c[|]                     | ->                               |>> :check_pipe
+    |c[;]                     | ->                               |>> :check_semi
+    |c[!]                     | ->                               |>> :check_bang
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | -> | /embedded | MARK            |>> :main
-    |c[LETTER'[.?!*+]         | /element(COL - 1, elem_col) | MARK   |>> :main
-    |default                  | MARK | PREPEND(|)                |>> :main
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | /embedded | MARK |>> :main
+    |c[LETTER'[.?!*+]         | TERM(-1) | Text(USE_MARK) | /element(COL - 1, elem_col) | MARK |>> :main
+    |default                  |                                  |>> :main
 
   |state[:check_semi]
-    |c[{]                     | -> | /brace_comment | MARK       |>> :main
-    |default                  | TERM | /line_comment_content     |return
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | /brace_comment | MARK |>> :main
+    |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
-    |c[{]                     | -> | /inline_directive | MARK    |>> :main
-    |default                  | MARK | PREPEND(!)                |>> :main
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | /inline_directive | MARK |>> :main
+    |default                  |                                  |>> :main
 
 
 ; ============================================================================
