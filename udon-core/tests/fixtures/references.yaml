@@ -1,0 +1,23 @@
+---
+- id: id_reference
+  desc: id reference
+  udon: |-
+    |page
+      @[header]
+  events: []
+- id: attribute_merge_reference
+  desc: attribute merge reference
+  udon: "|database :[base-db] :name mydb"
+  events: []
+- id: class_as_mixin
+  desc: class as mixin
+  udon: |-
+    |.defaults
+      :pool 5
+  events: []
+- id: element_using_mixin
+  desc: element using mixin
+  udon: |-
+    |database.defaults
+      :name mydb
+  events: []

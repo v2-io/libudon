@@ -1,0 +1,42 @@
+---
+- id: empty_input
+  desc: empty input
+  udon: ''
+  events: []
+- id: single_comment
+  desc: single comment
+  udon: "; this is a comment\n"
+  events: []
+- id: multiple_comments
+  desc: multiple comments
+  udon: |
+    ; first
+    ; second
+    ; third
+  events: []
+- id: simple_text
+  desc: simple text
+  udon: 'Hello world
+
+    '
+  events: []
+- id: text_with_comment
+  desc: text with comment
+  udon: 'Some text ; with comment
+
+    '
+  events: []
+- id: blank_lines
+  desc: blank lines
+  udon: |2+
+
+
+
+  events: []
+- id: mixed_content
+  desc: mixed content
+  udon: |
+    ; Comment
+    Text line
+    ; Another comment
+  events: []

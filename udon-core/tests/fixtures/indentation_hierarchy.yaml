@@ -1,0 +1,57 @@
+---
+- id: greater_column_is_child
+  desc: greater column is child
+  udon: |-
+    |parent
+      |child
+  events: []
+- id: same_column_is_sibling
+  desc: same column is sibling
+  udon: |-
+    |parent
+      |child
+      |sibling
+  events: []
+- id: same_column_is_sibling_not_child
+  desc: same column is sibling not child
+  udon: |-
+    |parent
+      |child
+      |sibling
+       |inside
+  events: []
+- id: lesser_column_dedents
+  desc: lesser column dedents
+  udon: |-
+    |a
+      |b
+        |c
+    |d
+  events: []
+- id: partial_dedent
+  desc: partial dedent
+  udon: |-
+    |a
+      |b
+        |c
+      |d
+  events: []
+- id: closing_multiple_levels
+  desc: closing multiple levels
+  udon: |-
+    |one
+      |two
+        |three
+          |four
+    sibling prose
+  events: []
+- id: deep_nesting_then_full_close
+  desc: deep nesting then full close
+  udon: |-
+    |a
+     |b
+      |c
+       |d
+        |e
+    |f
+  events: []

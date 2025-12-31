@@ -1,0 +1,25 @@
+---
+- id: simple_element
+  desc: simple element
+  udon: "|foo"
+  events: []
+- id: element_with_hyphen
+  desc: element with hyphen
+  udon: "|foo-bar"
+  events: []
+- id: element_with_underscore
+  desc: element with underscore
+  udon: "|foo_bar"
+  events: []
+- id: element_with_numbers
+  desc: element with numbers
+  udon: "|h1"
+  events: []
+- id: anonymous_element
+  desc: anonymous element
+  udon: "| text"
+  events: []
+- id: quoted_element_name
+  desc: quoted element name
+  udon: "|'has spaces'"
+  events: []

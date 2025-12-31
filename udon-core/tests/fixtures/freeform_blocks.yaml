@@ -1,0 +1,30 @@
+---
+- id: basic_freeform_block
+  desc: basic freeform block
+  udon: |-
+    ```
+    freeform content
+    ```
+  events: []
+- id: freeform_preserves_pipes
+  desc: freeform preserves pipes
+  udon: |-
+    ```
+    |not-an-element
+    |another
+    ```
+  events: []
+- id: freeform_inside_element
+  desc: freeform inside element
+  udon: |-
+    |code
+      ```
+      raw content
+      ```
+  events: []
+- id: unclosed_freeform_error
+  desc: unclosed freeform error
+  udon: |-
+    ```
+    unclosed
+  events: []

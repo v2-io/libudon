@@ -1,0 +1,25 @@
+---
+- id: element_with_question
+  desc: element with question
+  udon: "|foo?"
+  events: []
+- id: element_with_bang
+  desc: element with bang
+  udon: "|foo!"
+  events: []
+- id: element_with_star
+  desc: element with star
+  udon: "|foo*"
+  events: []
+- id: element_with_plus
+  desc: element with plus
+  udon: "|foo+"
+  events: []
+- id: suffix_after_id
+  desc: suffix after id
+  udon: "|foo[id]?"
+  events: []
+- id: suffix_space_separated
+  desc: suffix space separated
+  udon: "|foo.bar ?"
+  events: []

@@ -1,0 +1,23 @@
+---
+- id: escaped_pipe_is_text
+  desc: escaped pipe is text
+  udon: "'|not-element"
+  events: []
+- id: escaped_colon_is_text
+  desc: escaped colon is text
+  udon: |-
+    |el
+      ':not-attr
+  events: []
+- id: escaped_semicolon_is_text
+  desc: escaped semicolon is text
+  udon: "';not-comment"
+  events: []
+- id: escaped_apostrophe_is_text
+  desc: escaped apostrophe is text
+  udon: "''literal-apostrophe"
+  events: []
+- id: escaped_bang_is_text
+  desc: escaped bang is text
+  udon: "'!not-directive"
+  events: []

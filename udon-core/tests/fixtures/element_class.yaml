@@ -1,0 +1,17 @@
+---
+- id: element_with_class
+  desc: element with class
+  udon: "|foo.bar"
+  events: []
+- id: element_with_multiple_classes
+  desc: element with multiple classes
+  udon: "|foo.bar.baz"
+  events: []
+- id: anonymous_with_class
+  desc: anonymous with class
+  udon: "|.foo"
+  events: []
+- id: quoted_class_name
+  desc: quoted class name
+  udon: "|foo.'has spaces'"
+  events: []

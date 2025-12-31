@@ -1,0 +1,46 @@
+---
+- id: block_comment_inside_element
+  desc: block comment inside element
+  udon: |-
+    |parent
+      |child
+       ; inside child
+  events: []
+- id: block_comment_as_sibling
+  desc: block comment as sibling
+  udon: |-
+    |parent
+      |child
+      ; sibling comment
+  events: []
+- id: block_comment_closes_multiple_levels
+  desc: block comment closes multiple levels
+  udon: |-
+    |parent
+      |child
+        |grandchild
+    ; closes all
+    |sibling
+  events: []
+- id: inline_comment_stripped_from_output
+  desc: inline comment stripped from output
+  udon: "|p This is text ;{TODO} and more."
+  events: []
+- id: inline_comment_at_end_of_line
+  desc: inline comment at end of line
+  udon: "|p Some text ;{comment at end}"
+  events: []
+- id: nested_inline_comment
+  desc: nested inline comment
+  udon: "|p Text ;{outer ;{inner} outer} more."
+  events: []
+- id: escaped_semicolon_at_line_start
+  desc: escaped semicolon at line start
+  udon: "'; This starts with semicolon"
+  events: []
+- id: escaped_semicolon_in_element
+  desc: escaped semicolon in element
+  udon: |-
+    |p
+      '; literal semicolon
+  events: []

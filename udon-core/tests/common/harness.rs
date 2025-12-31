@@ -49,7 +49,8 @@ fn format_event(event: &Event) -> String {
         Event::Raw { content, .. } => format!("Raw {:?}", String::from_utf8_lossy(content)),
         Event::Integer { content, .. } => format!("Integer {:?}", String::from_utf8_lossy(content)),
         Event::Float { content, .. } => format!("Float {:?}", String::from_utf8_lossy(content)),
-        Event::Error { code, .. } => format!("Error {:?}", code),
+        // Format error code as string to match YAML fixture format
+        Event::Error { code, .. } => format!("Error \"{:?}\"", code),
     }
 }
 

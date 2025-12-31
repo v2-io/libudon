@@ -1,0 +1,238 @@
+---
+- id: basic_interpolation
+  desc: basic interpolation
+  udon: "|p Hello, !{{user.name}}!"
+  events: []
+- id: interpolation_standalone
+  desc: interpolation standalone
+  udon: "!{{greeting}}"
+  events: []
+- id: interpolation_property_access
+  desc: interpolation property access
+  udon: "|p !{{user.profile.name}}"
+  events: []
+- id: interpolation_array_access
+  desc: interpolation array access
+  udon: "|p First: !{{items[0]}}"
+  events: []
+- id: multiple_interpolations
+  desc: multiple interpolations
+  udon: "|p !{{first}} and !{{second}} and !{{third}}"
+  events: []
+- id: interpolation_with_filter
+  desc: interpolation with filter
+  udon: "|p Hello, !{{name | capitalize}}!"
+  events: []
+- id: interpolation_multiple_filters
+  desc: interpolation multiple filters
+  udon: "|p !{{text | strip | capitalize | truncate}}"
+  events: []
+- id: interpolation_filter_with_arg
+  desc: interpolation filter with arg
+  udon: '|p !{{date | format "%Y-%m-%d"}}'
+  events: []
+- id: interpolation_filter_with_multiple_args
+  desc: interpolation filter with multiple args
+  udon: '|p !{{price | currency "USD"}}'
+  events: []
+- id: interpolation_at_child_line_start
+  desc: interpolation at child line start
+  udon: |-
+    |parent
+      !{{'the-issue' | embed}}
+  events: []
+- id: inline_comment_at_child_line_start
+  desc: inline comment at child line start
+  udon: |-
+    |parent
+      ;{and this, as an edge case}
+  events: []
+- id: interpolation_multiple_child_lines
+  desc: interpolation multiple child lines
+  udon: |-
+    |parent
+      !{{first}}
+      !{{second}}
+  events: []
+- id: interpolation_with_surrounding_text
+  desc: interpolation with surrounding text
+  udon: |-
+    |parent
+      before !{{middle}} after
+  events: []
+- id: interpolation_in_attribute_value
+  desc: interpolation in attribute value
+  udon: "|a :href !{{base}}/users"
+  events: []
+- id: interpolation_full_attribute_value
+  desc: interpolation full attribute value
+  udon: "|div :class !{{computed_class}}"
+  events: []
+- id: interpolation_in_element_id
+  desc: interpolation in element id
+  udon: "|div[!{{item.id}}]"
+  events: []
+- id: if_directive
+  desc: if directive
+  udon: |-
+    !if logged_in
+      |greeting Welcome!
+  events: []
+- id: if_else_directive
+  desc: if else directive
+  udon: |-
+    !if logged_in
+      |p Welcome
+    !else
+      |p Please login
+  events: []
+- id: if_elif_else_directive
+  desc: if elif else directive
+  udon: |-
+    !if admin
+      |p Admin
+    !elif moderator
+      |p Mod
+    !else
+      |p User
+  events: []
+- id: if_with_comparison
+  desc: if with comparison
+  udon: |-
+    !if age >= 18
+      |p Adult
+  events: []
+- id: if_with_logical_operators
+  desc: if with logical operators
+  udon: |-
+    !if verified and subscribed
+      |p Premium user
+  events: []
+- id: if_with_contains
+  desc: if with contains
+  udon: |-
+    !if tags contains "featured"
+      |badge Featured
+  events: []
+- id: unless_directive
+  desc: unless directive
+  udon: |-
+    !unless disabled
+      |button Click me
+  events: []
+- id: for_directive
+  desc: for directive
+  udon: |-
+    !for item in items
+      |li !{{item.name}}
+  events: []
+- id: for_with_index
+  desc: for with index
+  udon: |-
+    !for item in items
+      |li !{{forloop.index}}: !{{item}}
+  events: []
+- id: for_nested
+  desc: for nested
+  udon: |-
+    !for row in rows
+      |tr
+        !for cell in row
+          |td !{{cell}}
+  events: []
+- id: for_with_limit
+  desc: for with limit
+  udon: |-
+    !for item in items limit:5
+      |li !{{item}}
+  events: []
+- id: let_directive
+  desc: let directive
+  udon: |-
+    !let name = user.first_name
+      |p Hello !{{name}}
+  events: []
+- id: include_directive
+  desc: include directive
+  udon: "!include partials/header"
+  events: []
+- id: include_with_variables
+  desc: include with variables
+  udon: '!include partials/card title: "Hello"'
+  events: []
+- id: raw_block_directive
+  desc: raw block directive
+  udon: |-
+    !:elixir:
+      def hello, do: :world
+  events: []
+- id: raw_block_preserves_pipes
+  desc: raw block preserves pipes
+  udon: |-
+    !:elixir:
+      value |> transform() |> output()
+  events: []
+- id: raw_block_preserves_colons
+  desc: raw block preserves colons
+  udon: |-
+    !:python:
+      def foo():
+        return {:key => "value"}
+  events: []
+- id: raw_multiple_languages
+  desc: raw multiple languages
+  udon: |-
+    !:sql:
+      SELECT * FROM users
+  events: []
+- id: raw_multiple_languages
+  desc: raw multiple languages
+  udon: |-
+    !:json:
+      {"key": "value"}
+  events: []
+- id: raw_inline_directive
+  desc: raw inline directive
+  udon: '|p The data is !{:json:{"key": "value"}}.'
+  events: []
+- id: raw_inline_nested_braces
+  desc: raw inline nested braces
+  udon: "|p Pattern: !{:regex:[a-z]{3,5}}"
+  events: []
+- id: raw_inline_sql
+  desc: raw inline sql
+  udon: "|p Query: !{:sql:SELECT * FROM users}"
+  events: []
+- id: raw_inline_with_nested_json
+  desc: raw inline with nested json
+  udon: '|p !{:json:{"outer": {"inner": [1, 2, 3]}}}'
+  events: []
+- id: unclosed_interpolation_error
+  desc: unclosed interpolation error
+  udon: "|p Hello !{{unclosed"
+  events: []
+- id: empty_interpolation
+  desc: empty interpolation
+  udon: "|p Value: !{{}}"
+  events: []
+- id: single_brace_is_directive_not_interpolation
+  desc: single brace is directive not interpolation
+  udon: "|p !{:text:hello world}"
+  events: []
+- id: directive_at_root_level
+  desc: directive at root level
+  udon: |-
+    !if true
+      |root Content
+  events: []
+- id: directive_inside_element
+  desc: directive inside element
+  udon: |-
+    |div
+      !if show
+        |p Conditional content
+  events: []
+- id: escaped_bang_is_not_directive
+  desc: escaped bang is not directive
+  udon: "|p This is '!not a directive"
+  events: []

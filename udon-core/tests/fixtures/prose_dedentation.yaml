@@ -1,0 +1,94 @@
+---
+- id: basic_dedentation_uniform_indent
+  desc: basic dedentation uniform indent
+  udon: |-
+    |section **The great indent**
+      This content line 1
+      This content line 2
+  events: []
+- id: inline_content_not_stripped
+  desc: inline content not stripped
+  udon: "|p Hello world"
+  events: []
+- id: content_base_established_by_first_indented_line
+  desc: content base established by first indented line
+  udon: |-
+    |element
+      first line
+      second line
+  events: []
+- id: large_content_base_user_choice
+  desc: large content base user choice
+  udon: |-
+    |element
+            first line
+            second line
+  events: []
+- id: content_base_aligned_with_inline_content
+  desc: content base aligned with inline content
+  udon: |-
+    |later-part This stuff is here
+                and continues here
+                and here too
+  events: []
+- id: extra_spaces_preserved_beyond_content_base
+  desc: extra spaces preserved beyond content base
+  udon: |-
+    |element
+      first line
+        extra spaces
+  events: []
+- id: warning_on_lesser_indent
+  desc: warning on lesser indent
+  udon: |-
+    |element
+          first line
+       less indent
+       now at base
+  events: []
+- id: multiple_warnings_decreasing_indent
+  desc: multiple warnings decreasing indent
+  udon: |-
+    |element
+          first
+       second
+      third
+  events: []
+- id: inline_content_does_not_set_content_base
+  desc: inline content does not set content base
+  udon: |-
+    |element Here is inline
+      first indented
+      second line
+  events: []
+- id: nested_elements_independent_content_base
+  desc: nested elements independent content base
+  udon: |-
+    |outer
+      |inner
+        prose for inner
+      prose for outer
+  events: []
+- id: inline_element_then_indented_prose
+  desc: inline element then indented prose
+  udon: |-
+    |first |second Some prose
+      This is first's prose
+  events: []
+- id: blank_lines_passed_through
+  desc: blank lines passed through
+  udon: |-
+    |element
+      first paragraph
+
+      second paragraph
+  events: []
+- id: freeform_block_no_dedentation
+  desc: freeform block no dedentation
+  udon: |-
+    |code
+      ```
+      def foo():
+          return 1
+      ```
+  events: []

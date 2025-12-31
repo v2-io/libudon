@@ -1,0 +1,68 @@
+---
+- id: inline_nesting_basic
+  desc: inline nesting basic
+  udon: "|one |two |three"
+  events: []
+- id: inline_equivalence_to_vertical
+  desc: inline equivalence to vertical
+  udon: |-
+    |one
+         |two
+              |three
+  events: []
+- id: inline_equivalence_minimal_indent
+  desc: inline equivalence minimal indent
+  udon: |-
+    |one
+      |two
+        |three
+  events: []
+- id: sibling_after_inline_elements
+  desc: sibling after inline elements
+  udon: |-
+    |one |two |three
+      |alpha
+  events: []
+- id: column_alignment_is_sibling
+  desc: column alignment is sibling
+  udon: |-
+    |one |two |three
+         |alpha
+  events: []
+- id: child_of_inline_element_between_columns
+  desc: child of inline element between columns
+  udon: |-
+    |one |two |three
+            |alpha
+  events: []
+- id: child_of_inline_at_same_column_as_next
+  desc: child of inline at same column as next
+  udon: |-
+    |one |two |three
+              |alpha
+  events: []
+- id: multi_line_progression
+  desc: multi line progression
+  udon: |-
+    |one |two |three
+           |alpha
+         |beta
+  events: []
+- id: stack_state_after_dedent
+  desc: stack state after dedent
+  udon: |-
+    |one |two |three
+      |alpha
+         |beta
+  events: []
+- id: many_inline_elements
+  desc: many inline elements
+  udon: |-
+    |a |b |c |d |e |f |g
+             |child-of-c
+       |child-of-a
+  events: []
+- id: inline_with_text_content
+  desc: inline with text content
+  udon: "|a |b |c text for c"
+  events: []

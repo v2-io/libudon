@@ -1,0 +1,17 @@
+---
+- id: multiple_inline_attributes
+  desc: multiple inline attributes
+  udon: "|el :k1 v1 :k2 v2"
+  events: []
+- id: attribute_value_terminates_at_next_attribute
+  desc: attribute value terminates at next attribute
+  udon: "|el :msg hello world :count 5"
+  events: []
+- id: attribute_value_terminates_at_inline_child
+  desc: attribute value terminates at inline child
+  udon: "|parent :attr value |child"
+  events: []
+- id: quoted_attribute_key
+  desc: quoted attribute key
+  udon: "|el :'my key' value"
+  events: []

@@ -1,0 +1,9 @@
+---
+- id: inline_text
+  desc: inline text
+  udon: "|p Hello world"
+  events: []
+- id: prose_line
+  desc: prose line
+  udon: Just some prose
+  events: []

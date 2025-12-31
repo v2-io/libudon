@@ -1,0 +1,33 @@
+---
+- id: basic_inline_comment
+  desc: basic inline comment
+  udon: "|p Text ;{TODO: fix this} more text."
+  events: []
+- id: inline_comment_with_nested_braces
+  desc: inline comment with nested braces
+  udon: "|p Text ;{comment with {nested} braces} continues."
+  events: []
+- id: multiple_inline_comments
+  desc: multiple inline comments
+  udon: "|p First ;{note 1} middle ;{note 2} end."
+  events: []
+- id: inline_comment_in_element
+  desc: inline comment in element
+  udon: "|div Content here ;{hidden note}"
+  events: []
+- id: unclosed_inline_comment_error
+  desc: unclosed inline comment error
+  udon: "|p Text ;{unclosed comment"
+  events: []
+- id: inline_comment_vs_line_comment
+  desc: inline comment vs line comment
+  udon: "; This is a line comment"
+  events: []
+- id: inline_comment_vs_line_comment
+  desc: inline comment vs line comment
+  udon: "|p ;{This is inline} text"
+  events: []
+- id: comment_emitted_not_stripped
+  desc: comment emitted not stripped
+  udon: "|p Before ;{emitted comment} after"
+  events: []

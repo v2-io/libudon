@@ -1,0 +1,93 @@
+---
+- id: hex_integer
+  desc: hex integer
+  udon: "|el :val 0xFF"
+  events: []
+- id: hex_integer_lowercase
+  desc: hex integer lowercase
+  udon: "|el :val 0xff"
+  events: []
+- id: octal_integer
+  desc: octal integer
+  udon: "|el :val 0o755"
+  events: []
+- id: binary_integer
+  desc: binary integer
+  udon: "|el :val 0b1010"
+  events: []
+- id: integer_with_underscores
+  desc: integer with underscores
+  udon: "|el :val 1_000_000"
+  events: []
+- id: negative_integer
+  desc: negative integer
+  udon: "|el :val -42"
+  events: []
+- id: float_basic
+  desc: float basic
+  udon: "|el :val 3.14"
+  events: []
+- id: float_scientific_notation
+  desc: float scientific notation
+  udon: "|el :val 1.5e-3"
+  events: []
+- id: float_scientific_uppercase
+  desc: float scientific uppercase
+  udon: "|el :val 1E10"
+  events: []
+- id: float_with_underscores
+  desc: float with underscores
+  udon: "|el :val 1_000.5"
+  events: []
+- id: rational_number
+  desc: rational number
+  udon: "|el :val 1/3r"
+  events: []
+- id: complex_number
+  desc: complex number
+  udon: "|el :val 3+4i"
+  events: []
+- id: pure_imaginary
+  desc: pure imaginary
+  udon: "|el :val 5i"
+  events: []
+- id: nil_keyword
+  desc: nil keyword
+  udon: "|el :val nil"
+  events: []
+- id: null_keyword
+  desc: null keyword
+  udon: "|el :val null"
+  events: []
+- id: tilde_nil
+  desc: tilde nil
+  udon: "|el :val ~"
+  events: []
+- id: true_lowercase_only
+  desc: true lowercase only
+  udon: "|el :val true"
+  events: []
+- id: true_uppercase_is_string
+  desc: true uppercase is string
+  udon: "|el :val True"
+  events: []
+- id: false_uppercase_is_string
+  desc: false uppercase is string
+  udon: "|el :val FALSE"
+  events: []
+- id: quoted_forces_string_type
+  desc: quoted forces string type
+  udon: '|el :val "42"'
+  events: []
+- id: quoted_true_is_string
+  desc: quoted true is string
+  udon: '|el :val "true"'
+  events: []
+- id: flag_attribute_is_true
+  desc: flag attribute is true
+  udon: "|el :enabled"
+  events: []
+- id: flag_followed_by_another_attribute
+  desc: flag followed by another attribute
+  udon: "|el :debug :name foo"
+  events: []

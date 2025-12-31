@@ -1,0 +1,101 @@
+---
+- id: basic_embedded_element
+  desc: basic embedded element
+  udon: "|p This has |{em emphasis} here"
+  events: []
+- id: embedded_with_attributes
+  desc: embedded with attributes
+  udon: "|p Click |{a :href /foo here}!"
+  events: []
+- id: nested_embedded_elements
+  desc: nested embedded elements
+  udon: "|p See |{a :href /doc the |{em official} docs}."
+  events: []
+- id: multiple_embedded_siblings
+  desc: multiple embedded siblings
+  udon: "|nav |{a Home} |{a About}"
+  events: []
+- id: embedded_anonymous_element
+  desc: embedded anonymous element
+  udon: "|p Some |{.highlight important} text"
+  events: []
+- id: embedded_with_id
+  desc: embedded with id
+  udon: "|p Some |{span[myid] text} here"
+  events: []
+- id: embedded_with_id_and_class
+  desc: embedded with id and class
+  udon: "|p |{span[id].highlight text}"
+  events: []
+- id: embedded_with_suffix
+  desc: embedded with suffix
+  udon: "|form |{field? optional}"
+  events: []
+- id: embedded_with_interpolation
+  desc: embedded with interpolation
+  udon: "|p Hello |{em !{{user.name}}}!"
+  events: []
+- id: embedded_with_interpolation_and_text
+  desc: embedded with interpolation and text
+  udon: "|p |{a :href !{{base_url}} click here}"
+  events: []
+- id: deeply_nested_embedded
+  desc: deeply nested embedded
+  udon: "|p |{a |{b |{c deep}}}"
+  events: []
+- id: complex_nested_with_attributes
+  desc: complex nested with attributes
+  udon: "|p |{div.outer |{span[id].inner :data val text}}"
+  events: []
+- id: embedded_empty
+  desc: embedded empty
+  udon: "|p before |{} after"
+  events: []
+- id: embedded_with_braces_in_content
+  desc: embedded with braces in content
+  udon: '|p |{code "func() { return 1; }"}'
+  events: []
+- id: embedded_adjacent
+  desc: embedded adjacent
+  udon: "|p |{a one}|{b two}"
+  events: []
+- id: unclosed_embedded_element_error
+  desc: unclosed embedded element error
+  udon: "|p This has |{em unclosed"
+  events: []
+- id: unclosed_nested_embedded_error
+  desc: unclosed nested embedded error
+  udon: "|p |{a |{b text}"
+  events: []
+- id: mismatched_braces_error
+  desc: mismatched braces error
+  udon: "|p |{a text}}"
+  events: []
+- id: nav_with_pipe_separators
+  desc: nav with pipe separators
+  udon: "|nav |{a Home} | |{a About} | |{a Help}"
+  events: []
+- id: dense_nav_embedded_list
+  desc: dense nav embedded list
+  udon: "|ul |{li |{a Home} | }|{li |{a About} | }|{li |{a Exit}}"
+  events: []
+- id: breadcrumb_with_separators
+  desc: breadcrumb with separators
+  udon: "|nav.breadcrumb |{a Home} > |{a Products} > |{a Widget}"
+  events: []
+- id: inline_formatting_mixed
+  desc: inline formatting mixed
+  udon: "|p Click |{a :href /here here} or press |{kbd Ctrl}+|{kbd C} to copy."
+  events: []
+- id: table_cell_with_embedded
+  desc: table cell with embedded
+  udon: "|table |tr |td |{strong Name} |td |{em Value}"
+  events: []
+- id: embedded_with_interpolation_and_pipes
+  desc: embedded with interpolation and pipes
+  udon: "|p Status: |{span.status !{status}} | Updated: |{time !{updated_at}}"
+  events: []
+- id: deeply_nested_with_text_between
+  desc: deeply nested with text between
+  udon: "|div |{p Start |{em |{strong deep}} middle |{code end}} after"
+  events: []

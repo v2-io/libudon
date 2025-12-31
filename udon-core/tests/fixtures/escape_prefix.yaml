@@ -1,0 +1,11 @@
+---
+- id: escaped_pipe
+  desc: escaped pipe
+  udon: "'|not-element"
+  events: []
+- id: escaped_colon
+  desc: escaped colon
+  udon: |-
+    |foo
+      ':not-attr
+  events: []

@@ -1,0 +1,25 @@
+---
+- id: tab_character_error
+  desc: tab character error
+  udon: "|el\n\t|child"
+  events: []
+- id: unclosed_double_quote_string
+  desc: unclosed double quote string
+  udon: '|el :val "unclosed'
+  events: []
+- id: unclosed_single_quote_string
+  desc: unclosed single quote string
+  udon: "|el :val 'unclosed"
+  events: []
+- id: unclosed_array
+  desc: unclosed array
+  udon: "|el :val [1 2 3"
+  events: []
+- id: unclosed_bracket_in_id
+  desc: unclosed bracket in id
+  udon: "|el[unclosed"
+  events: []
+- id: unclosed_quoted_element_name
+  desc: unclosed quoted element name
+  udon: "|'unclosed name"
+  events: []

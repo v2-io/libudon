@@ -1,0 +1,37 @@
+---
+- id: pipe_followed_by_letter_is_element
+  desc: pipe followed by letter is element
+  udon: "|div"
+  events: []
+- id: pipe_followed_by_bracket_is_anonymous_with_id
+  desc: pipe followed by bracket is anonymous with id
+  udon: "|[myid]"
+  events: []
+- id: pipe_followed_by_dot_is_anonymous_with_class
+  desc: pipe followed by dot is anonymous with class
+  udon: "|.myclass"
+  events: []
+- id: pipe_followed_by_brace_is_embedded
+  desc: pipe followed by brace is embedded
+  udon: "|p |{em emphasized}"
+  events: []
+- id: pipe_followed_by_quote_is_quoted_name
+  desc: pipe followed by quote is quoted name
+  udon: "|'my element'"
+  events: []
+- id: pipe_followed_by_space_is_anonymous_element
+  desc: pipe followed by space is anonymous element
+  udon: "| content"
+  events: []
+- id: pipe_in_markdown_table_is_prose
+  desc: pipe in markdown table is prose
+  udon: "| Header | Header |"
+  events: []
+- id: pipe_followed_by_number_is_prose
+  desc: pipe followed by number is prose
+  udon: "|123"
+  events: []
+- id: pipe_followed_by_hyphen_is_prose
+  desc: pipe followed by hyphen is prose
+  udon: "|- list item"
+  events: []

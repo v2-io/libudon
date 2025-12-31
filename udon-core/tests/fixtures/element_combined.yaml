@@ -1,0 +1,9 @@
+---
+- id: full_identity
+  desc: full identity
+  udon: "|foo[id].bar.baz ?"
+  events: []
+- id: suffix_before_id
+  desc: suffix before id
+  udon: "|foo?[id]"
+  events: []

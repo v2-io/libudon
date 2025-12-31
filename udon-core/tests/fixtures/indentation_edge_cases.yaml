@@ -1,0 +1,39 @@
+---
+- id: single_space_indent_is_valid
+  desc: single space indent is valid
+  udon: |-
+    |a
+     |b
+  events: []
+- id: mixed_indent_levels_valid
+  desc: mixed indent levels valid
+  udon: |-
+    |parent
+      |child1
+     |child2
+  events: []
+- id: element_with_only_attributes_then_sibling
+  desc: element with only attributes then sibling
+  udon: |-
+    |a
+      :attr value
+    |b
+  events: []
+- id: prose_then_element_at_same_level
+  desc: prose then element at same level
+  udon: |-
+    |parent
+      some prose
+      |child
+  events: []
+- id: element_at_column_zero_after_deep_nesting
+  desc: element at column zero after deep nesting
+  udon: |-
+    |a
+     |b
+      |c
+       |d
+        |e
+         |f
+    |z
+  events: []

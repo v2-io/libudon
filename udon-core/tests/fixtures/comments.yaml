@@ -1,0 +1,111 @@
+# Comment and text tests
+# Tests from old parsing.rs comments_and_text module
+
+# Empty input
+- id: empty_input
+  desc: Empty input produces no events
+  udon: ""
+  events: []
+
+- id: blank_lines
+  desc: Blank lines produce no events
+  udon: "\n\n\n"
+  events: []
+
+# Comment tests
+- id: single_comment
+  desc: Single line comment
+  udon: "; this is a comment\n"
+  events:
+    - [Comment, " this is a comment"]
+
+- id: multiple_comments
+  desc: Multiple consecutive comments
+  udon: "; first\n; second\n; third\n"
+  events:
+    - [Comment, " first"]
+    - [Comment, " second"]
+    - [Comment, " third"]
+
+- id: comment_no_space
+  desc: Comment without space after semicolon
+  udon: ";no space\n"
+  events:
+    - [Comment, "no space"]
+
+- id: comment_empty
+  desc: Empty comment (just semicolon)
+  udon: ";\n"
+  events:
+    - [Comment, ""]
+
+# Text at column 0 (prose not in element)
+- id: simple_text
+  desc: Simple text line (no element)
+  udon: "Hello world\n"
+  events:
+    - [Text, "Hello world"]
+
+- id: text_with_inline_comment
+  desc: Text followed by inline comment
+  udon: "Some text ; with comment\n"
+  events:
+    - [Text, "Some text "]
+    - [Comment, " with comment"]
+
+- id: mixed_content
+  desc: Comments and text interspersed
+  udon: "; Comment\nText line\n; Another comment\n"
+  events:
+    - [Comment, " Comment"]
+    - [Text, "Text line"]
+    - [Comment, " Another comment"]
+
+# Inline comments in elements
+- id: element_with_inline_comment
+  desc: Element with inline comment after content
+  udon: "|p Hello ; comment\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Hello "]
+    - [Comment, " comment"]
+    - ElementEnd
+
+- id: element_only_comment
+  desc: Element followed only by comment (no content)
+  udon: "|div ; just a comment\n"
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Comment, " just a comment"]
+    - ElementEnd
+
+# NOTE: Block attributes currently don't parse inline comments
+# (the semicolon is included in the value). This may be a bug.
+# Spec shows: "|element :attr value  ; Inline comment after content"
+- id: comment_on_attr_line
+  desc: Comment on indented attribute line (current behavior)
+  udon: "|el\n  :attr val ; comment\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "attr"]
+    - [BareValue, "val ; comment"]
+    - ElementEnd
+
+# Edge cases
+- id: text_no_trailing_newline
+  desc: Text at EOF without trailing newline
+  udon: "Hello"
+  events:
+    - [Text, "Hello"]
+
+# NOTE: Parser emits UnclosedComment error for EOF without newline.
+# This might be intentional strictness.
+- id: comment_no_trailing_newline
+  desc: Comment at EOF without trailing newline (gets error)
+  udon: "; comment"
+  events:
+    - [Comment, " comment"]
+    - [Error, "UnclosedComment"]

@@ -1,0 +1,29 @@
+---
+- id: suffix_after_name
+  desc: suffix after name
+  udon: "|field?"
+  events: []
+- id: suffix_after_name_before_id
+  desc: suffix after name before id
+  udon: "|field?[myid]"
+  events: []
+- id: suffix_after_id
+  desc: suffix after id
+  udon: "|field[myid]?"
+  events: []
+- id: suffix_after_id_space_before_class
+  desc: suffix after id space before class
+  udon: "|field[myid]? .cls"
+  events: []
+- id: suffix_space_separated_at_end
+  desc: suffix space separated at end
+  udon: "|field[myid].cls ?"
+  events: []
+- id: suffix_on_class_reserved_error
+  desc: suffix on class reserved error
+  udon: "|field.cls?"
+  events: []
+- id: multiple_suffixes
+  desc: multiple suffixes
+  udon: "|field?!"
+  events: []

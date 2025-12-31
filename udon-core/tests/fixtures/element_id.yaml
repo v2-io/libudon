@@ -1,0 +1,13 @@
+---
+- id: element_with_id
+  desc: element with id
+  udon: "|foo[myid]"
+  events: []
+- id: anonymous_with_id
+  desc: anonymous with id
+  udon: "|[myid]"
+  events: []
+- id: empty_id
+  desc: empty id
+  udon: "|foo[]"
+  events: []

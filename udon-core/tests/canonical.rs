@@ -68,11 +68,16 @@ fn test_attributes() {
     run_fixture("attributes");
 }
 
+#[test]
+fn test_comments() {
+    run_fixture("comments");
+}
+
 // Integration test: run all fixtures
 #[test]
 #[ignore] // Run with --ignored for full suite
 fn test_all_fixtures() {
-    for name in &["elements", "values", "indentation", "attributes"] {
+    for name in &["elements", "values", "indentation", "attributes", "comments"] {
         run_fixture(name);
     }
 }
