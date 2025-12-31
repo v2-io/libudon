@@ -162,7 +162,7 @@
   |state[:post_identity]
     |c[\n]                    | ->                               |>> :children
     |c[ \t]                   | ->                               |>> :pre_content
-    |default                  | /inline_text(elem_col)           |>> :children
+    |default                  | /inline_text(elem_col, 0)        |>> :children
 
   |state[:pre_content]
     |c[\n]                    | ->                               |>> :children
@@ -171,12 +171,12 @@
     |c[|]                     | ->                               |>> :check_inline_pipe
     |c[;]                     | ->                               |>> :check_inline_semi
     |c[!]                     | ->                               |>> :check_inline_bang
-    |default                  | /inline_text(elem_col)           |>> :children
+    |default                  | /inline_text(elem_col, 0)        |>> :children
 
   |state[:check_inline_pipe]
     |c[{]                     | -> | /embedded                   |>> :post_child
     |c[LETTER'[.?!*+]         | /element(COL, elem_col)          |>> :post_child
-    |default                  | /inline_text_pipe(elem_col)      |>> :children
+    |default                  | /inline_text(elem_col, <P>)      |>> :children
 
   |state[:check_inline_semi]
     |c[{]                     | -> | /brace_comment              |>> :pre_content
@@ -184,13 +184,13 @@
 
   |state[:check_inline_bang]
     |c[{]                     | -> | /inline_directive           |>> :pre_content
-    |default                  | /inline_text_bang(elem_col)      |>> :children
+    |default                  | /inline_text(elem_col, '!')      |>> :children
 
   |state[:post_child]
     |c[\n]                    | ->                               |>> :children
     |c[ \t]                   | ->                               |>>
     |c[|]                     | ->                               |>> :check_inline_pipe
-    |default                  | /inline_text(elem_col)           |>> :children
+    |default                  | /inline_text(elem_col, 0)        |>> :children
 
   ; === Children Loop ===
   |state[:children]
@@ -406,55 +406,11 @@
     |default                  | MARK | PREPEND(!)                |>> :main
 
 
-|function[inline_text:Text]  :elem_col  | MARK
-  |state[:main]
-    |c[\n]                    | TERM                             |return
-    |c[|]                     | TERM | ->                        |>> :check_pipe
-    |c[;]                     | TERM | ->                        |>> :check_semi
-    |c[!]                     | TERM | ->                        |>> :check_bang
-    |default                  | ->                               |>>
+; inline_text with optional prepend byte (0 = none, | or ! for pipe/bang variants)
+|function[inline_text:Text]  :elem_col :prepend  | MARK
+  |state[:entry]
+    | PREPEND(:prepend)                                          |>> :main
 
-  |state[:check_pipe]
-    |c[{]                     | -> | /embedded | MARK            |>> :main
-    |c[LETTER'[.?!*+]         | /element(COL, elem_col) | MARK   |>> :main
-    |default                  | MARK | PREPEND(|)                |>> :main
-
-  |state[:check_semi]
-    |c[{]                     | -> | /brace_comment | MARK       |>> :main
-    |default                  | TERM | /line_comment_content     |return
-
-  |state[:check_bang]
-    |c[{]                     | -> | /inline_directive | MARK    |>> :main
-    |default                  | MARK | PREPEND(!)                |>> :main
-
-
-; NOTE: inline_text_pipe and inline_text_bang are clones of inline_text
-; with different PREPEND. The DSL doesn't support caller-side PREPEND or
-; shared states, so we maintain these as separate functions. Keep in sync!
-
-|function[inline_text_pipe:Text]  :elem_col  | MARK | PREPEND(|)
-  |state[:main]
-    |c[\n]                    | TERM                             |return
-    |c[|]                     | TERM | ->                        |>> :check_pipe
-    |c[;]                     | TERM | ->                        |>> :check_semi
-    |c[!]                     | TERM | ->                        |>> :check_bang
-    |default                  | ->                               |>>
-
-  |state[:check_pipe]
-    |c[{]                     | -> | /embedded | MARK            |>> :main
-    |c[LETTER'[.?!*+]         | /element(COL, elem_col) | MARK   |>> :main
-    |default                  | MARK | PREPEND(|)                |>> :main
-
-  |state[:check_semi]
-    |c[{]                     | -> | /brace_comment | MARK       |>> :main
-    |default                  | TERM | /line_comment_content     |return
-
-  |state[:check_bang]
-    |c[{]                     | -> | /inline_directive | MARK    |>> :main
-    |default                  | MARK | PREPEND(!)                |>> :main
-
-
-|function[inline_text_bang:Text]  :elem_col  | MARK | PREPEND(!)
   |state[:main]
     |c[\n]                    | TERM                             |return
     |c[|]                     | TERM | ->                        |>> :check_pipe

@@ -817,7 +817,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    self.parse_inline_text(elem_col, on_event);
+                    self.parse_inline_text(elem_col, 0, on_event);
                     state = State::Children;
                     continue;
                         }
@@ -859,7 +859,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    self.parse_inline_text(elem_col, on_event);
+                    self.parse_inline_text(elem_col, 0, on_event);
                     state = State::Children;
                     continue;
                         }
@@ -883,7 +883,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    self.parse_inline_text_pipe(elem_col, on_event);
+                    self.parse_inline_text(elem_col, b'|', on_event);
                     state = State::Children;
                     continue;
                         }
@@ -921,7 +921,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    self.parse_inline_text_bang(elem_col, on_event);
+                    self.parse_inline_text(elem_col, b'!', on_event);
                     state = State::Children;
                     continue;
                         }
@@ -948,7 +948,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    self.parse_inline_text(elem_col, on_event);
+                    self.parse_inline_text(elem_col, 0, on_event);
                     state = State::Children;
                     continue;
                         }
@@ -1759,250 +1759,32 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse inline_text -> Text
-    fn parse_inline_text<F>(&mut self, elem_col: i32, on_event: &mut F)
+    fn parse_inline_text<F>(&mut self, elem_col: i32, prepend: u8, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
         self.mark();
         #[derive(Clone, Copy)]
-        enum State { Main, CheckPipe, CheckSemi, CheckBang,  }
-        let mut state = State::Main;
+        enum State { Entry, Main, CheckPipe, CheckSemi, CheckBang,  }
+        let mut state = State::Entry;
         loop {
             match state {
-                State::Main => {
-                    match self.scan_to4(b'\n', b'|', b';', b'!') {
-                        Some(b'\n') => {
-                    self.set_term(0);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        Some(b'|') => {
-                    self.set_term(0);
-                    self.advance();
-                    state = State::CheckPipe;
-                    continue;
-                        }
-                        Some(b';') => {
-                    self.set_term(0);
-                    self.advance();
-                    state = State::CheckSemi;
-                    continue;
-                        }
-                        Some(b'!') => {
-                    self.set_term(0);
-                    self.advance();
-                    state = State::CheckBang;
-                    continue;
-                        }
-                        None => {
-                            on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
-                }
-                State::CheckPipe => {
+                State::Entry => {
                     if self.eof() {
                         on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
-                        Some(b'{') => {
-                    self.advance();
-                    self.parse_embedded(on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
-                        Some(b) if Self::is_letter(b) || b == b'\'' || b == b'[' || b == b'.' || b == b'?' || b == b'!' || b == b'*' || b == b'+' => {
-                    self.parse_element(self.col(), elem_col, on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
                         _ => {
-                    self.mark();
-                    // Unknown command: raw
-                    // Unknown command: raw
+                    if prepend != 0 {
+                        // WARNING: No call sites found for PREPEND(:prepend) - cannot determine valid values
+                        unreachable!("PREPEND(:prepend) has no traced call sites");
+                    }
                     state = State::Main;
                     continue;
                         }
                     }
                 }
-                State::CheckSemi => {
-                    if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'{') => {
-                    self.advance();
-                    self.parse_brace_comment(on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
-                        _ => {
-                    self.set_term(0);
-                    self.parse_line_comment_content(on_event);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::CheckBang => {
-                    if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'{') => {
-                    self.advance();
-                    self.parse_inline_directive(on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
-                        _ => {
-                    self.mark();
-                    on_event(Event::Text { content: b"!", span: self.span() });
-                    state = State::Main;
-                    continue;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Parse inline_text_pipe -> Text
-    fn parse_inline_text_pipe<F>(&mut self, elem_col: i32, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        self.mark();
-        #[derive(Clone, Copy)]
-        enum State { Main, CheckPipe, CheckSemi, CheckBang,  }
-        let mut state = State::Main;
-        loop {
-            match state {
-                State::Main => {
-                    match self.scan_to4(b'\n', b'|', b';', b'!') {
-                        Some(b'\n') => {
-                    self.set_term(0);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        Some(b'|') => {
-                    self.set_term(0);
-                    self.advance();
-                    state = State::CheckPipe;
-                    continue;
-                        }
-                        Some(b';') => {
-                    self.set_term(0);
-                    self.advance();
-                    state = State::CheckSemi;
-                    continue;
-                        }
-                        Some(b'!') => {
-                    self.set_term(0);
-                    self.advance();
-                    state = State::CheckBang;
-                    continue;
-                        }
-                        None => {
-                            on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
-                }
-                State::CheckPipe => {
-                    if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'{') => {
-                    self.advance();
-                    self.parse_embedded(on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
-                        Some(b) if Self::is_letter(b) || b == b'\'' || b == b'[' || b == b'.' || b == b'?' || b == b'!' || b == b'*' || b == b'+' => {
-                    self.parse_element(self.col(), elem_col, on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
-                        _ => {
-                    self.mark();
-                    // Unknown command: raw
-                    // Unknown command: raw
-                    state = State::Main;
-                    continue;
-                        }
-                    }
-                }
-                State::CheckSemi => {
-                    if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'{') => {
-                    self.advance();
-                    self.parse_brace_comment(on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
-                        _ => {
-                    self.set_term(0);
-                    self.parse_line_comment_content(on_event);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::CheckBang => {
-                    if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'{') => {
-                    self.advance();
-                    self.parse_inline_directive(on_event);
-                    self.mark();
-                    state = State::Main;
-                    continue;
-                        }
-                        _ => {
-                    self.mark();
-                    on_event(Event::Text { content: b"!", span: self.span() });
-                    state = State::Main;
-                    continue;
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// Parse inline_text_bang -> Text
-    fn parse_inline_text_bang<F>(&mut self, elem_col: i32, on_event: &mut F)
-    where
-        F: FnMut(Event<'a>),
-    {
-        self.mark();
-        #[derive(Clone, Copy)]
-        enum State { Main, CheckPipe, CheckSemi, CheckBang,  }
-        let mut state = State::Main;
-        loop {
-            match state {
                 State::Main => {
                     match self.scan_to4(b'\n', b'|', b';', b'!') {
                         Some(b'\n') => {
