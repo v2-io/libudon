@@ -13,6 +13,7 @@ repository = "https://github.com/josephwecker/libudon"
 [workspace.dependencies]
 unicode-xid = "0.2"
 memchr = "2.7"
+phf = { version = "0.11", features = ["macros"] }
 
 # Dev dependencies
 criterion = "0.5"

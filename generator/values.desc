@@ -23,6 +23,22 @@
 ;   BareValue  - unrecognized (string)
 
 ; ============================================================================
+; Keyword Lookup (phf perfect hash)
+; ============================================================================
+
+; O(1) keyword lookup for boolean/nil literals
+|keywords[bare_kw] :fallback /emit_bare_value
+  | true   => BoolTrue
+  | false  => BoolFalse
+  | null   => Nil
+  | nil    => Nil
+
+; Fallback: emit accumulated content as BareValue
+|function[emit_bare_value:BareValue]
+  |state[:main]
+    |default                  |                                  |return
+
+; ============================================================================
 ; Main Entry - Context-Aware Value Parser
 ; ============================================================================
 
@@ -34,12 +50,10 @@
     |c[\n]                    | BareValue(USE_MARK)              |return
     |c[ ]                     |                                  |>> :check_space
     |c[:bracket]              | BareValue(USE_MARK)              |return
-    |c[t]                     | ->                               |>> :kw_t
-    |c[f]                     | ->                               |>> :kw_f
-    |c[n]                     | ->                               |>> :kw_n
     |c[0]                     | ->                               |>> :num_zero
     |c[123456789]             |                                  |>> :num_dec
     |c[-+]                    | ->                               |>> :num_sign
+    |LETTER                   | ->                               |>> :accumulate
     |default                  | ->                               |>>
 
   |state[:check_space]
@@ -50,101 +64,26 @@
     |c[;]                     | TERM(-1) | BareValue(USE_MARK)   |return  ; comment
     |default                  | ->                               |>> :main
 
-  ; === Keywords: true ===
-  |state[:kw_t]
-    |c[r]                     | ->                               |>> :kw_tr
-    |default                  |                                  |>> :string
-  |state[:kw_tr]
-    |c[u]                     | ->                               |>> :kw_tru
-    |default                  |                                  |>> :string
-  |state[:kw_tru]
-    |c[e]                     | ->                               |>> :kw_true_end
-    |default                  |                                  |>> :string
-  |state[:kw_true_end]
-    |eof                      | BoolTrue(USE_MARK)               |return
-    |c[\n]                    | BoolTrue(USE_MARK)               |return
-    |c[ ]                     |                                  |>> :kw_true_space
-    |c[:bracket]              | BoolTrue(USE_MARK)               |return
-    |default                  |                                  |>> :string
-  |state[:kw_true_space]
-    |if[space_term == 0]                                         |>> :kw_true_block
-    |default                  | BoolTrue(USE_MARK)               |return
-  |state[:kw_true_block]
-    |c[;]                     | BoolTrue(USE_MARK)               |return
-    |default                  | ->                               |>> :string
-
-  ; === Keywords: false ===
-  |state[:kw_f]
-    |c[a]                     | ->                               |>> :kw_fa
-    |default                  |                                  |>> :string
-  |state[:kw_fa]
-    |c[l]                     | ->                               |>> :kw_fal
-    |default                  |                                  |>> :string
-  |state[:kw_fal]
-    |c[s]                     | ->                               |>> :kw_fals
-    |default                  |                                  |>> :string
-  |state[:kw_fals]
-    |c[e]                     | ->                               |>> :kw_false_end
-    |default                  |                                  |>> :string
-  |state[:kw_false_end]
-    |eof                      | BoolFalse(USE_MARK)              |return
-    |c[\n]                    | BoolFalse(USE_MARK)              |return
-    |c[ ]                     |                                  |>> :kw_false_space
-    |c[:bracket]              | BoolFalse(USE_MARK)              |return
-    |default                  |                                  |>> :string
-  |state[:kw_false_space]
-    |if[space_term == 0]                                         |>> :kw_false_block
-    |default                  | BoolFalse(USE_MARK)              |return
-  |state[:kw_false_block]
-    |c[;]                     | BoolFalse(USE_MARK)              |return
-    |default                  | ->                               |>> :string
-
-  ; === Keywords: null ===
-  |state[:kw_n]
-    |c[u]                     | ->                               |>> :kw_nu
-    |c[i]                     | ->                               |>> :kw_ni
-    |default                  |                                  |>> :string
-  |state[:kw_nu]
-    |c[l]                     | ->                               |>> :kw_nul
-    |default                  |                                  |>> :string
-  |state[:kw_nul]
-    |c[l]                     | ->                               |>> :kw_null_end
-    |default                  |                                  |>> :string
-  |state[:kw_null_end]
-    |eof                      | Nil(USE_MARK)                    |return
-    |c[\n]                    | Nil(USE_MARK)                    |return
-    |c[ ]                     |                                  |>> :kw_null_space
-    |c[:bracket]              | Nil(USE_MARK)                    |return
-    |default                  |                                  |>> :string
-  |state[:kw_null_space]
-    |if[space_term == 0]                                         |>> :kw_null_block
-    |default                  | Nil(USE_MARK)                    |return
-  |state[:kw_null_block]
-    |c[;]                     | Nil(USE_MARK)                    |return
-    |default                  | ->                               |>> :string
-
-  ; === Keywords: nil ===
-  |state[:kw_ni]
-    |c[l]                     | ->                               |>> :kw_nil_end
-    |default                  |                                  |>> :string
-  |state[:kw_nil_end]
-    |eof                      | Nil(USE_MARK)                    |return
-    |c[\n]                    | Nil(USE_MARK)                    |return
-    |c[ ]                     |                                  |>> :kw_nil_space
-    |c[:bracket]              | Nil(USE_MARK)                    |return
-    |default                  |                                  |>> :string
-  |state[:kw_nil_space]
-    |if[space_term == 0]                                         |>> :kw_nil_block
-    |default                  | Nil(USE_MARK)                    |return
-  |state[:kw_nil_block]
-    |c[;]                     | Nil(USE_MARK)                    |return
-    |default                  | ->                               |>> :string
+  ; === Accumulate identifier for keyword lookup ===
+  |state[:accumulate]
+    |eof                      | TERM | KEYWORDS(bare_kw)         |return
+    |c[\n]                    | TERM | KEYWORDS(bare_kw)         |return
+    |c[ ]                     |                                  |>> :accum_space
+    |c[:bracket]              | TERM | KEYWORDS(bare_kw)         |return
+    |LABEL_CONT               | ->                               |>>
+    |default                  | TERM | KEYWORDS(bare_kw)         |return
+  |state[:accum_space]
+    |if[space_term == 0]                                         |>> :accum_block
+    |default                  | TERM | KEYWORDS(bare_kw)         |return
+  |state[:accum_block]
+    |c[;]                     | TERM(-1) | KEYWORDS(bare_kw)     |return
+    |default                  | ->                               |>> :accumulate
 
   ; === Numbers: after sign ===
   |state[:num_sign]
     |c[0]                     | ->                               |>> :num_zero
     |c[123456789]             |                                  |>> :num_dec
-    |default                  |                                  |>> :string
+    |default                  |                                  |>> :accumulate
 
   ; === Numbers: zero prefix (check for 0x, 0o, 0b) ===
   |state[:num_zero]

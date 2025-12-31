@@ -6,6 +6,7 @@
 //! Call stack = element stack. True recursion handles nesting naturally.
 
 use std::ops::Range;
+use phf::phf_map;
 /// Events emitted by the parser.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Event<'a> {
@@ -137,6 +138,14 @@ impl<'a> Event<'a> {
     }
 }
 
+/// Keyword lookup map for bare_kw.
+/// Generated from |keywords[bare_kw] - O(1) perfect hash lookup.
+static BARE_KW_KEYWORDS: phf::Map<&'static [u8], u8> = phf_map! {
+    b"true" => 0u8,
+    b"false" => 1u8,
+    b"null" => 2u8,
+    b"nil" => 3u8,
+};
 /// Error codes for parse errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParseErrorCode {
@@ -446,6 +455,39 @@ impl<'a> Parser<'a> {
                 self.pos = self.input.len();
                 None
             }
+        }
+    }
+
+    // ========== Keyword Lookup: bare_kw ==========
+    /// Look up accumulated content in bare_kw keywords.
+    /// Returns true if a keyword matched (event emitted), false otherwise.
+    fn lookup_bare_kw<F>(&mut self, on_event: &mut F) -> bool
+    where
+        F: FnMut(Event<'a>),
+    {
+        let content = self.term();
+        if let Some(&id) = BARE_KW_KEYWORDS.get(content) {
+            let span = self.span_from_mark();
+            match id {
+                0 => on_event(Event::BoolTrue { content, span }),
+                1 => on_event(Event::BoolFalse { content, span }),
+                2 => on_event(Event::Nil { content, span }),
+                3 => on_event(Event::Nil { content, span }),
+                _ => unreachable!("keyword map contains only valid ids"),
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Look up and emit keyword, or call fallback function.
+    fn lookup_bare_kw_or_fallback<F>(&mut self, on_event: &mut F)
+    where
+        F: FnMut(Event<'a>),
+    {
+        if !self.lookup_bare_kw(on_event) {
+            self.parse_emit_bare_value(on_event);
         }
     }
 
@@ -2322,6 +2364,26 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse emit_bare_value -> BareValue
+    fn parse_emit_bare_value<F>(&mut self, on_event: &mut F)
+    where
+        F: FnMut(Event<'a>),
+    {
+        self.mark();
+        loop {
+            if self.eof() {
+                on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                return;
+            }
+            match self.peek() {
+                _ => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                }
+            }
+        }
+    }
+
     /// Parse typed_value -> BareValue
     fn parse_typed_value<F>(&mut self, space_term: i32, bracket: u8, on_event: &mut F)
     where
@@ -2329,7 +2391,7 @@ impl<'a> Parser<'a> {
     {
         self.mark();
         #[derive(Clone, Copy)]
-        enum State { Main, CheckSpace, BlockSpace, KwT, KwTr, KwTru, KwTrueEnd, KwTrueSpace, KwTrueBlock, KwF, KwFa, KwFal, KwFals, KwFalseEnd, KwFalseSpace, KwFalseBlock, KwN, KwNu, KwNul, KwNullEnd, KwNullSpace, KwNullBlock, KwNi, KwNilEnd, KwNilSpace, KwNilBlock, NumSign, NumZero, NumZeroSpace, NumZeroBlock, NumDec, NumDecSpace, NumDecBlock, NumHex, NumHexSpace, NumHexBlock, NumOct, NumOctSpace, NumOctBlock, NumBin, NumBinSpace, NumBinBlock, NumFloatFrac, NumFloatFracSpace, NumFloatFracBlock, NumFloatExp, NumFloatExpSpace, NumFloatExpBlock, NumFloatExpDigits, NumFloatExpDSpace, NumFloatExpDBlock, String, StringSpace, StringBlock,  }
+        enum State { Main, CheckSpace, BlockSpace, Accumulate, AccumSpace, AccumBlock, NumSign, NumZero, NumZeroSpace, NumZeroBlock, NumDec, NumDecSpace, NumDecBlock, NumHex, NumHexSpace, NumHexBlock, NumOct, NumOctSpace, NumOctBlock, NumBin, NumBinSpace, NumBinBlock, NumFloatFrac, NumFloatFracSpace, NumFloatFracBlock, NumFloatExp, NumFloatExpSpace, NumFloatExpBlock, NumFloatExpDigits, NumFloatExpDSpace, NumFloatExpDBlock, String, StringSpace, StringBlock,  }
         let mut state = State::Main;
         loop {
             match state {
@@ -2351,21 +2413,6 @@ impl<'a> Parser<'a> {
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
-                        Some(b't') => {
-                    self.advance();
-                    state = State::KwT;
-                    continue;
-                        }
-                        Some(b'f') => {
-                    self.advance();
-                    state = State::KwF;
-                    continue;
-                        }
-                        Some(b'n') => {
-                    self.advance();
-                    state = State::KwN;
-                    continue;
-                        }
                         Some(b'0') => {
                     self.advance();
                     state = State::NumZero;
@@ -2378,6 +2425,11 @@ impl<'a> Parser<'a> {
                         Some(b'-' | b'+') => {
                     self.advance();
                     state = State::NumSign;
+                    continue;
+                        }
+                        Some(b) if Self::is_letter(b) => {
+                    self.advance();
+                    state = State::Accumulate;
                     continue;
                         }
                         _ => {
@@ -2420,422 +2472,75 @@ impl<'a> Parser<'a> {
                         }
                     }
                 }
-                State::KwT => {
+                State::Accumulate => {
                     if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'r') => {
-                    self.advance();
-                    state = State::KwTr;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwTr => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'u') => {
-                    self.advance();
-                    state = State::KwTru;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwTru => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'e') => {
-                    self.advance();
-                    state = State::KwTrueEnd;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwTrueEnd => {
-                    if self.eof() {
-                    on_event(Event::BoolTrue { content: self.term(), span: self.span_from_mark() });
+                    self.set_term(0);
+                    self.lookup_bare_kw_or_fallback(on_event);
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                     }
                     match self.peek() {
                         Some(b'\n') => {
-                    on_event(Event::BoolTrue { content: self.term(), span: self.span_from_mark() });
+                    self.set_term(0);
+                    self.lookup_bare_kw_or_fallback(on_event);
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                         Some(b' ') => {
-                    state = State::KwTrueSpace;
+                    state = State::AccumSpace;
                     continue;
                         }
                         Some(b) if b == bracket => {
-                    on_event(Event::BoolTrue { content: self.term(), span: self.span_from_mark() });
+                    self.set_term(0);
+                    self.lookup_bare_kw_or_fallback(on_event);
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
-                        _ => {
-                    state = State::String;
+                        Some(b) if Self::is_label_cont(b) => {
+                    self.advance();
                     continue;
+                        }
+                        _ => {
+                    self.set_term(0);
+                    self.lookup_bare_kw_or_fallback(on_event);
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
                         }
                     }
                 }
-                State::KwTrueSpace => {
+                State::AccumSpace => {
                     if self.eof() {
                         on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
                         _ if space_term == 0 => {
-                    state = State::KwTrueBlock;
+                    state = State::AccumBlock;
                     continue;
                         }
                         _ => {
-                    on_event(Event::BoolTrue { content: self.term(), span: self.span_from_mark() });
+                    self.set_term(0);
+                    self.lookup_bare_kw_or_fallback(on_event);
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                     }
                 }
-                State::KwTrueBlock => {
+                State::AccumBlock => {
                     if self.eof() {
                         on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                         return;
                     }
                     match self.peek() {
                         Some(b';') => {
-                    on_event(Event::BoolTrue { content: self.term(), span: self.span_from_mark() });
+                    self.set_term(-1);
+                    self.lookup_bare_kw_or_fallback(on_event);
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                         _ => {
                     self.advance();
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwF => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'a') => {
-                    self.advance();
-                    state = State::KwFa;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwFa => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::KwFal;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwFal => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b's') => {
-                    self.advance();
-                    state = State::KwFals;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwFals => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'e') => {
-                    self.advance();
-                    state = State::KwFalseEnd;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwFalseEnd => {
-                    if self.eof() {
-                    on_event(Event::BoolFalse { content: self.term(), span: self.span_from_mark() });
-                    return;
-                    }
-                    match self.peek() {
-                        Some(b'\n') => {
-                    on_event(Event::BoolFalse { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        Some(b' ') => {
-                    state = State::KwFalseSpace;
-                    continue;
-                        }
-                        Some(b) if b == bracket => {
-                    on_event(Event::BoolFalse { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwFalseSpace => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        _ if space_term == 0 => {
-                    state = State::KwFalseBlock;
-                    continue;
-                        }
-                        _ => {
-                    on_event(Event::BoolFalse { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::KwFalseBlock => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b';') => {
-                    on_event(Event::BoolFalse { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        _ => {
-                    self.advance();
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwN => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'u') => {
-                    self.advance();
-                    state = State::KwNu;
-                    continue;
-                        }
-                        Some(b'i') => {
-                    self.advance();
-                    state = State::KwNi;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwNu => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::KwNul;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwNul => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::KwNullEnd;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwNullEnd => {
-                    if self.eof() {
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                    }
-                    match self.peek() {
-                        Some(b'\n') => {
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        Some(b' ') => {
-                    state = State::KwNullSpace;
-                    continue;
-                        }
-                        Some(b) if b == bracket => {
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwNullSpace => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        _ if space_term == 0 => {
-                    state = State::KwNullBlock;
-                    continue;
-                        }
-                        _ => {
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::KwNullBlock => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b';') => {
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        _ => {
-                    self.advance();
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwNi => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b'l') => {
-                    self.advance();
-                    state = State::KwNilEnd;
-                    continue;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwNilEnd => {
-                    if self.eof() {
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                    }
-                    match self.peek() {
-                        Some(b'\n') => {
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        Some(b' ') => {
-                    state = State::KwNilSpace;
-                    continue;
-                        }
-                        Some(b) if b == bracket => {
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        _ => {
-                    state = State::String;
-                    continue;
-                        }
-                    }
-                }
-                State::KwNilSpace => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        _ if space_term == 0 => {
-                    state = State::KwNilBlock;
-                    continue;
-                        }
-                        _ => {
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                    }
-                }
-                State::KwNilBlock => {
-                    if self.eof() {
-                        on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        Some(b';') => {
-                    on_event(Event::Nil { content: self.term(), span: self.span_from_mark() });
-                    return;
-                        }
-                        _ => {
-                    self.advance();
-                    state = State::String;
+                    state = State::Accumulate;
                     continue;
                         }
                     }
@@ -2856,7 +2561,7 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         _ => {
-                    state = State::String;
+                    state = State::Accumulate;
                     continue;
                         }
                     }

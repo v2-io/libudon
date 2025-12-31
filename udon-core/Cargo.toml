@@ -9,6 +9,7 @@ description = "Core UDON parser - streaming event-based parser"
 [dependencies]
 unicode-xid = { workspace = true }
 memchr = { workspace = true }
+phf = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
