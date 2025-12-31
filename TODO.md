@@ -1,17 +1,59 @@
 # libudon TODO
 
-See `implementation-phase-3.md` for the current roadmap.
+See `PLAN.md` for the phase-3 roadmap.
 
-## Historical Note
+## Immediate: Nomenclature & Grammar Fixes
 
-The previous TODO.md contained issues from a Codex code review (Dec 2025) of the old
-ring-buffer/state-machine architecture. That architecture has been completely replaced
-by descent-generated recursive descent parsing. Most issues are now obsolete:
+Per `~/src/udon/SPEC-UPDATE.md`, the parser needs terminology and grammar fixes:
 
-- **Backpressure (#1)**: Eliminated by callback-based design (no ring buffer)
-- **Streaming resume (#4)**: Different approach in descent (multi-chunk support)
-- **Brace depth limit (#6)**: Still relevant - implement properly in udon.desc
-- **Unused scaffolds (#8-10)**: Deleted with old architecture
-- **Testing deficiency**: Still relevant - tests must derive from SPEC, not implementation
+### Terminology Refactor
 
-The relevant items have been integrated into implementation-phase-3.md.
+Rename functions in `udon.desc` to use consistent positional terminology:
+
+| Old Name | New Name | Purpose |
+|----------|----------|---------|
+| `inline_attr` | `sameline_attr` | Attr on element line |
+| `bare_value_inline` | `bare_value_sameline` | Sameline attr values |
+| `inline_text` | `sameline_text` | Text on element line |
+| `inline_text_pipe` | `sameline_text_pipe` | After `\|` on element line |
+| `inline_text_bang` | `sameline_text_bang` | After `!` on element line |
+
+### Value Terminator Fixes
+
+Current terminators are wrong - `}` and `]` terminate in wrong contexts:
+
+| Context | Current | Correct |
+|---------|---------|---------|
+| Block attr | `\n ]}` | `\n` or ` ;` |
+| Sameline attr | `\n :\|]}` | `\n ␣` |
+| Embedded attr | (same) | `\n ␣ }` |
+| Array item | (same) | `\n ␣ ]` |
+
+Need new/renamed functions:
+- `bare_value_block` - terminates `\n` or ` ;`
+- `bare_value_sameline` - terminates `\n ␣`
+- `bare_value_embedded` - terminates `\n ␣ }`
+- `bare_value_array` - terminates `\n ␣ ]`
+
+### Comment Handling
+
+- Block prose: `;` is literal (no change needed)
+- Sameline prose: `;` starts comment (verify this works)
+- Block attr: ` ;` (space-semicolon) starts comment
+- Escape: `\;` in sameline, quote in block attr
+
+## Testing
+
+- [ ] New test infrastructure for descent event model
+- [ ] Tests derived from SPEC.md, not implementation
+- [ ] Cover edge cases from SPEC-UPDATE.md terminology
+
+## From Previous Review
+
+- **Brace depth**: Ensure arbitrary depth works (counter or recursion)
+- **Span accuracy**: MARK positions for suffix/ID/class attributes
+
+## Cleanup
+
+- [ ] Remove `udon-core/src/values_parser.rs` (obsolete - values.desc now concatenated)
+- [ ] Update CLAUDE.md with new terminology
