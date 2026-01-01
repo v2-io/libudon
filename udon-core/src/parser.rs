@@ -229,7 +229,7 @@ impl<'a> Parser<'a> {
     #[inline(always)]
     fn mark(&mut self) {
         self.mark_pos = self.pos;
-        self.term_pos = self.pos; // Reset term position
+        self.term_pos = usize::MAX; // Sentinel: TERM not yet called
         // Note: prepend_buf is NOT cleared here - it persists until term() consumes it.
         // This allows PREPEND to be called before a nested function that does MARK.
     }
@@ -254,7 +254,7 @@ impl<'a> Parser<'a> {
     #[inline(always)]
     fn term(&mut self) -> std::borrow::Cow<'a, [u8]> {
         // Use term_pos if set after mark, otherwise use current pos
-        let end = if self.term_pos > self.mark_pos { self.term_pos } else { self.pos };
+        let end = if self.term_pos != usize::MAX { self.term_pos } else { self.pos };
         let slice = &self.input[self.mark_pos..end];
         if self.prepend_buf.is_empty() {
             std::borrow::Cow::Borrowed(slice)
@@ -273,7 +273,7 @@ impl<'a> Parser<'a> {
     #[inline(always)]
     fn span_from_mark(&self) -> Range<usize> {
         // Use term_pos if set after mark, otherwise use current pos
-        let end = if self.term_pos > self.mark_pos { self.term_pos } else { self.pos };
+        let end = if self.term_pos != usize::MAX { self.term_pos } else { self.pos };
         self.mark_pos..end
     }
 
@@ -576,7 +576,7 @@ impl<'a> Parser<'a> {
     {
         let mut col: i32 = 0;
         #[derive(Clone, Copy)]
-        enum State { Line, Dispatch, CheckFreeform, CheckFreeform2, CheckPipe,  }
+        enum State { Line, Dispatch, CheckApos, CheckFreeform, CheckFreeform2, CheckPipe,  }
         let mut state = State::Line;
         loop {
             match state {
@@ -640,12 +640,53 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'\'') => {
                     self.advance();
-                    self.parse_prose(col, -1, b"", on_event);
-                    state = State::Line;
+                    state = State::CheckApos;
                     continue;
                         }
                         _ => {
                     self.parse_prose(col, -1, b"", on_event);
+                    state = State::Line;
+                    continue;
+                        }
+                    }
+                }
+                State::CheckApos => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'|') => {
+                    self.advance();
+                    self.parse_prose(col, -1, b"|", on_event);
+                    state = State::Line;
+                    continue;
+                        }
+                        Some(b';') => {
+                    self.advance();
+                    self.parse_prose(col, -1, b";", on_event);
+                    state = State::Line;
+                    continue;
+                        }
+                        Some(b':') => {
+                    self.advance();
+                    self.parse_prose(col, -1, b":", on_event);
+                    state = State::Line;
+                    continue;
+                        }
+                        Some(b'!') => {
+                    self.advance();
+                    self.parse_prose(col, -1, b"!", on_event);
+                    state = State::Line;
+                    continue;
+                        }
+                        Some(b'\'') => {
+                    self.advance();
+                    self.parse_prose(col, -1, b"'", on_event);
+                    state = State::Line;
+                    continue;
+                        }
+                        _ => {
+                    self.parse_prose(col, -1, b"'", on_event);
                     state = State::Line;
                     continue;
                         }
@@ -940,22 +981,14 @@ impl<'a> Parser<'a> {
         on_event(Event::ElementStart { span: start_span.clone() });
         let mut col: i32 = 0;
         #[derive(Clone, Copy)]
-        enum State { Identity, PostIdentity, PreContent, CheckSamelinePipe, CheckSamelineSemi, CheckSamelineBang, PostChild, Children, CheckChild, ChildDispatch, ChildPipe, AfterChild,  }
+        enum State { Identity, PostIdentity, PreContent, CheckSamelinePipe, CheckSamelineSemi, CheckSamelineBang, PostChild, Children, CheckChild, ChildDispatch, ChildApos, ChildPipe, AfterChild,  }
         let mut state = State::Identity;
         loop {
             match state {
                 State::Identity => {
-                    if self.eof() {
-                        on_event(Event::ElementEnd { span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        _ => {
                     self.parse_parse_element_identity(0u8, on_event);
                     state = State::PostIdentity;
                     continue;
-                        }
-                    }
                 }
                 State::PostIdentity => {
                     if self.eof() {
@@ -1184,12 +1217,54 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'\'') => {
                     self.advance();
-                    self.parse_prose(col, elem_col, b"", on_event);
-                    state = State::Children;
+                    state = State::ChildApos;
                     continue;
                         }
                         _ => {
                     self.parse_prose(col, elem_col, b"", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                    }
+                }
+                State::ChildApos => {
+                    if self.eof() {
+                        on_event(Event::ElementEnd { span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'|') => {
+                    self.advance();
+                    self.parse_prose(col, elem_col, b"|", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        Some(b';') => {
+                    self.advance();
+                    self.parse_prose(col, elem_col, b";", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        Some(b':') => {
+                    self.advance();
+                    self.parse_prose(col, elem_col, b":", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        Some(b'!') => {
+                    self.advance();
+                    self.parse_prose(col, elem_col, b"!", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        Some(b'\'') => {
+                    self.advance();
+                    self.parse_prose(col, elem_col, b"'", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        _ => {
+                    self.parse_prose(col, elem_col, b"'", on_event);
                     state = State::Children;
                     continue;
                         }
@@ -1220,16 +1295,8 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::AfterChild => {
-                    if self.eof() {
-                        on_event(Event::ElementEnd { span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        _ => {
                     state = State::Children;
                     continue;
-                        }
-                    }
                 }
             }
         }
@@ -2060,17 +2127,9 @@ impl<'a> Parser<'a> {
         loop {
             match state {
                 State::Entry => {
-                    if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        _ => {
                     self.prepend_bytes(prepend);
                     state = State::Main;
                     continue;
-                        }
-                    }
                 }
                 State::Main => {
                     match self.scan_to4(b'\n', b'|', b';', b'!') {
@@ -2182,17 +2241,9 @@ impl<'a> Parser<'a> {
         loop {
             match state {
                 State::Entry => {
-                    if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
-                    }
-                    match self.peek() {
-                        _ => {
                     self.prepend_bytes(prepend);
                     state = State::Main;
                     continue;
-                        }
-                    }
                 }
                 State::Main => {
                     match self.scan_to4(b'\n', b'|', b';', b'!') {
@@ -2429,17 +2480,9 @@ impl<'a> Parser<'a> {
         loop {
             match state {
                 State::Identity => {
-                    if self.eof() {
-                        on_event(Event::EmbeddedEnd { span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        _ => {
                     self.parse_parse_element_identity(b'}', on_event);
                     state = State::PostIdentity;
                     continue;
-                        }
-                    }
                 }
                 State::PostIdentity => {
                     if self.eof() {
@@ -2596,7 +2639,7 @@ impl<'a> Parser<'a> {
                         }
                         _ => {
                     self.mark();
-                    // Unknown command: raw
+                    self.prepend_bytes(b";");
                     state = State::Main;
                     continue;
                         }
@@ -2637,7 +2680,7 @@ impl<'a> Parser<'a> {
         on_event(Event::DirectiveStart { span: start_span.clone() });
         let mut col: i32 = 0;
         #[derive(Clone, Copy)]
-        enum State { Dispatch, RawKind, RawColon, RawEol, RawContent, RawCheck, RawLine, AfterName, Condition, Children, CheckChild, ChildDispatch, ChildPipe,  }
+        enum State { Dispatch, RawKind, RawColon, RawEol, RawContent, RawCheck, RawLine, AfterName, Condition, Children, CheckChild, ChildDispatch, ChildApos, ChildPipe,  }
         let mut state = State::Dispatch;
         loop {
             match state {
@@ -2891,12 +2934,54 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'\'') => {
                     self.advance();
-                    self.parse_prose(col, line_col, b"", on_event);
-                    state = State::Children;
+                    state = State::ChildApos;
                     continue;
                         }
                         _ => {
                     self.parse_prose(col, line_col, b"", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                    }
+                }
+                State::ChildApos => {
+                    if self.eof() {
+                        on_event(Event::DirectiveEnd { span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'|') => {
+                    self.advance();
+                    self.parse_prose(col, line_col, b"|", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        Some(b';') => {
+                    self.advance();
+                    self.parse_prose(col, line_col, b";", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        Some(b':') => {
+                    self.advance();
+                    self.parse_prose(col, line_col, b":", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        Some(b'!') => {
+                    self.advance();
+                    self.parse_prose(col, line_col, b"!", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        Some(b'\'') => {
+                    self.advance();
+                    self.parse_prose(col, line_col, b"'", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        _ => {
+                    self.parse_prose(col, line_col, b"'", on_event);
                     state = State::Children;
                     continue;
                         }
@@ -3036,16 +3121,9 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::Content => {
-                    if self.eof() {
-                        on_event(Event::Error { code: ParseErrorCode::UnclosedDirective, span: self.span() });
-                        return;
-                    }
-                    match self.peek() {
-                        _ => {
+                    self.mark();
                     state = State::Scan;
                     continue;
-                        }
-                    }
                 }
                 State::Scan => {
                     match self.scan_to1(b'}') {

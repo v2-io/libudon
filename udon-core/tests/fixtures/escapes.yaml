@@ -14,15 +14,13 @@
   events:
     - [Text, ":not-an-attribute"]
 
-# NOTE: Bug - escaped semicolon currently splits into Text + Comment
-# Expected: [Text, ";not-a-comment"]
-# Actual: Text ";" then Comment "not-a-comment"
+# Per FULL-SPEC.md lines 104-124: '+ marker char escapes the marker.
+# The entire rest of the line becomes prose text.
 - id: escaped_semicolon
-  desc: Escaped semicolon (current buggy behavior)
+  desc: Escaped semicolon renders as literal semicolon plus rest of line
   udon: "';not-a-comment\n"
   events:
-    - [Text, ";"]
-    - [Comment, "not-a-comment"]
+    - [Text, ";not-a-comment"]
 
 - id: escaped_apostrophe
   desc: Escaped apostrophe renders as literal apostrophe

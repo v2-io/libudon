@@ -72,8 +72,18 @@
     |c['!']                   | -> | /block_directive(col)       |>> :line
     |c[';']                   | -> | /line_comment               |>> :line
     |c['`']                   | ->                               |>> :check_freeform
-    |c[<SQ>]                  | -> | /prose(col, -1, <>)         |>> :line
+    |c[<SQ>]                  | ->                               |>> :check_apos
     |default                  | /prose(col, -1, <>)              |>> :line
+
+  ; Block-level escape: ' followed by marker char outputs that char literally
+  ; Per FULL-SPEC.md lines 104-124: '+ |;:!' = escape, else preserve '
+  |state[:check_apos]
+    |c['|']                   | -> | /prose(col, -1, '|')        |>> :line
+    |c[';']                   | -> | /prose(col, -1, ';')        |>> :line
+    |c[':']                   | -> | /prose(col, -1, ':')        |>> :line
+    |c['!']                   | -> | /prose(col, -1, '!')        |>> :line
+    |c[<SQ>]                  | -> | /prose(col, -1, <SQ>)       |>> :line
+    |default                  | /prose(col, -1, <SQ>)            |>> :line  ; not escape, preserve '
 
   |state[:check_freeform]
     |c['`']                   | ->                               |>> :check_freeform2
@@ -218,8 +228,17 @@
     |c[':']                   | -> | /block_attr                 |>> :children
     |c['!']                   | -> | /block_directive(col)       |>> :children
     |c[';']                   | -> | /line_comment               |>> :children
-    |c[<SQ>]                  | -> | /prose(col, :elem_col, <>)  |>> :children
+    |c[<SQ>]                  | ->                               |>> :child_apos
     |default                  | /prose(col, :elem_col, <>)       |>> :children
+
+  ; Block-level escape inside element children (same as document-level)
+  |state[:child_apos]
+    |c['|']                   | -> | /prose(col, :elem_col, '|') |>> :children
+    |c[';']                   | -> | /prose(col, :elem_col, ';') |>> :children
+    |c[':']                   | -> | /prose(col, :elem_col, ':') |>> :children
+    |c['!']                   | -> | /prose(col, :elem_col, '!') |>> :children
+    |c[<SQ>]                  | -> | /prose(col, :elem_col, <SQ>)|>> :children
+    |default                  | /prose(col, :elem_col, <SQ>)     |>> :children
 
   |state[:child_pipe]
     |c['{']                   | -> | /embedded                   |>> :after_child
@@ -656,8 +675,17 @@
     |c[':']                   | -> | /block_attr                 |>> :children
     |c['!']                   | -> | /block_directive(col)       |>> :children
     |c[';']                   | -> | /line_comment               |>> :children
-    |c[<SQ>]                  | -> | /prose(col, :line_col, <>)  |>> :children
+    |c[<SQ>]                  | ->                               |>> :child_apos
     |default                  | /prose(col, :line_col, <>)       |>> :children
+
+  ; Block-level escape inside directive children
+  |state[:child_apos]
+    |c['|']                   | -> | /prose(col, :line_col, '|') |>> :children
+    |c[';']                   | -> | /prose(col, :line_col, ';') |>> :children
+    |c[':']                   | -> | /prose(col, :line_col, ':') |>> :children
+    |c['!']                   | -> | /prose(col, :line_col, '!') |>> :children
+    |c[<SQ>]                  | -> | /prose(col, :line_col, <SQ>)|>> :children
+    |default                  | /prose(col, :line_col, <SQ>)     |>> :children
 
   |state[:child_pipe]
     |c['{']                   | -> | /embedded                   |>> :children

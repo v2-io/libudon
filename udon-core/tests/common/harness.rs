@@ -128,9 +128,26 @@ pub fn run_test(case: &TestCase) -> TestResult {
 /// - 40% chance of UDON below
 ///
 /// If expected events is empty, this is a TODO test - skip variations.
+/// If expected events include Error, skip variations (error tests rely on EOF behavior).
 pub fn run_with_variations(case: &TestCase, gen: &mut Gen) -> TestResult {
     // Skip variations for TODO tests (empty expected)
     if case.events.is_empty() {
+        return run_test(case);
+    }
+
+    // Skip variations for error-related tests - they rely on specific EOF behavior
+    // and adding content after would change the semantics (e.g., unclosed
+    // interpolation tests need EOF to trigger the error, not appended content)
+    let expects_error = case.events.iter().any(|e| {
+        matches!(e, ExpectedEvent::Bare(s) | ExpectedEvent::WithContent(s, _) if s.starts_with("Error"))
+    });
+    // Also skip if the test ID suggests error/edge case testing
+    let is_error_test = case.id.contains("unclosed") || case.id.contains("error");
+    // Skip variations for freeform tests - freeform blocks only work at document root
+    let is_freeform_test = case.events.iter().any(|e| {
+        matches!(e, ExpectedEvent::Bare(s) if s == "FreeformStart")
+    });
+    if expects_error || is_error_test || is_freeform_test {
         return run_test(case);
     }
 
