@@ -27,7 +27,3 @@ std = []
 [[bench]]
 name = "parse"
 harness = false
-
-[[bench]]
-name = "values"
-harness = false

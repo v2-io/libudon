@@ -8,12 +8,10 @@
 //! - **parser.rs** - Generated recursive descent parser (callback-based)
 //! - **span.rs** - Span/Location types
 //! - **value.rs** - Scalar value type parsing (post-hoc classifier)
-//! - **values_parser.rs** - Generated streaming value parser (for benchmarking)
 
 pub mod parser;
 pub mod span;
 pub mod value;
-pub mod values_parser;
 
 pub use parser::*;
 pub use span::{Location, Span};

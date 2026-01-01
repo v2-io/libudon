@@ -1285,6 +1285,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::Name { content: self.term(), span: self.span_from_mark() });
@@ -1335,6 +1336,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::Name { content: self.term(), span: self.span_from_mark() });
@@ -1357,6 +1359,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
@@ -1382,6 +1385,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
@@ -1607,6 +1611,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::Attr { content: self.term(), span: self.span_from_mark() });
@@ -1632,6 +1637,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::Attr { content: self.term(), span: self.span_from_mark() });
@@ -1687,6 +1693,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             match self.scan_to2(b']', b' ') {
                 Some(b']') => {
@@ -1714,6 +1721,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             match self.scan_to2(b'"', b'\\') {
                 Some(b'"') => {
@@ -1743,6 +1751,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             match self.scan_to2(b'\'', b'\\') {
                 Some(b'\'') => {
@@ -1824,6 +1833,9 @@ impl<'a> Parser<'a> {
     where
         F: FnMut(Event<'a>),
     {
+                    if parent_col >= 0 && line_col <= parent_col {
+                    return;
+                    }
         loop {
             if self.eof() {
                 return;
@@ -1842,6 +1854,9 @@ impl<'a> Parser<'a> {
     where
         F: FnMut(Event<'a>),
     {
+                    if parent_col >= 0 && line_col <= parent_col {
+                    return;
+                    }
         loop {
             if self.eof() {
                 return;
@@ -2410,6 +2425,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             match self.scan_to1(b'\n') {
                 Some(b'\n') => {
@@ -2432,7 +2448,7 @@ impl<'a> Parser<'a> {
     where
         F: FnMut(Event<'a>),
     {
-        let mut depth: i32 = 0;
+        let mut depth: i32 = 1;
         #[derive(Clone, Copy)]
         enum State { Main, Check,  }
         let mut state = State::Main;
@@ -2481,6 +2497,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::Comment { content: self.term(), span: self.span_from_mark() });
@@ -2575,6 +2592,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         #[derive(Clone, Copy)]
         enum State { Main, CheckPipe, CheckSemi, CheckBang,  }
         let mut state = State::Main;
@@ -3104,6 +3122,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
+                    self.mark();
         loop {
             match self.scan_to1(b'}') {
                 Some(b'}') => {
@@ -3300,6 +3319,7 @@ impl<'a> Parser<'a> {
     where
         F: FnMut(Event<'a>),
     {
+                    self.mark();
         #[derive(Clone, Copy)]
         enum State { Main, MaybeRef, Reference, CheckSpace, BlockSpace, Accumulate, AccumSpace, AccumBlock, NumSign, NumZero, NumZeroSpace, NumZeroBlock, NumDec, NumDecSpace, NumDecBlock, NumHex, NumHexSpace, NumHexBlock, NumOct, NumOctSpace, NumOctBlock, NumBin, NumBinSpace, NumBinBlock, NumFloatFrac, NumFloatFracSpace, NumFloatFracBlock, NumFloatExp, NumFloatExpSpace, NumFloatExpBlock, NumFloatExpDigits, NumFloatExpDSpace, NumFloatExpDBlock, String, StringSpace, StringBlock,  }
         let mut state = State::Main;
