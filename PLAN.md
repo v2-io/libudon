@@ -291,6 +291,7 @@ descent debug generator/udon.desc --tokens
 ## Reference
 
 - `~/src/descent/CLAUDE.md` - descent usage guide
-- `~/src/udon/SPEC.md` - Authoritative UDON specification
+- `~/src/udon/FULL-SPEC.md` - Authoritative UDON specification
+- `~/src/udon/FULL-EBNF.md` - Extracted EBNF with known inconsistencies
 - `~/src/udon/implementation-phase-2.md` - Ideal streaming architecture
 - `~/src/udon/parser-strategy.md` - Multi-language strategy

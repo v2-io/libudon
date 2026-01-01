@@ -17,17 +17,18 @@ Key changes from old architecture:
 - **Deleted:** Old 307KB generated parser.rs
 - **New:** descent generates parser.rs from .desc files
 
-## The SPEC Files Are Ground Truth
+## The SPEC Is Ground Truth
 
-The UDON specification lives in three files at `~/src/udon/`:
+The UDON specification lives in a single authoritative file:
 
-- **SPEC.md** - Main syntax specification
-- **SPEC-INDENTS.md** - Indentation and nesting rules
-- **SPEC-UPDATE.md** - Recent changes and clarifications
+- **~/src/udon/FULL-SPEC.md** - Complete unified specification
 
-**If you don't have these three files in your context, stop and read them now.**
-Every session should start by confirming you understand the current spec. These
-are the ONLY authoritative sources for syntax rules.
+**If you don't have this file in your context, stop and read it now.**
+Every session should start by confirming you understand the current spec.
+This is the ONLY authoritative source for syntax rules.
+
+Note: The older `SPEC.md`, `SPEC-INDENTS.md`, and `SPEC-UPDATE.md` files are
+deprecated and superseded by FULL-SPEC.md.
 
 Do NOT use:
 - `_archive/` files (old architecture, outdated)
@@ -237,5 +238,5 @@ should make it more obvious what UDON does.
 ## Related Repositories
 
 - `~/src/descent` - Parser generator (Ruby gem, active development)
-- `~/src/udon` - Specification (SPEC.md, SPEC-INDENTS.md, SPEC-UPDATE.md)
+- `~/src/udon` - Specification (FULL-SPEC.md is authoritative)
 - `~/src/udon-ruby` - Ruby gem (needs FFI update)

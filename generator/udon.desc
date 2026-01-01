@@ -593,10 +593,11 @@
 ; Block Directives
 ; ============================================================================
 
-; Block directive - !name or !:lang: for raw
+; Block directive - !name or !:lang: for raw, or !{...} inline at document level
 |function[block_directive:Directive]  :line_col
   |state[:dispatch]
     |c[':']                   | ->                               |>> :raw_kind
+    |c['{']                   | -> | /sameline_directive            |return  ; !{...} inline form
     |c[XLBL_START]                | /name                            |>> :after_name
     |default                  |                                  |return  ; malformed
 
@@ -625,6 +626,7 @@
     |default                  | MARK                             |>> :raw_line
 
   |state[:raw_line]
+    |eof                      | TERM | RawContent(USE_MARK)      |return
     |c['\n']                  | TERM | RawContent(USE_MARK) | -> |>> :raw_content
     |default                  | ->                               |>>
 
