@@ -20,222 +20,149 @@ The tree builder (when implemented) will be just another event consumer.
 
 - [x] Elements with names (`|element`)
 - [x] Element identity (`|element[id].class1.class2`)
+- [x] Element suffixes (`?`, `!`, `*`, `+`)
 - [x] Sameline attributes (`:key value`)
 - [x] Block (indented) attributes
 - [x] Multiple sameline attributes (`:a 1 :b 2 :c 3`)
 - [x] Typed values via context-aware parsing:
   - Integer (decimal, hex 0x, octal 0o, binary 0b)
   - Float (with decimal or exponent)
+  - Rational (`1/3r`, `22/7r`)
+  - Complex (`3+4i`, `5i`, `3.5-2.1i`)
   - BoolTrue, BoolFalse (`true`, `false`)
   - Nil (`null`, `nil`)
   - BareValue (unquoted strings)
+  - StringValue (quoted `"double"` and `'single'`)
 - [x] Keywords via PHF perfect hash (`|keywords` directive)
 - [x] Context-aware terminators (block/sameline/embedded/array)
 - [x] Proper EOF handling via `|eof` directive
 - [x] Text/prose content
 - [x] Basic indentation hierarchy
 - [x] Nested elements
-
-### What's Incomplete
-
-- [x] Element suffixes (`?`, `!`, `*`, `+`)
 - [x] Embedded elements (`|{name attrs content}`)
-- [ ] Directives (`!if`, `!for`, `!include`, etc.)
-- [ ] Raw blocks (`!:lang:`)
-- [ ] Interpolation (`!{{expr}}`)
-- [ ] Block-level escape prefix (`'` before `|;:!'` at line start)
-- [x] Comments (`;` line comments working, `\;` sameline escape needed)
-- [ ] Quoted strings in values (`"double"`, `'single'`)
 - [x] Arrays (`[a b c]`)
+- [x] Comments (`;` line comments and `;{brace comments}`)
+- [x] Block-level escape prefix (`'` before `|;:!'` at line start)
+- [x] Directives (`!if`, `!elif`, `!else`, `!for`, `!let`, `!include`, `!unless`)
+- [x] Raw blocks (`!:lang:`) and inline raw (`!{:lang:content}`)
+- [x] Interpolation (`!{{expr}}`, `!{{expr | filter}}`)
+
+### What Needs Work
+
+- [ ] **Fixture coverage** - Many fixtures have empty events, need SPEC-based expectations
+- [ ] **Variation test edge cases** - Some edge cases with indentation variations
+- [ ] **value.rs evaluation** - Post-hoc classification may be redundant now
 
 ## Phase 3: Build Forward (IN PROGRESS)
 
-### 3.1 Test Infrastructure (NEXT)
+### 3.1 Test Infrastructure ✓
 
-Tests come first. Every grammar feature gets tests before implementation.
+- [x] Test harness for descent event model (canonical.rs)
+- [x] YAML fixture format with expected events
+- [x] Variation testing (random indentation, sibling elements)
+- [ ] Extract more test cases from SPEC.md examples
+- [ ] Property-based testing for edge cases
 
-- [ ] Delete old tests (reference deleted infrastructure)
-- [ ] Build test harness for descent event model
-- [ ] Extract test cases from SPEC.md examples
-- [ ] Property-based / permutation testing framework
-- [ ] Tests for what already works (baseline)
+### 3.2 Core Grammar - COMPLETE
 
-### 3.2 Core Grammar Completion
+All core grammar features implemented:
+- [x] Quoted strings (`"double"` and `'single'`)
+- [x] Arrays (`[item1 item2 item3]`)
+- [x] Element suffixes (`?`, `!`, `*`, `+`)
+- [x] Embedded elements (`|{name attrs content}`)
+- [x] Comments (line and brace)
+- [x] Block-level escapes (`'|`, `';`, etc.)
 
-Test-driven. Each feature: write tests → implement → verify.
+### 3.3 Directive System - COMPLETE
 
-1. **Quoted strings** - `"double"` and `'single'` quoted values
-2. **Arrays** - `[item1 item2 item3]` inline lists
-3. **Element suffixes** - `?`, `!`, `*`, `+` expand to attributes
-4. **Embedded elements** - `|{name attrs content}` inline in prose
-5. **Comments** - `;` at line start and inline (context-aware)
-6. **Escape sequences** - `'|`, `'\`, etc.
-
-### 3.3 Directive System
-
-The parser's only directive-level knowledge is body mode (per parser-strategy.md):
-
-| Syntax | Body | Parser Behavior |
-|--------|------|-----------------|
-| `!foo` | UDON | Parse body recursively as UDON |
-| `!:foo:` | Raw | Capture body verbatim, tag with "foo" |
-
-1. **Block directives** - `!if`, `!elif`, `!else`, `!for`, `!let`
-2. **Inline directives** - `!name{content}` with balanced braces
-3. **Raw directives** - `!:lang:` block and `!{:lang: content}` inline
-4. **Interpolation** - `!{{expr}}`, `!{{expr | filter}}`
+- [x] Block directives (`!if`, `!elif`, `!else`, `!for`, `!let`, `!unless`)
+- [x] Inline directives (`!{name args}`)
+- [x] Raw directives (`!:lang:` block and `!{:lang: content}` inline)
+- [x] Interpolation (`!{{expr}}`, `!{{expr | filter}}`)
 
 ### 3.4 Cleanup
 
-- [ ] Remove `udon-core/src/values_parser.rs` (obsolete)
+- [x] Removed `udon-core/src/values_parser.rs` (obsolete)
+- [x] Removed `udon-core/benches/values.rs` (used values_parser.rs)
 - [ ] Evaluate `udon-core/src/value.rs` (post-hoc classification may be redundant)
 
-## Grammar DRY Refactoring
-
-Issues identified in `generator/udon.desc` and `generator/values.desc`:
+## Fixture Status
 
 ### Completed
 
-- [x] **`array_block`, `array_sameline`, `array_embedded`** → unified to single `array` function
-  - Were 27 lines, now 9 lines
-  - Only differed in recursive call target
+- [x] **value_types.yaml** (23 tests) - All value types per SPEC
+- [x] **embedded_elements.yaml** (20 tests) - Embedded `|{...}` elements
 
-### Ready to Unify
+### Remaining (lower priority)
 
-- [x] **`prose`, `prose_pipe`, `prose_backtick`** → unified to `prose(line_col, parent_col, prepend)`
-  - Using `<>` for no prepend, `'|'` for pipe, `'`'` for backtick
-  - `prose_backticks` kept separate (calls `text_backticks` for ``)
+| Fixture | Empty Tests | Priority |
+|---------|-------------|----------|
+| prose_dedentation.yaml | 13 | Medium |
+| inline_element_nesting.yaml | 11 | Medium |
+| inline_comments.yaml | 8 | Medium |
+| indentation_hierarchy.yaml | 7 | Medium |
+| comment_indentation.yaml | 5 | Low |
+| indentation_edge_cases.yaml | 5 | Low |
+| literal_escape.yaml | 5 | Low |
+| references.yaml | 4 | Low |
 
-- [x] **`value_block`, `value_sameline`, `value_embedded`** → unified to `value(space_term, bracket)`
-  - `space_term`: 0 (block) or 1 (sameline)
-  - `bracket`: `'\0'` (none), `'}'` (embedded), `']'` (array)
+**Important:** Fill fixtures based on FULL-SPEC.md, NOT parser output.
 
-- [ ] **`double_quoted` vs `single_quoted`** (lines 368-378)
-  - Differ only in quote character matched
-  - Comment says "parameterized version had scan optimization issues with :quote"
-  - May require descent enhancement to unify
+## Known Parser Bugs
 
-### Values.desc Issues
+Discovered while filling fixtures - need grammar fixes:
 
-- [ ] **21 nearly-identical number parsing states** in `values.desc`
-  - `dec_start`, `dec_digits`, `hex_start`, `hex_digits`, `oct_start`, etc.
-  - Each number format (dec, hex, oct, bin) has 4-5 states with identical structure
-  - Only differences: valid digit characters and type emitted
-  - Could potentially use descent's character class feature more effectively
+1. **Interpolation in attr values not implemented** (SPEC 904-910 notes this)
+   - `|{a :href !{{url}} text}` - `!{{url}}` is not recognized as interpolation
+   - Currently treated as literal text, braces get mangled
 
-### Naming/Vocabulary Issues
+2. **Text before nested embedded elements lost**
+   - `|{p Start |{em inner}}` - "Start " is not captured
+   - Text content before nested `|{...}` disappears
 
-- [x] **Magic numbers**: 124='|', 33='!', 96='`' used as prepend values
-  - Now using character literals: `'|'`, `'!'`, `'`'`
+3. **Empty Text events after nested embedded**
+   - Nested embedded elements emit `Text ""` after closing
+   - Not a bug per se, but could be optimized away
 
-- [x] **`inline_*` → `sameline_*`**: Per FULL-SPEC vocabulary
-  - `inline_directive` → `sameline_directive`
-  - `inline_raw` → `sameline_raw`
-  - `inline_dir_body` → `sameline_dir_body`
+4. **SPEC Update:** Removed `~` as Nil synonym (only `null`/`nil` now)
 
-- [x] **Bracket aliases**: Now using character literals directly
-  - `<L>` → `'['`, `<R>` → `']'`, `<RB>` → `'}'`
-  - Kept `<SQ>`, `<DQ>`, `<BS>` for readability in escape contexts
+## Grammar DRY Refactoring
 
-### Known Test Failures (Variations)
+### Completed
 
-Canonical tests pass, but variation tests (with random indentation) reveal edge cases:
+- [x] `array` - unified from 3 variants, owns `[` delimiter
+- [x] `prose` - unified with prepend parameter
+- [x] `value` - unified with space_term and bracket parameters
+- [x] Character literals instead of magic numbers
+- [x] `inline_*` → `sameline_*` per SPEC vocabulary
+- [x] Unicode identifier support (XID_Start/XID_Continue)
 
-- [ ] **Freeform blocks with indentation** - `basic_freeform_block`, `freeform_preserves_pipes`
-  - Freeform blocks (```) preserve all whitespace by design
-  - **Fix:** Variation tests should either skip indentation for freeform, or normalize whitespace in expectations
-- [ ] **Error cases with indentation** - `tab_character_error`, `unclosed_*` variants
-  - Error handling doesn't account for indented input variations
-- [ ] **Embedded elements** - `unclosed_embedded_element_error` variations
+### Remaining
 
-### Next Priority: Attribute Values
+- [ ] `double_quoted` vs `single_quoted` - could parameterize
+- [ ] values.desc number parsing - 21 nearly-identical states
 
-- [ ] **Quoted string values** (`"double"` and `'single'`)
-  - Needed for values containing spaces, special chars
-  - `double_quoted` and `single_quoted` functions exist but may need work
+## Grammar Clarity Principles
 
-- [ ] **values.desc DRY** - 21 nearly-identical number parsing states
-  - Could reduce significantly with parameterization
-
-### Grammar Clarity: Separation of Concerns & State Organization
-
-**Opportunity:** The .desc files can be significantly clearer through better separation
-of concerns and more intentional use of states. Railroad diagrams generated from the
-grammar should read like documentation — showing complete syntactic constructs.
-
-**Principles emerging:**
-
-1. **Functions describe complete constructs** — A function named `array` should parse
-   a complete array `[...]`, not just "array contents after `[` was consumed elsewhere."
-   Use an `:entry` state to own the opening delimiter.
-
-2. **States have single responsibilities** — Rather than one complex state handling
-   entry, content, and exit, use separate states: `:entry`, `:content`/`:items`, etc.
-
-3. **Callers dispatch, callees consume** — Callers check what's coming to decide whom
-   to call, but don't consume. The called function owns its syntax from first byte to last.
-
-4. **Delegate to appropriate abstractions** — `array` shouldn't know about quote parsing;
-   it calls `/value` for each item and `value` handles the dispatch to typed values,
-   quoted strings, or nested arrays.
-
-**Example — array refactored:**
-
-```
-; Caller dispatches without consuming:
-|c['[']  | /array                         |>>
-
-; Array owns its complete syntax:
-|function[array:Array]
-  |state[:entry]
-    |c['[']  | ->                         |>> :items
-  |state[:items]
-    |c[']']  | ->                         |return
-    |c[' \t\n'] | ->                      |>>
-    |default | /value(1, ']')             |>>
-```
-
-**Current issues in grammar:**
-
-| Function | Issue |
-|----------|-------|
-| `name` | Shows `XLBL_CONT*` only; missing initial `XLBL_START` |
-| `double_quoted`/`single_quoted` | Missing opening quote |
-| `quoted_name`, `quoted_class` | Missing `'` delimiter |
-| `embedded` | Caller consumes `|{` |
-| `brace_comment` | Caller consumes `{` |
-| `interpolation` | Caller consumes `{{` |
-
-**Completed:**
-- [x] `array` — owns `[` via `:entry` state, delegates items to `/value`
-
-### Compliance Issues
-
-- [x] **Unicode identifier support** (CRITICAL for SPEC compliance)
-  - Element names, attribute keys, class names now support Unicode
-  - Replaced `LETTER` → `XLBL_START` and `LABEL_CONT` → `XLBL_CONT`
-  - Uses `unicode-xid` crate for XID_Start/XID_Continue checks
+1. **Functions describe complete constructs** — `array` parses `[...]` including delimiters
+2. **States have single responsibilities** — separate `:entry`, `:content`, etc.
+3. **Callers dispatch, callees consume** — callers check, callees own their syntax
+4. **Delegate to appropriate abstractions** — `array` calls `/value`, not quote parsing
 
 ## Phase 4: Multi-Chunk Streaming & Performance
 
-From descent TODO #10 - resumable state machine for true streaming:
+From descent TODO - resumable state machine for true streaming:
 
 ```rust
 loop {
     match parser.parse(chunk, on_event) {
         ParseResult::Complete => break,
         ParseResult::NeedMoreData => {
-            chunk = get_next_chunk();  // Caller controls flow
+            chunk = get_next_chunk();
         }
     }
 }
 ```
-
-**Design:**
-- Zero-copy for 99% of input (tokens within chunks)
-- Small internal buffer (~256 bytes) for cross-boundary tokens only
-- Backpressure via blocking callbacks (caller controls chunk feed rate)
-- No ring buffer needed - callbacks are 2-7x faster
 
 **Tasks:**
 - [ ] Multi-chunk streaming in descent (ParseResult enum)
@@ -245,7 +172,7 @@ loop {
 
 ## Phase 5: Tree Builder
 
-Build arena-allocated tree from events (event consumer pattern):
+Build arena-allocated tree from events:
 
 - [ ] `Document` and `Node` structs with arena allocation
 - [ ] Tree builder that consumes parser events
@@ -257,11 +184,11 @@ Build arena-allocated tree from events (event consumer pattern):
 
 ### Ruby (udon-ruby)
 - [ ] FFI layer for streaming API
-- [ ] Lazy tree projection (Ruby objects created on access)
-- [ ] Update to use new callback-based parser
+- [ ] Lazy tree projection
+- [ ] Update to use callback-based parser
 
 ### Other Targets
-- [ ] WASM build (`wasm32-unknown-unknown`)
+- [ ] WASM build
 - [ ] Python via PyO3
 - [ ] C ABI shared library
 
@@ -274,24 +201,10 @@ Build arena-allocated tree from events (event consumer pattern):
 | `udon-core/src/parser.rs` | GENERATED by descent - do not edit |
 | `regenerate-parser` | Script to regenerate parser |
 
-## descent Workflow
-
-```bash
-# Regenerate parser (concatenates .desc files, runs descent, builds)
-./regenerate-parser
-
-# Generate only (no build)
-./regenerate-parser --no-build
-
-# Debug parsing stages
-descent debug generator/udon.desc
-descent debug generator/udon.desc --tokens
-```
-
 ## Reference
 
 - `~/src/descent/CLAUDE.md` - descent usage guide
-- `~/src/udon/FULL-SPEC.md` - Authoritative UDON specification
-- `~/src/udon/FULL-EBNF.md` - Extracted EBNF with known inconsistencies
+- `~/src/udon/FULL-SPEC.md` - **Authoritative UDON specification**
+- `~/src/udon/FULL-EBNF.md` - Extracted EBNF
 - `~/src/udon/implementation-phase-2.md` - Ideal streaming architecture
 - `~/src/udon/parser-strategy.md` - Multi-language strategy

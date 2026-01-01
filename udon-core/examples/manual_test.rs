@@ -2,9 +2,12 @@ use udon_core::Parser;
 
 fn main() {
     let inputs = [
-        ("''literal-apostrophe\n", "escaped apostrophe"),
-        ("';not-a-comment\n", "escaped semicolon"),
-        ("'|not-an-element\n", "escaped pipe"),
+        ("|p Hello, !{{user.name}}!\n", "basic interpolation"),
+        ("|p !{{first}} and !{{second}}\n", "multiple interpolations"),
+        ("|p !{{name | capitalize}}\n", "interpolation with filter"),
+        ("!if logged_in\n  |p Welcome\n", "if directive"),
+        ("!include partials/header\n", "include directive"),
+        ("!:elixir:\n  def hello, do: :world\n", "raw block directive"),
     ];
 
     for (input, desc) in inputs {

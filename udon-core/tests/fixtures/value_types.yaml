@@ -1,93 +1,260 @@
+# Value type parsing tests
+# Based on FULL-SPEC.md lines 1155-1249 (Value Types section)
+#
+# SPEC uses syntactic typing - syntax determines type, not sniffing.
+
 ---
+# === Integer types (SPEC 1165, 1175-1186) ===
+
 - id: hex_integer
-  desc: hex integer
-  udon: "|el :val 0xFF"
-  events: []
+  desc: "hex integer (0xFF) -> Integer per SPEC 1165"
+  udon: "|el :val 0xFF\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Integer, "0xFF"]
+    - ElementEnd
+
 - id: hex_integer_lowercase
-  desc: hex integer lowercase
-  udon: "|el :val 0xff"
-  events: []
+  desc: "hex integer lowercase (0xff) -> Integer"
+  udon: "|el :val 0xff\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Integer, "0xff"]
+    - ElementEnd
+
 - id: octal_integer
-  desc: octal integer
-  udon: "|el :val 0o755"
-  events: []
+  desc: "octal integer (0o755) -> Integer per SPEC 1178"
+  udon: "|el :val 0o755\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Integer, "0o755"]
+    - ElementEnd
+
 - id: binary_integer
-  desc: binary integer
-  udon: "|el :val 0b1010"
-  events: []
+  desc: "binary integer (0b1010) -> Integer per SPEC 1178"
+  udon: "|el :val 0b1010\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Integer, "0b1010"]
+    - ElementEnd
+
 - id: integer_with_underscores
-  desc: integer with underscores
-  udon: "|el :val 1_000_000"
-  events: []
+  desc: "integer with underscores for readability per SPEC 1179"
+  udon: "|el :val 1_000_000\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Integer, "1_000_000"]
+    - ElementEnd
+
 - id: negative_integer
-  desc: negative integer
-  udon: "|el :val -42"
-  events: []
+  desc: "negative integer per EBNF line 107"
+  udon: "|el :val -42\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Integer, "-42"]
+    - ElementEnd
+
+# === Float types (SPEC 1166, 1184) ===
+
 - id: float_basic
-  desc: float basic
-  udon: "|el :val 3.14"
-  events: []
+  desc: "basic float with decimal per SPEC 1166"
+  udon: "|el :val 3.14\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Float, "3.14"]
+    - ElementEnd
+
 - id: float_scientific_notation
-  desc: float scientific notation
-  udon: "|el :val 1.5e-3"
-  events: []
+  desc: "float with scientific notation per SPEC 1184"
+  udon: "|el :val 1.5e-3\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Float, "1.5e-3"]
+    - ElementEnd
+
 - id: float_scientific_uppercase
-  desc: float scientific uppercase
-  udon: "|el :val 1E10"
-  events: []
+  desc: "float with uppercase E exponent - SPEC 1177 says 1e10 is float"
+  # NOTE: EBNF requires decimal point for float, but SPEC text (1177) lists
+  # "1e10" under floats. Following SPEC intent over strict EBNF here.
+  udon: "|el :val 1E10\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Float, "1E10"]
+    - ElementEnd
+
 - id: float_with_underscores
-  desc: float with underscores
-  udon: "|el :val 1_000.5"
-  events: []
+  desc: "float with underscores for readability"
+  udon: "|el :val 1_000.5\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Float, "1_000.5"]
+    - ElementEnd
+
+# === Rational and Complex (SPEC 1167-1168, 1186) ===
+
 - id: rational_number
-  desc: rational number
-  udon: "|el :val 1/3r"
-  events: []
+  desc: "rational number (1/3r) - SPEC 1167 says Rational type"
+  udon: "|el :val 1/3r\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Rational, "1/3r"]
+    - ElementEnd
+
 - id: complex_number
-  desc: complex number
-  udon: "|el :val 3+4i"
-  events: []
+  desc: "complex number (3+4i) - SPEC 1168 says Complex type"
+  udon: "|el :val 3+4i\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Complex, "3+4i"]
+    - ElementEnd
+
 - id: pure_imaginary
-  desc: pure imaginary
-  udon: "|el :val 5i"
-  events: []
+  desc: "pure imaginary (5i) - SPEC 1168 says Complex type"
+  udon: "|el :val 5i\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [Complex, "5i"]
+    - ElementEnd
+
+# === Nil type (SPEC 1170, 1202-1209) ===
+
 - id: nil_keyword
-  desc: nil keyword
-  udon: "|el :val nil"
-  events: []
+  desc: "nil keyword -> Nil per SPEC 1170"
+  udon: "|el :val nil\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - Nil
+    - ElementEnd
+
 - id: null_keyword
-  desc: null keyword
-  udon: "|el :val null"
-  events: []
-- id: tilde_nil
-  desc: tilde nil
-  udon: "|el :val ~"
-  events: []
+  desc: "null keyword -> Nil (equivalent to nil) per SPEC 1170"
+  udon: "|el :val null\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - Nil
+    - ElementEnd
+
+- id: tilde_is_string
+  desc: "tilde (~) is just a string, not nil"
+  # Note: YAML uses ~ for nil, but UDON uses only null/nil keywords
+  udon: "|el :val ~\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [BareValue, "~"]
+    - ElementEnd
+
+# === Boolean type (SPEC 1169, 1192-1200) ===
+
 - id: true_lowercase_only
-  desc: true lowercase only
-  udon: "|el :val true"
-  events: []
+  desc: "lowercase true -> BoolTrue per SPEC 1169"
+  udon: "|el :val true\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - BoolTrue
+    - ElementEnd
+
 - id: true_uppercase_is_string
-  desc: true uppercase is string
-  udon: "|el :val True"
-  events: []
+  desc: "uppercase True -> string per SPEC 1200"
+  # SPEC 1200: "Lowercase only. TRUE, True, FALSE are strings."
+  udon: "|el :val True\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [BareValue, "True"]
+    - ElementEnd
+
 - id: false_uppercase_is_string
-  desc: false uppercase is string
-  udon: "|el :val FALSE"
-  events: []
+  desc: "uppercase FALSE -> string per SPEC 1200"
+  udon: "|el :val FALSE\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [BareValue, "FALSE"]
+    - ElementEnd
+
+# === Quoted strings force string type (SPEC 1212-1220) ===
+
 - id: quoted_forces_string_type
-  desc: quoted forces string type
+  desc: "quoted '42' -> StringValue per SPEC 1219"
+  # SPEC 1219: :number "42" -> String "42", not integer
   udon: '|el :val "42"'
-  events: []
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [StringValue, "42"]
+    - ElementEnd
+
 - id: quoted_true_is_string
-  desc: quoted true is string
+  desc: "quoted 'true' -> StringValue per SPEC 1218"
+  # SPEC 1218: :truthy "true" -> String "true", not boolean
   udon: '|el :val "true"'
-  events: []
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [StringValue, "true"]
+    - ElementEnd
+
+# === Flag attributes (SPEC 1172, 1197) ===
+
 - id: flag_attribute_is_true
-  desc: flag attribute is true
-  udon: "|el :enabled"
-  events: []
+  desc: "flag attribute (no value) -> BoolTrue per SPEC 1172"
+  # SPEC 1172: :key (no value) = Boolean true
+  # SPEC 1197: :flag ; Boolean true (missing value = true)
+  udon: "|el :enabled\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "enabled"]
+    - BoolTrue
+    - ElementEnd
+
 - id: flag_followed_by_another_attribute
-  desc: flag followed by another attribute
-  udon: "|el :debug :name foo"
-  events: []
+  desc: "flag followed by another attr - both parsed correctly"
+  # :debug is flag (BoolTrue), :name foo has value
+  udon: "|el :debug :name foo\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "debug"]
+    - BoolTrue
+    - [Attr, "name"]
+    - [BareValue, "foo"]
+    - ElementEnd

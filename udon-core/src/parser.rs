@@ -35,6 +35,8 @@ pub enum Event<'a> {
     Raw { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
     Integer { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
     Float { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
+    Rational { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
+    Complex { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
     Error { code: ParseErrorCode, span: Range<usize> },
 }
 impl<'a> Event<'a> {
@@ -130,6 +132,14 @@ impl<'a> Event<'a> {
             Event::Float { content, span } => {
                 let s = std::str::from_utf8(content.as_ref()).unwrap_or("<invalid utf8>");
                 format!("Float {:?} @ {}..{}", s, span.start, span.end)
+            }
+            Event::Rational { content, span } => {
+                let s = std::str::from_utf8(content.as_ref()).unwrap_or("<invalid utf8>");
+                format!("Rational {:?} @ {}..{}", s, span.start, span.end)
+            }
+            Event::Complex { content, span } => {
+                let s = std::str::from_utf8(content.as_ref()).unwrap_or("<invalid utf8>");
+                format!("Complex {:?} @ {}..{}", s, span.start, span.end)
             }
             Event::Error { code, span } => {
                 format!("Error {:?} @ {}..{}", code, span.start, span.end)
@@ -3321,7 +3331,7 @@ impl<'a> Parser<'a> {
     {
                     self.mark();
         #[derive(Clone, Copy)]
-        enum State { Main, MaybeRef, Reference, CheckSpace, BlockSpace, Accumulate, AccumSpace, AccumBlock, NumSign, NumZero, NumZeroSpace, NumZeroBlock, NumDec, NumDecSpace, NumDecBlock, NumHex, NumHexSpace, NumHexBlock, NumOct, NumOctSpace, NumOctBlock, NumBin, NumBinSpace, NumBinBlock, NumFloatFrac, NumFloatFracSpace, NumFloatFracBlock, NumFloatExp, NumFloatExpSpace, NumFloatExpBlock, NumFloatExpDigits, NumFloatExpDSpace, NumFloatExpDBlock, String, StringSpace, StringBlock,  }
+        enum State { Main, MaybeRef, Reference, CheckSpace, BlockSpace, Accumulate, AccumSpace, AccumBlock, NumSign, NumZero, NumZeroSpace, NumZeroBlock, NumDec, NumDecSpace, NumDecBlock, NumHex, NumHexSpace, NumHexBlock, NumOct, NumOctSpace, NumOctBlock, NumBin, NumBinSpace, NumBinBlock, NumFloatFrac, NumFloatFracSpace, NumFloatFracBlock, NumFloatExp, NumFloatExpSpace, NumFloatExpBlock, NumFloatExpDigits, NumFloatExpDSpace, NumFloatExpDBlock, NumRationalDenom, NumRationalSpace, NumRationalBlock, NumComplexSign, NumComplexImag, NumComplexImagSpace, NumComplexImagBlock, NumComplexImagFrac, NumComplexImagFracSpace, NumComplexImagFracBlock, NumComplexImagExp, NumComplexImagExpSpace, NumComplexImagExpBlock, NumComplexImagExpD, NumComplexImagExpDSpace, NumComplexImagExpDBlock, String, StringSpace, StringBlock,  }
         let mut state = State::Main;
         loop {
             match state {
@@ -3626,6 +3636,21 @@ impl<'a> Parser<'a> {
                     state = State::NumFloatExp;
                     continue;
                         }
+                        Some(b'/') => {
+                    self.advance();
+                    state = State::NumRationalDenom;
+                    continue;
+                        }
+                        Some(b'i') => {
+                    self.advance();
+                    on_event(Event::Complex { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'+' | b'-') => {
+                    self.advance();
+                    state = State::NumComplexSign;
+                    continue;
+                        }
                         Some(b'\n') => {
                     on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
                     return;
@@ -3867,6 +3892,16 @@ impl<'a> Parser<'a> {
                     state = State::NumFloatExp;
                     continue;
                         }
+                        Some(b'i') => {
+                    self.advance();
+                    on_event(Event::Complex { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'+' | b'-') => {
+                    self.advance();
+                    state = State::NumComplexSign;
+                    continue;
+                        }
                         Some(b'\n') => {
                     on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
                     return;
@@ -3990,6 +4025,16 @@ impl<'a> Parser<'a> {
                     self.advance();
                     continue;
                         }
+                        Some(b'i') => {
+                    self.advance();
+                    on_event(Event::Complex { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'+' | b'-') => {
+                    self.advance();
+                    state = State::NumComplexSign;
+                    continue;
+                        }
                         Some(b'\n') => {
                     on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
                     return;
@@ -4030,6 +4075,356 @@ impl<'a> Parser<'a> {
                     match self.peek() {
                         Some(b';') => {
                     on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    self.advance();
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumRationalDenom => {
+                    if self.eof() {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'r') => {
+                    self.advance();
+                    on_event(Event::Rational { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::NumRationalSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumRationalSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    state = State::NumRationalBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::NumRationalBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    self.advance();
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumComplexSign => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::NumComplexImag;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumComplexImag => {
+                    if self.eof() {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::NumComplexImagFrac;
+                    continue;
+                        }
+                        Some(b'e' | b'E') => {
+                    self.advance();
+                    state = State::NumComplexImagExp;
+                    continue;
+                        }
+                        Some(b'i') => {
+                    self.advance();
+                    on_event(Event::Complex { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::NumComplexImagSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumComplexImagSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    state = State::NumComplexImagBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::NumComplexImagBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    self.advance();
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumComplexImagFrac => {
+                    if self.eof() {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'e' | b'E') => {
+                    self.advance();
+                    state = State::NumComplexImagExp;
+                    continue;
+                        }
+                        Some(b'i') => {
+                    self.advance();
+                    on_event(Event::Complex { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::NumComplexImagFracSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumComplexImagFracSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    state = State::NumComplexImagFracBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::NumComplexImagFracBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    self.advance();
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumComplexImagExp => {
+                    if self.eof() {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'+' | b'-') => {
+                    self.advance();
+                    state = State::NumComplexImagExpD;
+                    continue;
+                        }
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::NumComplexImagExpD;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::NumComplexImagExpSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumComplexImagExpSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    state = State::NumComplexImagExpBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::NumComplexImagExpBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    self.advance();
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumComplexImagExpD => {
+                    if self.eof() {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'i') => {
+                    self.advance();
+                    on_event(Event::Complex { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::NumComplexImagExpDSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::NumComplexImagExpDSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    state = State::NumComplexImagExpDBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::NumComplexImagExpDBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                         _ => {
@@ -4137,6 +4532,8 @@ pub enum StreamEvent {
     Raw { content: Vec<u8>, span: Range<usize> },
     Integer { content: Vec<u8>, span: Range<usize> },
     Float { content: Vec<u8>, span: Range<usize> },
+    Rational { content: Vec<u8>, span: Range<usize> },
+    Complex { content: Vec<u8>, span: Range<usize> },
     Error { code: ParseErrorCode, span: Range<usize> },
 }
 impl StreamEvent {
@@ -4259,6 +4656,18 @@ impl StreamEvent {
             }
             Event::Float { content, span } => {
                 StreamEvent::Float {
+                    content: content.into_owned(),
+                    span: (span.start + offset)..(span.end + offset),
+                }
+            }
+            Event::Rational { content, span } => {
+                StreamEvent::Rational {
+                    content: content.into_owned(),
+                    span: (span.start + offset)..(span.end + offset),
+                }
+            }
+            Event::Complex { content, span } => {
+                StreamEvent::Complex {
                     content: content.into_owned(),
                     span: (span.start + offset)..(span.end + offset),
                 }

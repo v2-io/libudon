@@ -16,7 +16,7 @@ UDON (Universal Document & Object Notation) is a unified notation for documents,
 |---------|--------|--------|
 | Elements | `\|element[id].class1.class2?` | ✅ |
 | Attributes | `:key value` | ✅ |
-| Typed values | integers, floats, booleans, nil, strings | ✅ |
+| Typed values | integers, floats, rationals, complex, booleans, nil, strings | ✅ |
 | Arrays | `[1 2 3]` | ✅ |
 | Text/prose | indented content | ✅ |
 | Hierarchy | indentation and rightward nesting | ✅ |

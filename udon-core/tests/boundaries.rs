@@ -50,6 +50,8 @@ fn format_event(event: &Event) -> String {
         Event::Raw { content, .. } => format!("Raw {:?}", String::from_utf8_lossy(content)),
         Event::Integer { content, .. } => format!("Integer {:?}", String::from_utf8_lossy(content)),
         Event::Float { content, .. } => format!("Float {:?}", String::from_utf8_lossy(content)),
+        Event::Rational { content, .. } => format!("Rational {:?}", String::from_utf8_lossy(content)),
+        Event::Complex { content, .. } => format!("Complex {:?}", String::from_utf8_lossy(content)),
         Event::Error { code, .. } => format!("Error {:?}", code),
     }
 }
@@ -82,6 +84,8 @@ fn format_stream_event(event: &StreamEvent) -> String {
         StreamEvent::Raw { content, .. } => format!("Raw {:?}", String::from_utf8_lossy(content)),
         StreamEvent::Integer { content, .. } => format!("Integer {:?}", String::from_utf8_lossy(content)),
         StreamEvent::Float { content, .. } => format!("Float {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::Rational { content, .. } => format!("Rational {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::Complex { content, .. } => format!("Complex {:?}", String::from_utf8_lossy(content)),
         StreamEvent::Error { code, .. } => format!("Error {:?}", code),
     }
 }

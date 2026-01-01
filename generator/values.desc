@@ -20,6 +20,8 @@
 ;   Nil        - null, nil
 ;   Integer    - decimal, hex (0x), octal (0o), binary (0b)
 ;   Float      - with decimal point or exponent
+;   Rational   - integer/integer + r (e.g., 1/3r, 22/7r)
+;   Complex    - number +/- number + i, or number + i (e.g., 3+4i, 5i)
 ;   BareValue  - unrecognized (string)
 
 ; ============================================================================
@@ -122,9 +124,12 @@
   ; === Numbers: decimal digits ===
   |state[:num_dec]
     |eof                      | Integer(USE_MARK)                |return
-    |c[<0-9 '_'>]               | ->                               |>>
+    |c[<0-9 '_'>]             | ->                               |>>
     |c['.']                   | ->                               |>> :num_float_frac
     |c['eE']                  | ->                               |>> :num_float_exp
+    |c['/']                   | ->                               |>> :num_rational_denom
+    |c['i']                   | -> | Complex(USE_MARK)           |return
+    |c['+-']                  | ->                               |>> :num_complex_sign
     |c['\n']                  | Integer(USE_MARK)                |return
     |c[' ']                   |                                  |>> :num_dec_space
     |c[:bracket]              | Integer(USE_MARK)                |return
@@ -184,8 +189,10 @@
   ; === Numbers: float fractional part ===
   |state[:num_float_frac]
     |eof                      | Float(USE_MARK)                  |return
-    |c[<0-9 '_'>]               | ->                               |>>
+    |c[<0-9 '_'>]             | ->                               |>>
     |c['eE']                  | ->                               |>> :num_float_exp
+    |c['i']                   | -> | Complex(USE_MARK)           |return
+    |c['+-']                  | ->                               |>> :num_complex_sign
     |c['\n']                  | Float(USE_MARK)                  |return
     |c[' ']                   |                                  |>> :num_float_frac_space
     |c[:bracket]              | Float(USE_MARK)                  |return
@@ -215,7 +222,9 @@
 
   |state[:num_float_exp_digits]
     |eof                      | Float(USE_MARK)                  |return
-    |c[<0-9 '_'>]               | ->                               |>>
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['i']                   | -> | Complex(USE_MARK)           |return
+    |c['+-']                  | ->                               |>> :num_complex_sign
     |c['\n']                  | Float(USE_MARK)                  |return
     |c[' ']                   |                                  |>> :num_float_exp_d_space
     |c[:bracket]              | Float(USE_MARK)                  |return
@@ -225,6 +234,94 @@
     |default                  | Float(USE_MARK)                  |return
   |state[:num_float_exp_d_block]
     |c[';']                | Float(USE_MARK)                  |return
+    |default                  | ->                               |>> :string
+
+  ; === Rational: integer/integer + r (e.g., 1/3r, 22/7r) ===
+  ; After seeing '/' following an integer, accumulate denominator digits
+  ; MUST end with 'r' to be valid rational, otherwise falls back to string
+  |state[:num_rational_denom]
+    |eof                      | BareValue(USE_MARK)              |return  ; no 'r', not rational
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['r']                   | -> | Rational(USE_MARK)          |return
+    |c['\n']                  | BareValue(USE_MARK)              |return  ; no 'r', not rational
+    |c[' ']                   |                                  |>> :num_rational_space
+    |c[:bracket]              | BareValue(USE_MARK)              |return  ; no 'r', not rational
+    |default                  |                                  |>> :string
+  |state[:num_rational_space]
+    |if[space_term == 0]                                         |>> :num_rational_block
+    |default                  | BareValue(USE_MARK)              |return
+  |state[:num_rational_block]
+    |c[';']                   | BareValue(USE_MARK)              |return
+    |default                  | ->                               |>> :string
+
+  ; === Complex: number +/- number + i (e.g., 3+4i, 3.5-2i) ===
+  ; After seeing '+' or '-' following a number, accumulate imaginary part
+  ; MUST end with 'i' to be valid complex, otherwise falls back to string
+  |state[:num_complex_sign]
+    |c[<0-9>]                 |                                  |>> :num_complex_imag
+    |default                  |                                  |>> :string
+  |state[:num_complex_imag]
+    |eof                      | BareValue(USE_MARK)              |return  ; no 'i', not complex
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['.']                   | ->                               |>> :num_complex_imag_frac
+    |c['eE']                  | ->                               |>> :num_complex_imag_exp
+    |c['i']                   | -> | Complex(USE_MARK)           |return
+    |c['\n']                  | BareValue(USE_MARK)              |return  ; no 'i', not complex
+    |c[' ']                   |                                  |>> :num_complex_imag_space
+    |c[:bracket]              | BareValue(USE_MARK)              |return  ; no 'i', not complex
+    |default                  |                                  |>> :string
+  |state[:num_complex_imag_space]
+    |if[space_term == 0]                                         |>> :num_complex_imag_block
+    |default                  | BareValue(USE_MARK)              |return
+  |state[:num_complex_imag_block]
+    |c[';']                   | BareValue(USE_MARK)              |return
+    |default                  | ->                               |>> :string
+
+  ; === Complex imaginary part: fractional (3+4.5i) ===
+  |state[:num_complex_imag_frac]
+    |eof                      | BareValue(USE_MARK)              |return
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['eE']                  | ->                               |>> :num_complex_imag_exp
+    |c['i']                   | -> | Complex(USE_MARK)           |return
+    |c['\n']                  | BareValue(USE_MARK)              |return
+    |c[' ']                   |                                  |>> :num_complex_imag_frac_space
+    |c[:bracket]              | BareValue(USE_MARK)              |return
+    |default                  |                                  |>> :string
+  |state[:num_complex_imag_frac_space]
+    |if[space_term == 0]                                         |>> :num_complex_imag_frac_block
+    |default                  | BareValue(USE_MARK)              |return
+  |state[:num_complex_imag_frac_block]
+    |c[';']                   | BareValue(USE_MARK)              |return
+    |default                  | ->                               |>> :string
+
+  ; === Complex imaginary part: exponent (3+4e2i) ===
+  |state[:num_complex_imag_exp]
+    |eof                      | BareValue(USE_MARK)              |return
+    |c['+-']                  | ->                               |>> :num_complex_imag_exp_d
+    |c[<0-9>]                 |                                  |>> :num_complex_imag_exp_d
+    |c['\n']                  | BareValue(USE_MARK)              |return
+    |c[' ']                   |                                  |>> :num_complex_imag_exp_space
+    |c[:bracket]              | BareValue(USE_MARK)              |return
+    |default                  |                                  |>> :string
+  |state[:num_complex_imag_exp_space]
+    |if[space_term == 0]                                         |>> :num_complex_imag_exp_block
+    |default                  | BareValue(USE_MARK)              |return
+  |state[:num_complex_imag_exp_block]
+    |c[';']                   | BareValue(USE_MARK)              |return
+    |default                  | ->                               |>> :string
+  |state[:num_complex_imag_exp_d]
+    |eof                      | BareValue(USE_MARK)              |return
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['i']                   | -> | Complex(USE_MARK)           |return
+    |c['\n']                  | BareValue(USE_MARK)              |return
+    |c[' ']                   |                                  |>> :num_complex_imag_exp_d_space
+    |c[:bracket]              | BareValue(USE_MARK)              |return
+    |default                  |                                  |>> :string
+  |state[:num_complex_imag_exp_d_space]
+    |if[space_term == 0]                                         |>> :num_complex_imag_exp_d_block
+    |default                  | BareValue(USE_MARK)              |return
+  |state[:num_complex_imag_exp_d_block]
+    |c[';']                   | BareValue(USE_MARK)              |return
     |default                  | ->                               |>> :string
 
   ; === String fallback (anything not keyword/number) ===
