@@ -1739,6 +1739,21 @@ impl<'a> Parser<'a> {
                     self.advance();
                     continue;
                 }
+                Some(b'"') => {
+                    self.advance();
+                    self.parse_double_quoted(on_event);
+                    continue;
+                }
+                Some(b'\'') => {
+                    self.advance();
+                    self.parse_single_quoted(on_event);
+                    continue;
+                }
+                Some(b'[') => {
+                    self.advance();
+                    self.parse_array_block(on_event);
+                    continue;
+                }
                 _ => {
                     self.mark();
                     self.parse_typed_value(1, b']', on_event);
@@ -1770,6 +1785,21 @@ impl<'a> Parser<'a> {
                     self.advance();
                     continue;
                 }
+                Some(b'"') => {
+                    self.advance();
+                    self.parse_double_quoted(on_event);
+                    continue;
+                }
+                Some(b'\'') => {
+                    self.advance();
+                    self.parse_single_quoted(on_event);
+                    continue;
+                }
+                Some(b'[') => {
+                    self.advance();
+                    self.parse_array_sameline(on_event);
+                    continue;
+                }
                 _ => {
                     self.mark();
                     self.parse_typed_value(1, b']', on_event);
@@ -1799,6 +1829,21 @@ impl<'a> Parser<'a> {
                 }
                 Some(b' ' | b'\t' | b'\n') => {
                     self.advance();
+                    continue;
+                }
+                Some(b'"') => {
+                    self.advance();
+                    self.parse_double_quoted(on_event);
+                    continue;
+                }
+                Some(b'\'') => {
+                    self.advance();
+                    self.parse_single_quoted(on_event);
+                    continue;
+                }
+                Some(b'[') => {
+                    self.advance();
+                    self.parse_array_embedded(on_event);
                     continue;
                 }
                 _ => {
@@ -2599,7 +2644,7 @@ impl<'a> Parser<'a> {
         loop {
             match state {
                 State::Main => {
-                    match self.scan_to4(b'}', b'|', b';', b'!') {
+                    match self.scan_to6(b'}', b'|', b';', b'!', b'"', b'\'') {
                         Some(b'}') => {
                     self.set_term(0);
                     self.advance();
@@ -2622,6 +2667,24 @@ impl<'a> Parser<'a> {
                     self.set_term(0);
                     self.advance();
                     state = State::CheckBang;
+                    continue;
+                        }
+                        Some(b'"') => {
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    self.advance();
+                    self.parse_double_quoted(on_event);
+                    self.mark();
+                    state = State::Main;
+                    continue;
+                        }
+                        Some(b'\'') => {
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    self.advance();
+                    self.parse_single_quoted(on_event);
+                    self.mark();
+                    state = State::Main;
                     continue;
                         }
                         None => {
@@ -3010,8 +3073,8 @@ impl<'a> Parser<'a> {
                     return;
                 }
                 None => {
+                    self.set_term(0);
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedText, span: self.span() });
                     return;
                 }
                 _ => unreachable!("scan_to only returns target chars"),

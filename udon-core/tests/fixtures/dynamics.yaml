@@ -152,19 +152,23 @@
     !let name = user.first_name
       |p Hello !{{name}}
   events: []
-# PARSER BUG: Include directive produces UnclosedText error at EOF
-# Commented out until directive text handling is fixed.
-# - id: include_directive
-#   desc: include directive
-#   udon: "!include partials/header"
-#   events: []
+- id: include_directive
+  desc: include directive
+  udon: "!include partials/header"
+  events:
+    - DirectiveStart
+    - [Name, "include"]
+    - [Text, "partials/header"]
+    - DirectiveEnd
 
-# PARSER BUG: Include directive with vars produces UnclosedText error at EOF
-# Commented out until directive text handling is fixed.
-# - id: include_with_variables
-#   desc: include with variables
-#   udon: '!include partials/card title: "Hello"'
-#   events: []
+- id: include_with_variables
+  desc: include with variables
+  udon: '!include partials/card title: "Hello"'
+  events:
+    - DirectiveStart
+    - [Name, "include"]
+    - [Text, 'partials/card title: "Hello"']
+    - DirectiveEnd
 - id: raw_block_directive
   desc: raw block directive
   udon: |-

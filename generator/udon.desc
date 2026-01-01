@@ -378,22 +378,32 @@
     |default                  | ->                               |>>
 
 ; Arrays - items are space-separated, ] terminates
+; Supports: bare values, quoted strings, nested arrays, typed values
 |function[array_block:Array]
   |state[:items]
     |c[<R>]                   | ->                               |return
     |c[ \t\n]                 | ->                               |>>
+    |c["]                     | -> | /double_quoted              |>>  ; quoted string
+    |c[']                     | -> | /single_quoted              |>>  ; quoted string
+    |c[<L>]                   | -> | /array_block                |>>  ; nested array
     |default                  | MARK | /typed_value(1, <R>)      |>>
 
 |function[array_sameline:Array]
   |state[:items]
     |c[<R>]                   | ->                               |return
     |c[ \t\n]                 | ->                               |>>
+    |c["]                     | -> | /double_quoted              |>>  ; quoted string
+    |c[']                     | -> | /single_quoted              |>>  ; quoted string
+    |c[<L>]                   | -> | /array_sameline             |>>  ; nested array
     |default                  | MARK | /typed_value(1, <R>)      |>>
 
 |function[array_embedded:Array]
   |state[:items]
     |c[<R>]                   | ->                               |return
     |c[ \t\n]                 | ->                               |>>
+    |c["]                     | -> | /double_quoted              |>>  ; quoted string
+    |c[']                     | -> | /single_quoted              |>>  ; quoted string
+    |c[<L>]                   | -> | /array_embedded             |>>  ; nested array
     |default                  | MARK | /typed_value(1, <R>)      |>>
 
 
@@ -606,12 +616,17 @@
     |default                  | /embed_content                   |return
 
 
+; embed_content - text content inside |{...}
+; Handles: text, embedded elements, comments, directives, quoted strings
+; Quoted strings are emitted as StringValue to avoid brace confusion
 |function[embed_content:Text]  | MARK | EXPECTS(})
   |state[:main]
     |c[}]                     | TERM | ->                        |return
     |c[|]                     | TERM | ->                        |>> :check_pipe
     |c[;]                     | TERM | ->                        |>> :check_semi
     |c[!]                     | TERM | ->                        |>> :check_bang
+    |c["]                     | TERM | Text(USE_MARK) | -> | /double_quoted | MARK |>> :main
+    |c[']                     | TERM | Text(USE_MARK) | -> | /single_quoted | MARK |>> :main
     |default                  | ->                               |>>
 
   |state[:check_pipe]
@@ -702,9 +717,10 @@
     |default                  | /prose_pipe(col, line_col)       |>> :children
 
 
-; Directive arguments - capture until newline
+; Directive arguments - capture until newline or EOF
 |function[directive_args:Text]
   |state[:main]
+    |eof                      | TERM                             |return
     |c[\n]                    | TERM                             |return
     |default                  | ->                               |>>
 

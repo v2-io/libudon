@@ -60,12 +60,19 @@
   desc: embedded empty
   udon: "|p before |{} after"
   events: []
-# PARSER BUG: This test causes infinite loop - braces inside quoted strings
-# in embedded elements confuse the parser. SKIP until fixed in grammar.
-# - id: embedded_with_braces_in_content
-#   desc: embedded with braces in content
-#   udon: '|p |{code "func() { return 1; }"}'
-#   events: []
+- id: embedded_with_braces_in_content
+  desc: embedded with braces in content
+  udon: '|p |{code "func() { return 1; }"}'
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - EmbeddedStart
+    - [Name, "code"]
+    - [Text, ""]
+    - [StringValue, "func() { return 1; }"]
+    - [Text, "}"]
+    - EmbeddedEnd
+    - ElementEnd
 - id: embedded_adjacent
   desc: embedded adjacent
   udon: "|p |{a one}|{b two}"
