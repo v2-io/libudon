@@ -40,7 +40,7 @@
   desc: Pipe followed by space is prose, not anonymous element
   udon: "| text"
   events:
-    - [Text, " text"]
+    - [Text, "| text"]
 
 - id: quoted_element_name
   desc: Quoted element name allowing special characters

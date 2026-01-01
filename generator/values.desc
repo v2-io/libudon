@@ -50,13 +50,13 @@
 |function[typed_value]  :space_term :bracket  | MARK
   |state[:main]
     |eof                      | BareValue(USE_MARK)              |return
-    |c[\n]                    | BareValue(USE_MARK)              |return
-    |c[ ]                     |                                  |>> :check_space
+    |c['\n']                  | BareValue(USE_MARK)              |return
+    |c[' ']                   |                                  |>> :check_space
     |c[:bracket]              | BareValue(USE_MARK)              |return
-    |c[@]                     | ->                               |>> :maybe_ref
-    |c[0]                     | ->                               |>> :num_zero
-    |c[123456789]             |                                  |>> :num_dec
-    |c[-+]                    | ->                               |>> :num_sign
+    |c['@']                   | ->                               |>> :maybe_ref
+    |c['0']                   | ->                               |>> :num_zero
+    |c['123456789']           |                                  |>> :num_dec
+    |c['+-']                  | ->                               |>> :num_sign
     |LETTER                   | ->                               |>> :accumulate
     |default                  | ->                               |>>
 
@@ -74,15 +74,15 @@
     |default                  | BareValue(USE_MARK)              |return
 
   |state[:block_space]
-    |c[;]                     | TERM(-1) | BareValue(USE_MARK)   |return  ; comment
+    |c[';']                | TERM(-1) | BareValue(USE_MARK)   |return  ; comment (;)
     |default                  | ->                               |>> :main
 
   ; === Accumulate identifier for keyword lookup ===
   ; If we see non-label chars (like .), it's not a keyword - continue as string
   |state[:accumulate]
     |eof                      | TERM | KEYWORDS(bare_kw)         |return
-    |c[\n]                    | TERM | KEYWORDS(bare_kw)         |return
-    |c[ ]                     |                                  |>> :accum_space
+    |c['\n']                  | TERM | KEYWORDS(bare_kw)         |return
+    |c[' ']                   |                                  |>> :accum_space
     |c[:bracket]              | TERM | KEYWORDS(bare_kw)         |return
     |LABEL_CONT               | ->                               |>>
     |default                  | ->                               |>> :string
@@ -90,153 +90,153 @@
     |if[space_term == 0]                                         |>> :accum_block
     |default                  | TERM | KEYWORDS(bare_kw)         |return
   |state[:accum_block]
-    |c[;]                     | TERM(-1) | KEYWORDS(bare_kw)     |return
+    |c[';']                | TERM(-1) | KEYWORDS(bare_kw)     |return
     |default                  | ->                               |>> :accumulate
 
   ; === Numbers: after sign ===
   |state[:num_sign]
-    |c[0]                     | ->                               |>> :num_zero
-    |c[123456789]             |                                  |>> :num_dec
+    |c['0']                   | ->                               |>> :num_zero
+    |c['123456789']           |                                  |>> :num_dec
     |default                  |                                  |>> :accumulate
 
   ; === Numbers: zero prefix (check for 0x, 0o, 0b) ===
   |state[:num_zero]
     |eof                      | Integer(USE_MARK)                |return
-    |c[xX]                    | ->                               |>> :num_hex
-    |c[oO]                    | ->                               |>> :num_oct
-    |c[bB]                    | ->                               |>> :num_bin
-    |c[.]                     | ->                               |>> :num_float_frac
-    |c[eE]                    | ->                               |>> :num_float_exp
-    |c[0123456789_]           | ->                               |>> :num_dec
-    |c[\n]                    | Integer(USE_MARK)                |return
-    |c[ ]                     |                                  |>> :num_zero_space
+    |c['xX']                  | ->                               |>> :num_hex
+    |c['oO']                  | ->                               |>> :num_oct
+    |c['bB']                  | ->                               |>> :num_bin
+    |c['.']                   | ->                               |>> :num_float_frac
+    |c['eE']                  | ->                               |>> :num_float_exp
+    |c[<0-9 '_'>]              | ->                               |>> :num_dec
+    |c['\n']                  | Integer(USE_MARK)                |return
+    |c[' ']                   |                                  |>> :num_zero_space
     |c[:bracket]              | Integer(USE_MARK)                |return
     |default                  |                                  |>> :string
   |state[:num_zero_space]
     |if[space_term == 0]                                         |>> :num_zero_block
     |default                  | Integer(USE_MARK)                |return
   |state[:num_zero_block]
-    |c[;]                     | Integer(USE_MARK)                |return
+    |c[';']                | Integer(USE_MARK)                |return
     |default                  | ->                               |>> :string
 
   ; === Numbers: decimal digits ===
   |state[:num_dec]
     |eof                      | Integer(USE_MARK)                |return
-    |c[0123456789_]           | ->                               |>>
-    |c[.]                     | ->                               |>> :num_float_frac
-    |c[eE]                    | ->                               |>> :num_float_exp
-    |c[\n]                    | Integer(USE_MARK)                |return
-    |c[ ]                     |                                  |>> :num_dec_space
+    |c[<0-9 '_'>]               | ->                               |>>
+    |c['.']                   | ->                               |>> :num_float_frac
+    |c['eE']                  | ->                               |>> :num_float_exp
+    |c['\n']                  | Integer(USE_MARK)                |return
+    |c[' ']                   |                                  |>> :num_dec_space
     |c[:bracket]              | Integer(USE_MARK)                |return
     |default                  |                                  |>> :string
   |state[:num_dec_space]
     |if[space_term == 0]                                         |>> :num_dec_block
     |default                  | Integer(USE_MARK)                |return
   |state[:num_dec_block]
-    |c[;]                     | Integer(USE_MARK)                |return
+    |c[';']                | Integer(USE_MARK)                |return
     |default                  | ->                               |>> :string
 
   ; === Numbers: hex (0xFF) ===
   |state[:num_hex]
     |eof                      | Integer(USE_MARK)                |return
-    |c[0123456789abcdefABCDEF_] | ->                             |>>
-    |c[\n]                    | Integer(USE_MARK)                |return
-    |c[ ]                     |                                  |>> :num_hex_space
+    |c[<0-9 a-f A-F '_'>]     | ->                               |>>
+    |c['\n']                  | Integer(USE_MARK)                |return
+    |c[' ']                   |                                  |>> :num_hex_space
     |c[:bracket]              | Integer(USE_MARK)                |return
     |default                  |                                  |>> :string
   |state[:num_hex_space]
     |if[space_term == 0]                                         |>> :num_hex_block
     |default                  | Integer(USE_MARK)                |return
   |state[:num_hex_block]
-    |c[;]                     | Integer(USE_MARK)                |return
+    |c[';']                | Integer(USE_MARK)                |return
     |default                  | ->                               |>> :string
 
   ; === Numbers: octal (0o755) ===
   |state[:num_oct]
     |eof                      | Integer(USE_MARK)                |return
-    |c[01234567_]             | ->                               |>>
-    |c[\n]                    | Integer(USE_MARK)                |return
-    |c[ ]                     |                                  |>> :num_oct_space
+    |c[<0-7 '_'>]              | ->                               |>>
+    |c['\n']                  | Integer(USE_MARK)                |return
+    |c[' ']                   |                                  |>> :num_oct_space
     |c[:bracket]              | Integer(USE_MARK)                |return
     |default                  |                                  |>> :string
   |state[:num_oct_space]
     |if[space_term == 0]                                         |>> :num_oct_block
     |default                  | Integer(USE_MARK)                |return
   |state[:num_oct_block]
-    |c[;]                     | Integer(USE_MARK)                |return
+    |c[';']                | Integer(USE_MARK)                |return
     |default                  | ->                               |>> :string
 
   ; === Numbers: binary (0b1010) ===
   |state[:num_bin]
     |eof                      | Integer(USE_MARK)                |return
-    |c[01_]                   | ->                               |>>
-    |c[\n]                    | Integer(USE_MARK)                |return
-    |c[ ]                     |                                  |>> :num_bin_space
+    |c[<0-1 '_'>]              | ->                               |>>
+    |c['\n']                  | Integer(USE_MARK)                |return
+    |c[' ']                   |                                  |>> :num_bin_space
     |c[:bracket]              | Integer(USE_MARK)                |return
     |default                  |                                  |>> :string
   |state[:num_bin_space]
     |if[space_term == 0]                                         |>> :num_bin_block
     |default                  | Integer(USE_MARK)                |return
   |state[:num_bin_block]
-    |c[;]                     | Integer(USE_MARK)                |return
+    |c[';']                | Integer(USE_MARK)                |return
     |default                  | ->                               |>> :string
 
   ; === Numbers: float fractional part ===
   |state[:num_float_frac]
     |eof                      | Float(USE_MARK)                  |return
-    |c[0123456789_]           | ->                               |>>
-    |c[eE]                    | ->                               |>> :num_float_exp
-    |c[\n]                    | Float(USE_MARK)                  |return
-    |c[ ]                     |                                  |>> :num_float_frac_space
+    |c[<0-9 '_'>]               | ->                               |>>
+    |c['eE']                  | ->                               |>> :num_float_exp
+    |c['\n']                  | Float(USE_MARK)                  |return
+    |c[' ']                   |                                  |>> :num_float_frac_space
     |c[:bracket]              | Float(USE_MARK)                  |return
     |default                  |                                  |>> :string
   |state[:num_float_frac_space]
     |if[space_term == 0]                                         |>> :num_float_frac_block
     |default                  | Float(USE_MARK)                  |return
   |state[:num_float_frac_block]
-    |c[;]                     | Float(USE_MARK)                  |return
+    |c[';']                | Float(USE_MARK)                  |return
     |default                  | ->                               |>> :string
 
   ; === Numbers: float exponent ===
   |state[:num_float_exp]
     |eof                      | Float(USE_MARK)                  |return
-    |c[+-]                    | ->                               |>> :num_float_exp_digits
-    |c[0123456789]            |                                  |>> :num_float_exp_digits
-    |c[\n]                    | Float(USE_MARK)                  |return
-    |c[ ]                     |                                  |>> :num_float_exp_space
+    |c['+-']                  | ->                               |>> :num_float_exp_digits
+    |c[<0-9>]                  |                                  |>> :num_float_exp_digits
+    |c['\n']                  | Float(USE_MARK)                  |return
+    |c[' ']                   |                                  |>> :num_float_exp_space
     |c[:bracket]              | Float(USE_MARK)                  |return
     |default                  |                                  |>> :string
   |state[:num_float_exp_space]
     |if[space_term == 0]                                         |>> :num_float_exp_block
     |default                  | Float(USE_MARK)                  |return
   |state[:num_float_exp_block]
-    |c[;]                     | Float(USE_MARK)                  |return
+    |c[';']                | Float(USE_MARK)                  |return
     |default                  | ->                               |>> :string
 
   |state[:num_float_exp_digits]
     |eof                      | Float(USE_MARK)                  |return
-    |c[0123456789_]           | ->                               |>>
-    |c[\n]                    | Float(USE_MARK)                  |return
-    |c[ ]                     |                                  |>> :num_float_exp_d_space
+    |c[<0-9 '_'>]               | ->                               |>>
+    |c['\n']                  | Float(USE_MARK)                  |return
+    |c[' ']                   |                                  |>> :num_float_exp_d_space
     |c[:bracket]              | Float(USE_MARK)                  |return
     |default                  |                                  |>> :string
   |state[:num_float_exp_d_space]
     |if[space_term == 0]                                         |>> :num_float_exp_d_block
     |default                  | Float(USE_MARK)                  |return
   |state[:num_float_exp_d_block]
-    |c[;]                     | Float(USE_MARK)                  |return
+    |c[';']                | Float(USE_MARK)                  |return
     |default                  | ->                               |>> :string
 
   ; === String fallback (anything not keyword/number) ===
   |state[:string]
     |eof                      | BareValue(USE_MARK)              |return
-    |c[\n]                    | BareValue(USE_MARK)              |return
-    |c[ ]                     |                                  |>> :string_space
+    |c['\n']                  | BareValue(USE_MARK)              |return
+    |c[' ']                   |                                  |>> :string_space
     |c[:bracket]              | BareValue(USE_MARK)              |return
     |default                  | ->                               |>>
   |state[:string_space]
     |if[space_term == 0]                                         |>> :string_block
     |default                  | BareValue(USE_MARK)              |return
   |state[:string_block]
-    |c[;]                     | TERM(-1) | BareValue(USE_MARK)   |return
+    |c[';']                | TERM(-1) | BareValue(USE_MARK)   |return
     |default                  | ->                               |>> :string

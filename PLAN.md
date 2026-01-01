@@ -90,6 +90,73 @@ The parser's only directive-level knowledge is body mode (per parser-strategy.md
 - [ ] Remove `udon-core/src/values_parser.rs` (obsolete)
 - [ ] Evaluate `udon-core/src/value.rs` (post-hoc classification may be redundant)
 
+## Grammar DRY Refactoring
+
+Issues identified in `generator/udon.desc` and `generator/values.desc`:
+
+### Completed
+
+- [x] **`array_block`, `array_sameline`, `array_embedded`** → unified to single `array` function
+  - Were 27 lines, now 9 lines
+  - Only differed in recursive call target
+
+### Ready to Unify
+
+- [x] **`prose`, `prose_pipe`, `prose_backtick`** → unified to `prose(line_col, parent_col, prepend)`
+  - Using `<>` for no prepend, `'|'` for pipe, `'`'` for backtick
+  - `prose_backticks` kept separate (calls `text_backticks` for ``)
+
+- [x] **`value_block`, `value_sameline`, `value_embedded`** → unified to `value(space_term, bracket)`
+  - `space_term`: 0 (block) or 1 (sameline)
+  - `bracket`: `'\0'` (none), `'}'` (embedded), `']'` (array)
+
+- [ ] **`double_quoted` vs `single_quoted`** (lines 368-378)
+  - Differ only in quote character matched
+  - Comment says "parameterized version had scan optimization issues with :quote"
+  - May require descent enhancement to unify
+
+### Values.desc Issues
+
+- [ ] **21 nearly-identical number parsing states** in `values.desc`
+  - `dec_start`, `dec_digits`, `hex_start`, `hex_digits`, `oct_start`, etc.
+  - Each number format (dec, hex, oct, bin) has 4-5 states with identical structure
+  - Only differences: valid digit characters and type emitted
+  - Could potentially use descent's character class feature more effectively
+
+### Naming/Vocabulary Issues
+
+- [x] **Magic numbers**: 124='|', 33='!', 96='`' used as prepend values
+  - Now using character literals: `'|'`, `'!'`, `'`'`
+
+- [x] **`inline_*` → `sameline_*`**: Per FULL-SPEC vocabulary
+  - `inline_directive` → `sameline_directive`
+  - `inline_raw` → `sameline_raw`
+  - `inline_dir_body` → `sameline_dir_body`
+
+- [x] **Bracket aliases**: Now using character literals directly
+  - `<L>` → `'['`, `<R>` → `']'`, `<RB>` → `'}'`
+  - Kept `<SQ>`, `<DQ>`, `<BS>` for readability in escape contexts
+
+### Known Test Failures (Variations)
+
+Canonical tests pass, but variation tests (with random indentation) reveal edge cases:
+
+- [ ] **Freeform blocks with indentation** - `basic_freeform_block`, `freeform_preserves_pipes`
+  - Freeform parser includes leading whitespace in RawContent
+  - Doesn't find closing ``` when input is indented
+- [ ] **Error cases with indentation** - `tab_character_error`, `unclosed_*` variants
+  - Error handling doesn't account for indented input variations
+- [ ] **Embedded elements** - `unclosed_embedded_element_error` variations
+
+These need investigation - the variation test framework is surfacing real edge cases.
+
+### Compliance Issues
+
+- [x] **Unicode identifier support** (CRITICAL for SPEC compliance)
+  - Element names, attribute keys, class names now support Unicode
+  - Replaced `LETTER` → `XLBL_START` and `LABEL_CONT` → `XLBL_CONT`
+  - Uses `unicode-xid` crate for XID_Start/XID_Continue checks
+
 ## Phase 4: Multi-Chunk Streaming & Performance
 
 From descent TODO #10 - resumable state machine for true streaming:

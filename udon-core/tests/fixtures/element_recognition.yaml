@@ -55,22 +55,22 @@
   desc: Pipe + space = prose (NOT anonymous element)
   udon: "| content"
   events:
-    - [Text, " content"]
+    - [Text, "| content"]
 
 - id: pipe_in_markdown_table_is_prose
   desc: Markdown table syntax is prose
   udon: "| Header | Header |"
   events:
-    - [Text, " Header | Header |"]
+    - [Text, "| Header | Header |"]
 
 - id: pipe_followed_by_number_is_prose
   desc: Pipe + number = prose
   udon: "|123"
   events:
-    - [Text, "123"]
+    - [Text, "|123"]
 
 - id: pipe_followed_by_hyphen_is_prose
   desc: Pipe + hyphen = prose
   udon: "|- list item"
   events:
-    - [Text, "- list item"]
+    - [Text, "|- list item"]

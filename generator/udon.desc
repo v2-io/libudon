@@ -61,32 +61,32 @@
 
 |function[document]
   |state[:line]
-    |c[\n]                    | ->                               |>>
-    |c[ ]                     | col = /count_indent              |>> :dispatch
-    |c[\t]                    | /error(no_tabs) | ->[\n]         |>> :line
+    |c['\n']                  | ->                               |>>
+    |c[' ']                   | col = /count_indent              |>> :dispatch
+    |c['\t']                  | /error(no_tabs) | ->['\n']       |>> :line
     |default                  | col = 0                          |>> :dispatch
 
   |state[:dispatch]
-    |c[|]                     | ->                               |>> :check_pipe
-    |c[:]                     | -> | /block_attr                 |>> :line
-    |c[!]                     | -> | /block_directive(col)       |>> :line
-    |c[;]                     | -> | /line_comment               |>> :line
-    |c[`]                     | ->                               |>> :check_freeform
-    |c[']                     | -> | /prose(col, -1)             |>> :line
-    |default                  | /prose(col, -1)                  |>> :line
+    |c['|']                   | ->                               |>> :check_pipe
+    |c[':']                   | -> | /block_attr                 |>> :line
+    |c['!']                   | -> | /block_directive(col)       |>> :line
+    |c[';']                   | -> | /line_comment               |>> :line
+    |c['`']                   | ->                               |>> :check_freeform
+    |c[<SQ>]                  | -> | /prose(col, -1, <>)         |>> :line
+    |default                  | /prose(col, -1, <>)              |>> :line
 
   |state[:check_freeform]
-    |c[`]                     | ->                               |>> :check_freeform2
-    |default                  | /prose_backtick(col, -1)         |>> :line
+    |c['`']                   | ->                               |>> :check_freeform2
+    |default                  | /prose(col, -1, '`')             |>> :line
 
   |state[:check_freeform2]
-    |c[`]                     | -> | /freeform                   |>> :line
+    |c['`']                   | -> | /freeform                   |>> :line
     |default                  | /prose_backticks(col, -1)        |>> :line
 
   |state[:check_pipe]
-    |c[LETTER'[.?!*+]         | /element(col, -1)                |>> :line
-    |c[{]                     | -> | /embedded                   |>> :line
-    |default                  | /prose_pipe(col, -1)             |>> :line
+    |c[<XLBL_START SQ '[' '.?!*+'>]  | /element(col, -1)               |>> :line
+    |c['{']                   | -> | /embedded                   |>> :line
+    |default                  | /prose(col, -1, '|')             |>> :line
 
 
 ; ============================================================================
@@ -95,7 +95,7 @@
 
 |function[count_indent:INT]  | result = 0
   |state[:main]
-    |c[ ]                     | -> | result += 1                 |>>
+    |c[' ']                   | -> | result += 1                 |>>
     |default                  |                                  |return result
 
 
@@ -114,48 +114,48 @@
 |function[parse_element_identity]  :close
   |state[:identity]
     |c[:close]                |                                  |return  ; closer hit (empty)
-    |c[LETTER]                | /name                            |>> :post_name
-    |c[']                     | ->                               |>> :quoted_name
-    |c[<L>]                     | ->                               |>> :bracket
-    |c[.]                     |                                  |>> :class
-    |c[?!*+]                  | /suffix                          |return  ; identity done
+    |c[XLBL_START]                | /name                            |>> :post_name
+    |c[<SQ>]                  | ->                               |>> :quoted_name
+    |c['[']                   | ->                               |>> :bracket
+    |c['.']                   |                                  |>> :class
+    |c['?!*+']                | /suffix                          |return  ; identity done
     |default                  |                                  |return  ; anonymous, identity done
 
   |state[:quoted_name]
-    |c[']                     | ->                               |>> :post_name
+    |c[<SQ>]                  | ->                               |>> :post_name
     |default                  | /quoted_name                     |>> :post_name
 
   |state[:post_name]
     |c[:close]                |                                  |return
-    |c[<L>]                     | ->                               |>> :bracket
-    |c[.]                     |                                  |>> :class
-    |c[?!*+]                  | /suffix                          |return
+    |c['[']                   | ->                               |>> :bracket
+    |c['.']                   |                                  |>> :class
+    |c['?!*+']                | /suffix                          |return
     |default                  |                                  |return
 
   |state[:bracket]
-    |c[<R>]                     | ->                               |>> :post_bracket
+    |c[']']                   | ->                               |>> :post_bracket
     |default                  | Attr($id) | /value_bracket       |>> :bracket_close
 
   |state[:bracket_close]
-    |c[<R>]                     | ->                               |>> :post_bracket
+    |c[']']                   | ->                               |>> :post_bracket
     |default                  |                                  |return  ; unclosed
 
   |state[:post_bracket]
     |c[:close]                |                                  |return
-    |c[.]                     |                                  |>> :class
-    |c[?!*+]                  | /suffix                          |return
+    |c['.']                   |                                  |>> :class
+    |c['?!*+']                | /suffix                          |return
     |default                  |                                  |return
 
   |state[:class]
-    |c[.]                     | ->                               |>>
-    |c[LETTER]                | Attr($class) | /class_name       |>> :post_class
-    |c[']                     | Attr($class) | -> | /quoted_class |>> :post_class
+    |c['.']                   | ->                               |>>
+    |c[XLBL_START]                | Attr($class) | /class_name       |>> :post_class
+    |c[<SQ>]                  | Attr($class) | -> | /quoted_class |>> :post_class
     |default                  |                                  |return  ; no more classes
 
   |state[:post_class]
     |c[:close]                |                                  |return
-    |c[.]                     |                                  |>> :class
-    |c[?!*+]                  | /suffix                          |return
+    |c['.']                   |                                  |>> :class
+    |c['?!*+']                | /suffix                          |return
     |default                  |                                  |return
 
 
@@ -166,65 +166,65 @@
 |function[element:Element]  :elem_col :parent_col
 
   |state[:identity]
-    | /parse_element_identity(0)                                 |>> :post_identity
+    | /parse_element_identity(<>)                                |>> :post_identity
 
   |state[:post_identity]
-    |c[\n]                    | ->                               |>> :children
-    |c[ \t]                   | ->                               |>> :pre_content
-    |default                  | /sameline_text(elem_col, 0)        |>> :children
+    |c['\n']                  | ->                               |>> :children
+    |c[' \t']                 | ->                               |>> :pre_content
+    |default                  | /sameline_text(:elem_col, <>)     |>> :children
 
   |state[:pre_content]
-    |c[\n]                    | ->                               |>> :children
-    |c[ \t]                   | ->                               |>>
-    |c[:]                     | -> | /sameline_attr                |>>
-    |c[|]                     | ->                               |>> :check_sameline_pipe
-    |c[;]                     | ->                               |>> :check_sameline_semi
-    |c[!]                     | ->                               |>> :check_sameline_bang
-    |default                  | /sameline_text(elem_col, 0)        |>> :children
+    |c['\n']                  | ->                               |>> :children
+    |c[' \t']                 | ->                               |>>
+    |c[':']                   | -> | /sameline_attr              |>>
+    |c['|']                   | ->                               |>> :check_sameline_pipe
+    |c[';']                   | ->                               |>> :check_sameline_semi
+    |c['!']                   | ->                               |>> :check_sameline_bang
+    |default                  | /sameline_text(:elem_col, <>)     |>> :children
 
   |state[:check_sameline_pipe]
-    |c[{]                     | -> | /embedded                   |>> :post_child
-    |c[LETTER'[.?!*+]         | /element(COL - 1, elem_col)      |>> :post_child
-    |default                  | /sameline_text(elem_col, 124)      |>> :children
+    |c['{']                   | -> | /embedded                   |>> :post_child
+    |c[<XLBL_START SQ '[' '.?!*+'>]  | /element(COL - 1, :elem_col)    |>> :post_child
+    |default                  | /sameline_text(:elem_col, '|')   |>> :children
 
   |state[:check_sameline_semi]
-    |c[{]                     | -> | /brace_comment              |>> :pre_content
+    |c['{']                   | -> | /brace_comment              |>> :pre_content
     |default                  | /line_comment_content            |>> :children
 
   |state[:check_sameline_bang]
-    |c[{]                     | -> | /inline_directive           |>> :pre_content
-    |default                  | /sameline_text(elem_col, 33)       |>> :children
+    |c['{']                   | -> | /sameline_directive           |>> :pre_content
+    |default                  | /sameline_text(:elem_col, '!')   |>> :children
 
   |state[:post_child]
-    |c[\n]                    | ->                               |>> :children
-    |c[ \t]                   | ->                               |>>
-    |c[|]                     | ->                               |>> :check_sameline_pipe
-    |default                  | /sameline_text(elem_col, 0)        |>> :children
+    |c['\n']                  | ->                               |>> :children
+    |c[' \t']                 | ->                               |>>
+    |c['|']                   | ->                               |>> :check_sameline_pipe
+    |default                  | /sameline_text(:elem_col, <>)     |>> :children
 
   ; === Children Loop ===
   ; NOTE: count_indent returns 0-based column, but COL is 1-based
   |state[:children]
-    |c[\n]                    | ->                               |>>
-    |c[ ]                     | col = /count_indent              |>> :check_child
-    |c[\t]                    | /error(no_tabs) | ->[\n]         |>>
+    |c['\n']                  | ->                               |>>
+    |c[' ']                   | col = /count_indent              |>> :check_child
+    |c['\t']                  | /error(no_tabs) | ->['\n']       |>>
     |default                  | col = COL - 1                    |>> :check_child
 
   |state[:check_child]
-    |if[col <= elem_col]                                         |return  ; dedent
+    |if[col <= :elem_col]                                        |return  ; dedent
     |                                                            |>> :child_dispatch
 
   |state[:child_dispatch]
-    |c[|]                     | ->                               |>> :child_pipe
-    |c[:]                     | -> | /block_attr                 |>> :children
-    |c[!]                     | -> | /block_directive(col)       |>> :children
-    |c[;]                     | -> | /line_comment               |>> :children
-    |c[']                     | -> | /prose(col, elem_col)       |>> :children
-    |default                  | /prose(col, elem_col)            |>> :children
+    |c['|']                   | ->                               |>> :child_pipe
+    |c[':']                   | -> | /block_attr                 |>> :children
+    |c['!']                   | -> | /block_directive(col)       |>> :children
+    |c[';']                   | -> | /line_comment               |>> :children
+    |c[<SQ>]                  | -> | /prose(col, :elem_col, <>)  |>> :children
+    |default                  | /prose(col, :elem_col, <>)       |>> :children
 
   |state[:child_pipe]
-    |c[{]                     | -> | /embedded                   |>> :after_child
-    |c[LETTER'[.?!*+]         | /element(col, elem_col)          |>> :after_child
-    |default                  | /prose_pipe(col, elem_col)       |>> :children
+    |c['{']                   | -> | /embedded                   |>> :after_child
+    |c[<XLBL_START SQ '[' '.?!*+'>] | /element(col, :elem_col)         |>> :after_child
+    |default                  | /prose(col, :elem_col, '|')      |>> :children
 
   ; After child element/embedded returns - always re-check column for potential dedent
   |state[:after_child]
@@ -237,7 +237,7 @@
 
 |function[name:Name]  | MARK
   |state[:main]
-    |c[LABEL_CONT]            | ->                               |>>
+    |c[XLBL_CONT]             | ->                               |>>
     |default                  | TERM                             |return
 
 
@@ -245,8 +245,8 @@
 ; Consumes up to and including closing '. Caller handles MARK/TERM/emit.
 |function[skip_single_quoted]
   |state[:main]
-    |c[']                     | ->                               |return
-    |c[\\]                    | -> | ->                          |>>
+    |c[<SQ>]                  | ->                               |return
+    |c[<BS>]                  | -> | ->                          |>>
     |default                  | ->                               |>>
 
 
@@ -257,7 +257,7 @@
 
 |function[class_name:BareValue]  | MARK
   |state[:main]
-    |c[LABEL_CONT]            | ->                               |>>
+    |c[XLBL_CONT]             | ->                               |>>
     |default                  | TERM                             |return
 
 
@@ -272,49 +272,49 @@
 
 |function[suffix]
   |state[:main]
-    |c[?]                     | Attr(?) | BoolTrue | ->          |return
-    |c[!]                     | Attr(!) | BoolTrue | ->          |return
-    |c[*]                     | Attr(*) | BoolTrue | ->          |return
-    |c[+]                     | Attr(+) | BoolTrue | ->          |return
+    |c['?']                   | Attr(?) | BoolTrue | ->          |return
+    |c['!']                   | Attr(!) | BoolTrue | ->          |return
+    |c['*']                   | Attr(*) | BoolTrue | ->          |return
+    |c['+']                   | Attr(+) | BoolTrue | ->          |return
     |default                  |                                  |return
 
 
 |function[block_attr]
   |state[:key]
-    |c[LETTER]                | /attr_key                        |>> :value_start
-    |c[']                     | -> | /attr_key_quoted            |>> :value_start
+    |c[XLBL_START]                | /attr_key                        |>> :value_start
+    |c[<SQ>]                  | -> | /attr_key_quoted            |>> :value_start
 
   |state[:value_start]
-    |c[ \t]                   | ->                               |>>
-    |c[\n]                    | BoolTrue                         |return
-    |default                  | /value_block                     |return
+    |c[' \t']                 | ->                               |>>
+    |c['\n']                  | BoolTrue                         |return
+    |default                  | /value(0, '\0')                  |return
 
 
 |function[sameline_attr]
   |state[:key]
-    |c[LETTER]                | /attr_key                        |>> :value_start
-    |c[']                     | -> | /attr_key_quoted            |>> :value_start
+    |c[XLBL_START]                | /attr_key                        |>> :value_start
+    |c[<SQ>]                  | -> | /attr_key_quoted            |>> :value_start
 
   |state[:value_start]
-    |c[ \t]                   | ->                               |>>
-    |c[\n:|]                  | BoolTrue                         |return
-    |default                  | /value_sameline                  |return
+    |c[' \t']                 | ->                               |>>
+    |c['\n:|']                | BoolTrue                         |return
+    |default                  | /value(1, '\0')                  |return
 
 
 |function[sameline_attr_embedded]
   |state[:key]
-    |c[LETTER]                | /attr_key                        |>> :value_start
-    |c[']                     | -> | /attr_key_quoted            |>> :value_start
+    |c[XLBL_START]                | /attr_key                        |>> :value_start
+    |c[<SQ>]                  | -> | /attr_key_quoted            |>> :value_start
 
   |state[:value_start]
-    |c[ \t]                   | ->                               |>>
-    |c[\n:|<RB>]              | BoolTrue                         |return
-    |default                  | /value_embedded                  |return
+    |c[' \t']                 | ->                               |>>
+    |c[<'\n:|' '}'>]           | BoolTrue                         |return
+    |default                  | /value(1, '}')                   |return
 
 
 |function[attr_key:Attr]  | MARK
   |state[:main]
-    |c[LABEL_CONT]            | ->                               |>>
+    |c[XLBL_CONT]             | ->                               |>>
     |default                  | TERM                             |return
 
 
@@ -327,139 +327,90 @@
 ; Values
 ; ============================================================================
 
-; Value parsing uses typed_value from values.desc with context parameters:
+; Value parsing - unified function with context parameters
 ;   :space_term = 0 (block: space is content) or 1 (space terminates)
-;   :bracket = 0 (none), } (embedded), ] (array)
-
-; Block attribute value - space is content, ` ;` starts comment
-|function[value_block]
+;   :bracket = 0 (none), '}' (embedded), ']' (array)
+|function[value]  :space_term :bracket
   |state[:start]
-    |c["]                     | -> | /double_quoted              |return
-    |c[']                     | -> | /single_quoted              |return
-    |c[<L>]                   | -> | /array_block                |return
-    |default                  | MARK | /typed_value(0, 0)        |return
-
-; Sameline attribute value - space terminates
-|function[value_sameline]
-  |state[:start]
-    |c["]                     | -> | /double_quoted              |return
-    |c[']                     | -> | /single_quoted              |return
-    |c[<L>]                   | -> | /array_sameline             |return
-    |default                  | MARK | /typed_value(1, 0)        |return
-
-; Embedded attribute value - space or } terminates
-|function[value_embedded]
-  |state[:start]
-    |c["]                     | -> | /double_quoted              |return
-    |c[']                     | -> | /single_quoted              |return
-    |c[<L>]                   | -> | /array_embedded             |return
-    |default                  | MARK | /typed_value(1, <RB>)     |return
+    |c[<DQ>]                  | -> | /double_quoted              |return
+    |c[<SQ>]                  | -> | /single_quoted              |return
+    |c['[']                   | -> | /array                      |return
+    |default                  | MARK | /typed_value(:space_term, :bracket) |return
 
 ; Bracket ID value - IDs are always BareValue (no type detection)
 ; Space or ] terminates
 |function[value_bracket:BareValue]  | MARK
   |state[:main]
-    |c[<R>]                   | TERM                             |return
-    |c[ ]                     | TERM                             |return
+    |c[']']                   | TERM                             |return
+    |c[' ']                   | TERM                             |return
     |default                  | ->                               |>>
 
 ; Quoted string parsing - separate functions for each quote type
 ; (parameterized version had scan optimization issues with :quote)
 |function[double_quoted:StringValue]  | MARK
   |state[:main]
-    |c["]                     | TERM | ->                        |return
-    |c[\\]                    | -> | ->                          |>>
+    |c[<DQ>]                  | TERM | ->                        |return
+    |c[<BS>]                  | -> | ->                          |>>
     |default                  | ->                               |>>
 
 |function[single_quoted:StringValue]  | MARK
   |state[:main]
-    |c[']                     | TERM | ->                        |return
-    |c[\\]                    | -> | ->                          |>>
+    |c[<SQ>]                  | TERM | ->                        |return
+    |c[<BS>]                  | -> | ->                          |>>
     |default                  | ->                               |>>
 
-; Arrays - items are space-separated, ] terminates
+; Array - items are space-separated, ] terminates
 ; Supports: bare values, quoted strings, nested arrays, typed values
-|function[array_block:Array]
+|function[array:Array]
   |state[:items]
-    |c[<R>]                   | ->                               |return
-    |c[ \t\n]                 | ->                               |>>
-    |c["]                     | -> | /double_quoted              |>>  ; quoted string
-    |c[']                     | -> | /single_quoted              |>>  ; quoted string
-    |c[<L>]                   | -> | /array_block                |>>  ; nested array
-    |default                  | MARK | /typed_value(1, <R>)      |>>
-
-|function[array_sameline:Array]
-  |state[:items]
-    |c[<R>]                   | ->                               |return
-    |c[ \t\n]                 | ->                               |>>
-    |c["]                     | -> | /double_quoted              |>>  ; quoted string
-    |c[']                     | -> | /single_quoted              |>>  ; quoted string
-    |c[<L>]                   | -> | /array_sameline             |>>  ; nested array
-    |default                  | MARK | /typed_value(1, <R>)      |>>
-
-|function[array_embedded:Array]
-  |state[:items]
-    |c[<R>]                   | ->                               |return
-    |c[ \t\n]                 | ->                               |>>
-    |c["]                     | -> | /double_quoted              |>>  ; quoted string
-    |c[']                     | -> | /single_quoted              |>>  ; quoted string
-    |c[<L>]                   | -> | /array_embedded             |>>  ; nested array
-    |default                  | MARK | /typed_value(1, <R>)      |>>
+    |c[']']                   | ->                               |return
+    |c[' \t\n']               | ->                               |>>
+    |c[<DQ>]                  | -> | /double_quoted              |>>
+    |c[<SQ>]                  | -> | /single_quoted              |>>
+    |c['[']                   | -> | /array                      |>>
+    |default                  | MARK | /typed_value(1, ']')      |>>
 
 
 ; ============================================================================
 ; Prose / Text
 ; ============================================================================
 
-|function[prose]  :line_col :parent_col
-  |if[parent_col >= 0 && line_col <= parent_col]             |return  ; dedent
+; prose - block-level text content with optional prepend character
+; :prepend = <> (none), '|' (pipe prefix), '`' (backtick prefix)
+|function[prose]  :line_col :parent_col :prepend
+  |if[:parent_col >= 0 && :line_col <= :parent_col]          |return  ; dedent
 
   |state[:content]
-    | /text(line_col, parent_col, 0)                             |return
-
-
-|function[prose_pipe]  :line_col :parent_col
-  |if[parent_col >= 0 && line_col <= parent_col]             |return  ; dedent
-
-  |state[:content]
-    | /text(line_col, parent_col, 124)                           |return
-
-
-; prose_backtick - single backtick (not freeform, just text starting with `)
-|function[prose_backtick]  :line_col :parent_col
-  |if[parent_col >= 0 && line_col <= parent_col]             |return
-
-  |state[:content]
-    | /text(line_col, parent_col, 96)                            |return  ; 96 = '`'
+    | /text(:line_col, :parent_col, :prepend)                    |return
 
 
 ; prose_backticks - two backticks (not freeform, just text starting with ``)
 |function[prose_backticks]  :line_col :parent_col
-  |if[parent_col >= 0 && line_col <= parent_col]             |return
+  |if[:parent_col >= 0 && :line_col <= :parent_col]          |return
 
   |state[:content]
-    | /text_backticks(line_col, parent_col)                      |return
+    | /text_backticks(:line_col, :parent_col)                    |return
 
 
 ; text_backticks - text that starts with `` (for non-freeform case)
-|function[text_backticks:Text]  :line_col :parent_col  | MARK | PREPEND(`) | PREPEND(`)
+|function[text_backticks:Text]  :line_col :parent_col  | MARK | PREPEND('`') | PREPEND('`')
   |state[:main]
-    |c[\n]                    | TERM                             |return
-    |c[|]                     | ->                               |>> :check_pipe
-    |c[;]                     | ->                               |>> :check_semi
-    |c[!]                     | ->                               |>> :check_bang
+    |c['\n']                  | TERM                             |return
+    |c['|']                   | ->                               |>> :check_pipe
+    |c[';']                   | ->                               |>> :check_semi
+    |c['!']                   | ->                               |>> :check_bang
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
     |default                  |                                  |>> :main
 
   |state[:check_semi]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
     |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /inline_directive | MARK |>> :main
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /sameline_directive | MARK |>> :main
     |default                  |                                  |>> :main
 
 
@@ -470,58 +421,56 @@
 ; Freeform block - captures content until closing ```
 |function[freeform:Freeform]
   |state[:lang]
-    |c[\n]                    | ->                               |>> :content
-    |c[LETTER]                | /name                            |>> :eol
+    |c['\n']                  | ->                               |>> :content
+    |c[XLBL_START]                | /name                            |>> :eol
     |default                  |                                  |>> :content
 
   |state[:eol]
-    |c[\n]                    | ->                               |>> :content
+    |c['\n']                  | ->                               |>> :content
     |default                  | ->                               |>>  ; consume rest of line
 
   |state[:content]
-    |c[\n]                    | ->                               |>>
-    |c[`]                     |                                  |>> :maybe_end
+    |c['\n']                  | ->                               |>>
+    |c['`']                   |                                  |>> :maybe_end
     |default                  | MARK                             |>> :line
 
   |state[:line]
-    |c[\n]                    | TERM | RawContent(USE_MARK) | -> |>> :content
+    |c['\n']                  | TERM | RawContent(USE_MARK) | -> |>> :content
     |default                  | ->                               |>>
 
   |state[:maybe_end]
-    |c[`]                     | ->                               |>> :maybe_end2
-    |default                  | MARK | PREPEND(`)               |>> :line
+    |c['`']                   | ->                               |>> :maybe_end2
+    |default                  | MARK | PREPEND('`')              |>> :line
 
   |state[:maybe_end2]
-    |c[`]                     | -> | ->                          |return  ; consume final `
-    |default                  | MARK | PREPEND(`) | PREPEND(`)  |>> :line
+    |c['`']                   | -> | ->                          |return  ; consume final `
+    |default                  | MARK | PREPEND('``')             |>> :line
 
 
 ; text - block-level prose content
 ; Same pattern as sameline_text: advance past special chars, check what follows.
-; prepend: 0 = none, 124 = '|', 33 = '!', 96 = '`'
+; :prepend = <> (none), '|' (pipe prefix), '`' (backtick prefix)
 |function[text:Text]  :line_col :parent_col :prepend
   |state[:entry]
-    |if[prepend == 124]      | PREPEND(|)                       |>> :main
-    |if[prepend == 96]       | PREPEND(`)                       |>> :main
-    |default                  |                                  |>> :main
+    | PREPEND(:prepend)                                          |>> :main
 
   |state[:main]
-    |c[\n]                    | TERM                             |return
-    |c[|]                     | ->                               |>> :check_pipe
-    |c[;]                     | ->                               |>> :check_semi
-    |c[!]                     | ->                               |>> :check_bang
+    |c['\n']                  | TERM                             |return
+    |c['|']                   | ->                               |>> :check_pipe
+    |c[';']                   | ->                               |>> :check_semi
+    |c['!']                   | ->                               |>> :check_bang
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
     |default                  |                                  |>> :main
 
   |state[:check_semi]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
     |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /inline_directive | MARK |>> :main
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /sameline_directive | MARK |>> :main
     |default                  |                                  |>> :main
 
 
@@ -529,31 +478,29 @@
 ; When special chars (|;!) are encountered, we advance past them, then check
 ; what follows. If special construct, emit text before it and parse construct.
 ; If not special, just continue (char is included in text).
-; prepend: 0 = none, 124 = '|', 33 = '!'
+; :prepend = <> (none), '|' (pipe prefix), '!' (bang prefix)
 |function[sameline_text:Text]  :elem_col :prepend  | MARK
   |state[:entry]
-    |if[prepend == 124]      | PREPEND(|)                       |>> :main
-    |if[prepend == 33]       | PREPEND(!)                       |>> :main
-    |default                  |                                  |>> :main
+    | PREPEND(:prepend)                                          |>> :main
 
   |state[:main]
-    |c[\n]                    | TERM                             |return
-    |c[|]                     | ->                               |>> :check_pipe
-    |c[;]                     | ->                               |>> :check_semi
-    |c[!]                     | ->                               |>> :check_bang
+    |c['\n']                  | TERM                             |return
+    |c['|']                   | ->                               |>> :check_pipe
+    |c[';']                   | ->                               |>> :check_semi
+    |c['!']                   | ->                               |>> :check_bang
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
-    |c[LETTER'[.?!*+]         | TERM(-1) | Text(USE_MARK) | /element(COL - 1, elem_col) | MARK |>> :main
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
+    |c[<XLBL_START SQ '[' '.?!*+'>] | TERM(-1) | Text(USE_MARK) | /element(COL - 1, :elem_col) | MARK |>> :main
     |default                  |                                  |>> :main
 
   |state[:check_semi]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
     |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /inline_directive | MARK |>> :main
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /sameline_directive | MARK |>> :main
     |default                  |                                  |>> :main
 
 
@@ -563,7 +510,7 @@
 
 |function[line_comment]
   |state[:check]
-    |c[{]                     | -> | /brace_comment              |return
+    |c['{']                   | -> | /brace_comment              |return
     |default                  | /line_comment_content            |return
 
 
@@ -572,7 +519,7 @@
 |function[line_comment_content:Comment]  | MARK
   |state[:main]
     |eof                      | TERM                             |return  ; EOF is valid end
-    |c[\n]                    | TERM                             |return
+    |c['\n']                  | TERM                             |return
     |default                  | ->                               |>>
 
 
@@ -580,8 +527,8 @@
 ; Caller handles MARK/TERM and emit type. Assumes opening { already consumed.
 |function[skip_brace_balanced]  | depth = 1
   |state[:main]
-    |c[{]                     | -> | depth += 1                  |>>
-    |c[}]                     | -> | depth -= 1                  |>> :check
+    |c['{']                   | -> | depth += 1                  |>>
+    |c['}']                  | -> | depth -= 1                  |>> :check
     |default                  | ->                               |>>
 
   |state[:check]
@@ -602,45 +549,45 @@
 |function[embedded:Embedded]
 
   |state[:identity]
-    | /parse_element_identity(<RB>)                              |>> :post_identity
+    | /parse_element_identity('}')                               |>> :post_identity
 
   |state[:post_identity]
-    |c[}]                     | ->                               |return  ; empty or identity-only
-    |c[ \t]                   | ->                               |>> :pre_content
+    |c['}']                  | ->                               |return  ; empty or identity-only
+    |c[' \t']                 | ->                               |>> :pre_content
     |default                  | /embed_content                   |return
 
   |state[:pre_content]
-    |c[}]                     | ->                               |return
-    |c[ \t]                   | ->                               |>>
-    |c[:]                     | -> | /sameline_attr_embedded      |>>
+    |c['}']                  | ->                               |return
+    |c[' \t']                 | ->                               |>>
+    |c[':']                   | -> | /sameline_attr_embedded     |>>
     |default                  | /embed_content                   |return
 
 
 ; embed_content - text content inside |{...}
 ; Handles: text, embedded elements, comments, directives, quoted strings
 ; Quoted strings are emitted as StringValue to avoid brace confusion
-|function[embed_content:Text]  | MARK | EXPECTS(})
+|function[embed_content:Text]  | MARK
   |state[:main]
-    |c[}]                     | TERM | ->                        |return
-    |c[|]                     | TERM | ->                        |>> :check_pipe
-    |c[;]                     | TERM | ->                        |>> :check_semi
-    |c[!]                     | TERM | ->                        |>> :check_bang
-    |c["]                     | TERM | Text(USE_MARK) | -> | /double_quoted | MARK |>> :main
-    |c[']                     | TERM | Text(USE_MARK) | -> | /single_quoted | MARK |>> :main
+    |c['}']                  | TERM | ->                        |return
+    |c['|']                   | TERM | ->                        |>> :check_pipe
+    |c[';']                   | TERM | ->                        |>> :check_semi
+    |c['!']                   | TERM | ->                        |>> :check_bang
+    |c[<DQ>]                  | TERM | Text(USE_MARK) | -> | /double_quoted | MARK |>> :main
+    |c[<SQ>]                  | TERM | Text(USE_MARK) | -> | /single_quoted | MARK |>> :main
     |default                  | ->                               |>>
 
   |state[:check_pipe]
     ; Inside embedded, only |{...} allowed
-    |c[{]                     | -> | /embedded | MARK            |>> :main
-    |default                  | MARK | PREPEND(|)                |>> :main
+    |c['{']                   | -> | /embedded | MARK            |>> :main
+    |default                  | MARK | PREPEND('|')              |>> :main
 
   |state[:check_semi]
-    |c[{]                     | -> | /brace_comment | MARK       |>> :main
-    |default                  | MARK | PREPEND(;)                |>> :main
+    |c['{']                   | -> | /brace_comment | MARK       |>> :main
+    |default                  | MARK | PREPEND(';')              |>> :main
 
   |state[:check_bang]
-    |c[{]                     | -> | /inline_directive | MARK    |>> :main
-    |default                  | MARK | PREPEND(!)                |>> :main
+    |c['{']                   | -> | /sameline_directive | MARK    |>> :main
+    |default                  | MARK | PREPEND('!')              |>> :main
 
 
 ; ============================================================================
@@ -650,156 +597,122 @@
 ; Block directive - !name or !:lang: for raw
 |function[block_directive:Directive]  :line_col
   |state[:dispatch]
-    |c[:]                     | ->                               |>> :raw_kind
-    |c[LETTER]                | /name                            |>> :after_name
+    |c[':']                   | ->                               |>> :raw_kind
+    |c[XLBL_START]                | /name                            |>> :after_name
     |default                  |                                  |return  ; malformed
 
   ; Raw block !:lang: - parse kind name
   |state[:raw_kind]
-    |c[LETTER]                | /name | Raw                      |>> :raw_colon
+    |c[XLBL_START]                | /name | Raw                      |>> :raw_colon
     |default                  |                                  |return  ; malformed !:
 
   |state[:raw_colon]
-    |c[:]                     | ->                               |>> :raw_eol
+    |c[':']                   | ->                               |>> :raw_eol
     |default                  |                                  |return  ; missing second :
 
   |state[:raw_eol]
-    |c[\n]                    | ->                               |>> :raw_content
-    |c[ \t]                   | ->                               |>>
+    |c['\n']                  | ->                               |>> :raw_content
+    |c[' \t']                 | ->                               |>>
     |default                  | ->                               |>>  ; consume rest of line
 
   ; Raw content - capture everything at greater indent
   |state[:raw_content]
-    |c[\n]                    | ->                               |>>
-    |c[ ]                     | col = /count_indent              |>> :raw_check
+    |c['\n']                  | ->                               |>>
+    |c[' ']                   | col = /count_indent              |>> :raw_check
     |default                  |                                  |return  ; non-indented, done
 
   |state[:raw_check]
-    |if[col <= line_col]                                         |return  ; dedent
+    |if[col <= :line_col]                                         |return  ; dedent
     |default                  | MARK                             |>> :raw_line
 
   |state[:raw_line]
-    |c[\n]                    | TERM | RawContent(USE_MARK) | -> |>> :raw_content
+    |c['\n']                  | TERM | RawContent(USE_MARK) | -> |>> :raw_content
     |default                  | ->                               |>>
 
   ; Regular directive - parse condition/args and children
   |state[:after_name]
-    |c[\n]                    | ->                               |>> :children
-    |c[ \t]                   | ->                               |>> :condition
+    |c['\n']                  | ->                               |>> :children
+    |c[' \t']                 | ->                               |>> :condition
     |default                  |                                  |>> :children
 
   |state[:condition]
-    |c[\n]                    | ->                               |>> :children
+    |c['\n']                  | ->                               |>> :children
     |default                  | MARK | /directive_args           |>> :children
 
   ; Children at greater indent
   |state[:children]
-    |c[\n]                    | ->                               |>>
-    |c[ ]                     | col = /count_indent              |>> :check_child
-    |c[\t]                    | /error(no_tabs) | ->[\n]         |>>
+    |c['\n']                  | ->                               |>>
+    |c[' ']                   | col = /count_indent              |>> :check_child
+    |c['\t']                  | /error(no_tabs) | ->['\n']       |>>
     |default                  | col = COL - 1                    |>> :check_child
 
   |state[:check_child]
-    |if[col <= line_col]                                         |return
+    |if[col <= :line_col]                                         |return
     |                                                            |>> :child_dispatch
 
   |state[:child_dispatch]
-    |c[|]                     | ->                               |>> :child_pipe
-    |c[:]                     | -> | /block_attr                 |>> :children
-    |c[!]                     | -> | /block_directive(col)       |>> :children
-    |c[;]                     | -> | /line_comment               |>> :children
-    |c[']                     | -> | /prose(col, line_col)       |>> :children
-    |default                  | /prose(col, line_col)            |>> :children
+    |c['|']                   | ->                               |>> :child_pipe
+    |c[':']                   | -> | /block_attr                 |>> :children
+    |c['!']                   | -> | /block_directive(col)       |>> :children
+    |c[';']                   | -> | /line_comment               |>> :children
+    |c[<SQ>]                  | -> | /prose(col, :line_col, <>)  |>> :children
+    |default                  | /prose(col, :line_col, <>)       |>> :children
 
   |state[:child_pipe]
-    |c[{]                     | -> | /embedded                   |>> :children
-    |c[LETTER'[.?!*+]         | /element(col, line_col)          |>> :children
-    |default                  | /prose_pipe(col, line_col)       |>> :children
+    |c['{']                   | -> | /embedded                   |>> :children
+    |c[<XLBL_START SQ '[' '.?!*+'>] | /element(col, :line_col)         |>> :children
+    |default                  | /prose(col, :line_col, '|')      |>> :children
 
 
 ; Directive arguments - capture until newline or EOF
 |function[directive_args:Text]
   |state[:main]
     |eof                      | TERM                             |return
-    |c[\n]                    | TERM                             |return
+    |c['\n']                  | TERM                             |return
     |default                  | ->                               |>>
 
 
 ; Inline dynamics - dispatch based on first char after {
 ; Called with position at first char inside braces
-|function[inline_directive]
+|function[sameline_directive]
   |state[:dispatch]
-    |c[{]                     | -> | /interpolation              |return  ; !{{expr}}
-    |c[:]                     | -> | /inline_raw                 |return  ; !{:kind: content}
-    |default                  | /inline_dir_body                 |return  ; !{name args}
+    |c['{']                   | -> | /interpolation              |return  ; !{{expr}}
+    |c[':']                   | -> | /sameline_raw                 |return  ; !{:kind: content}
+    |default                  | /sameline_dir_body                 |return  ; !{name args}
 
 
 ; Interpolation !{{expr}} - double-brace
 |function[interpolation:Interpolation]  | MARK
   |state[:main]
-    |c[}]                     | TERM | -> | ->                   |return  ; consume }}
+    |c['}']                  | TERM | -> | ->                   |return  ; consume }}
     |default                  | ->                               |>>
 
 
 ; Inline raw !{:kind: content}
-|function[inline_raw:Directive]
+|function[sameline_raw:Directive]
   |state[:kind]
-    |c[:]                     | ->                               |>> :content
+    |c[':']                   | ->                               |>> :content
     |default                  | /name                            |>>  ; kind name
 
   |state[:content]
     | MARK                                                       |>> :scan
 
   |state[:scan]
-    |c[}]                     | TERM | RawContent(USE_MARK) | -> |return
+    |c['}']                  | TERM | RawContent(USE_MARK) | -> |return
     |default                  | ->                               |>>
 
 
 ; Regular inline directive !{name args}
-|function[inline_dir_body:Directive]
+|function[sameline_dir_body:Directive]
   |state[:name]
-    |c[LETTER]                | /name                            |>> :after_name
+    |c[XLBL_START]                | /name                            |>> :after_name
     |default                  | /skip_brace_balanced             |return  ; malformed
 
   |state[:after_name]
-    |c[}]                     | ->                               |return
-    |c[ \t]                   | ->                               |>> :args
+    |c['}']                  | ->                               |return
+    |c[' \t']                 | ->                               |>> :args
     |default                  | /skip_brace_balanced             |return
 
   |state[:args]
-    |c[}]                     | ->                               |return
+    |c['}']                  | ->                               |return
     |default                  | /skip_brace_balanced             |return  ; TODO: parse args properly
-
-
-; ============================================================================
-; DSL Features Used
-; ============================================================================
-;
-; Type declarations:
-;   |type[Name]  BRACKET|CONTENT|INTERNAL
-;
-; Function with return type (parsed content):
-;   |function[name:ReturnType]  | MARK
-;     ... | TERM | return    ; emits ReturnType with accumulated content
-;
-; Inline literal events:
-;   TypeName              ; emit event with no payload (BoolTrue, Nil)
-;   TypeName(literal)     ; emit event with literal value (Attr($id), Attr(?))
-;   TypeName(USE_MARK)    ; emit event using current MARK/TERM content
-;
-; Inferred EOF:
-;   - MARK active → TERM
-;   - EXPECTS(x) → emit unclosed error for x
-;   - Return (BRACKET types emit End, CONTENT types emit event)
-;
-; EXPECTS(x):
-;   Declares this state/function expects closing delimiter x
-;   On EOF: emit(Error:unclosed_x)
-;
-; Other features:
-;   MARK, TERM, TERM(-N), PREPEND(x)
-;   |if[cond] | actions | transition
-;   /function(args) - call with args
-;   variable = value, variable += 1
-;   COL - current column
-;
