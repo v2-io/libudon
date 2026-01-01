@@ -6,6 +6,7 @@
 #
 # Usage:
 #   ./regenerate-parser           # Generate parser and build
+#   ./regenerate-parser --trace   # Generate with tracing (for debugging)
 #   ./regenerate-parser --no-build # Generate parser only
 #   ./regenerate-parser --check    # Check descent availability only
 
@@ -75,7 +76,10 @@ check_descent() {
 }
 
 # Generate the parser
+# Args: $1 = "true" for trace mode, "false" otherwise
 generate_parser() {
+    local trace_mode="${1:-false}"
+
     info "Concatenating .desc files..."
 
     local desc_files=(
@@ -97,15 +101,21 @@ generate_parser() {
 
     cat "${desc_files[@]}" > "$tmp_file"
 
-    info "Running descent..."
+    local descent_args="generate"
+    if [[ "$trace_mode" == "true" ]]; then
+        descent_args="generate --trace"
+        info "Running descent with tracing..."
+    else
+        info "Running descent..."
+    fi
 
     # Run descent on the combined file
-    if (cd "$DESCENT_DIR" && bundle exec exe/descent generate "$tmp_file") > "$OUTPUT_FILE" 2>/dev/null; then
+    if (cd "$DESCENT_DIR" && bundle exec exe/descent $descent_args "$tmp_file") > "$OUTPUT_FILE" 2>/dev/null; then
         success "Generated $OUTPUT_FILE"
     else
         error "descent failed"
         # Show actual error
-        (cd "$DESCENT_DIR" && bundle exec exe/descent generate "$tmp_file") 2>&1 | head -20 || true
+        (cd "$DESCENT_DIR" && bundle exec exe/descent $descent_args "$tmp_file") 2>&1 | head -20 || true
         return 1
     fi
 }
@@ -127,15 +137,18 @@ build_project() {
 main() {
     local no_build=false
     local check_only=false
+    local trace=false
 
     for arg in "$@"; do
         case "$arg" in
             --no-build) no_build=true ;;
             --check) check_only=true ;;
+            --trace) trace=true; no_build=true ;;
             --help|-h)
-                echo "Usage: $0 [--no-build] [--check]"
+                echo "Usage: $0 [--trace] [--no-build] [--check]"
                 echo ""
                 echo "Options:"
+                echo "  --trace     Generate with tracing enabled (implies --no-build)"
                 echo "  --no-build  Generate parser but don't run cargo build"
                 echo "  --check     Only check if descent is available"
                 echo ""
@@ -158,7 +171,7 @@ main() {
         exit 0
     fi
 
-    if ! generate_parser; then
+    if ! generate_parser "$trace"; then
         exit 1
     fi
 
