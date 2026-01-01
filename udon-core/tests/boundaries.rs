@@ -12,7 +12,7 @@
 mod common;
 
 use common::{load_fixtures_by_name, Gen};
-use udon_core::{Parser, Event};
+use udon_core::{Parser, Event, StreamingParser, StreamEvent};
 
 /// Collect events from parsing, returning formatted strings
 fn collect_events(input: &[u8]) -> Vec<String> {
@@ -27,19 +27,82 @@ fn format_event(event: &Event) -> String {
     match event {
         Event::ElementStart { .. } => "ElementStart".to_string(),
         Event::ElementEnd { .. } => "ElementEnd".to_string(),
+        Event::EmbeddedStart { .. } => "EmbeddedStart".to_string(),
+        Event::EmbeddedEnd { .. } => "EmbeddedEnd".to_string(),
+        Event::DirectiveStart { .. } => "DirectiveStart".to_string(),
+        Event::DirectiveEnd { .. } => "DirectiveEnd".to_string(),
+        Event::ArrayStart { .. } => "ArrayStart".to_string(),
+        Event::ArrayEnd { .. } => "ArrayEnd".to_string(),
+        Event::FreeformStart { .. } => "FreeformStart".to_string(),
+        Event::FreeformEnd { .. } => "FreeformEnd".to_string(),
         Event::Name { content, .. } => format!("Name {:?}", String::from_utf8_lossy(content)),
-        Event::Attr { content, .. } => format!("Attr {:?}", String::from_utf8_lossy(content)),
         Event::Text { content, .. } => format!("Text {:?}", String::from_utf8_lossy(content)),
-        Event::Integer { content, .. } => format!("Integer {:?}", String::from_utf8_lossy(content)),
-        Event::Float { content, .. } => format!("Float {:?}", String::from_utf8_lossy(content)),
+        Event::Comment { content, .. } => format!("Comment {:?}", String::from_utf8_lossy(content)),
+        Event::Attr { content, .. } => format!("Attr {:?}", String::from_utf8_lossy(content)),
+        Event::StringValue { content, .. } => format!("StringValue {:?}", String::from_utf8_lossy(content)),
+        Event::BareValue { content, .. } => format!("BareValue {:?}", String::from_utf8_lossy(content)),
         Event::BoolTrue { .. } => "BoolTrue".to_string(),
         Event::BoolFalse { .. } => "BoolFalse".to_string(),
         Event::Nil { .. } => "Nil".to_string(),
-        Event::BareValue { content, .. } => format!("BareValue {:?}", String::from_utf8_lossy(content)),
-        Event::StringValue { content, .. } => format!("StringValue {:?}", String::from_utf8_lossy(content)),
+        Event::Interpolation { content, .. } => format!("Interpolation {:?}", String::from_utf8_lossy(content)),
+        Event::Reference { content, .. } => format!("Reference {:?}", String::from_utf8_lossy(content)),
+        Event::RawContent { content, .. } => format!("RawContent {:?}", String::from_utf8_lossy(content)),
+        Event::Raw { content, .. } => format!("Raw {:?}", String::from_utf8_lossy(content)),
+        Event::Integer { content, .. } => format!("Integer {:?}", String::from_utf8_lossy(content)),
+        Event::Float { content, .. } => format!("Float {:?}", String::from_utf8_lossy(content)),
         Event::Error { code, .. } => format!("Error {:?}", code),
-        _ => format!("{:?}", event),
     }
+}
+
+/// Format StreamEvent for comparison (ignoring spans)
+fn format_stream_event(event: &StreamEvent) -> String {
+    match event {
+        StreamEvent::ElementStart { .. } => "ElementStart".to_string(),
+        StreamEvent::ElementEnd { .. } => "ElementEnd".to_string(),
+        StreamEvent::EmbeddedStart { .. } => "EmbeddedStart".to_string(),
+        StreamEvent::EmbeddedEnd { .. } => "EmbeddedEnd".to_string(),
+        StreamEvent::DirectiveStart { .. } => "DirectiveStart".to_string(),
+        StreamEvent::DirectiveEnd { .. } => "DirectiveEnd".to_string(),
+        StreamEvent::ArrayStart { .. } => "ArrayStart".to_string(),
+        StreamEvent::ArrayEnd { .. } => "ArrayEnd".to_string(),
+        StreamEvent::FreeformStart { .. } => "FreeformStart".to_string(),
+        StreamEvent::FreeformEnd { .. } => "FreeformEnd".to_string(),
+        StreamEvent::Name { content, .. } => format!("Name {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::Text { content, .. } => format!("Text {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::Comment { content, .. } => format!("Comment {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::Attr { content, .. } => format!("Attr {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::StringValue { content, .. } => format!("StringValue {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::BareValue { content, .. } => format!("BareValue {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::BoolTrue { .. } => "BoolTrue".to_string(),
+        StreamEvent::BoolFalse { .. } => "BoolFalse".to_string(),
+        StreamEvent::Nil { .. } => "Nil".to_string(),
+        StreamEvent::Interpolation { content, .. } => format!("Interpolation {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::Reference { content, .. } => format!("Reference {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::RawContent { content, .. } => format!("RawContent {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::Raw { content, .. } => format!("Raw {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::Integer { content, .. } => format!("Integer {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::Float { content, .. } => format!("Float {:?}", String::from_utf8_lossy(content)),
+        StreamEvent::Error { code, .. } => format!("Error {:?}", code),
+    }
+}
+
+/// Parse input in multiple chunks using StreamingParser
+fn parse_multi_chunk(chunks: &[&[u8]]) -> Vec<String> {
+    let mut events = Vec::new();
+    let mut parser = StreamingParser::new();
+
+    for chunk in chunks {
+        parser.parse(chunk, |event| {
+            events.push(format_stream_event(&event));
+        });
+    }
+
+    // Signal end of input
+    parser.finish(|event| {
+        events.push(format_stream_event(&event));
+    });
+
+    events
 }
 
 // =============================================================================
@@ -258,26 +321,102 @@ fn stochastic_eof_on_fixtures() {
 // Chunk Boundary Tests (placeholder for when streaming is implemented)
 // =============================================================================
 
-/// Placeholder: Test that splitting input at chunk boundaries produces same result
-/// This will be implemented when multi-chunk streaming is added to descent
+/// Test that splitting input at chunk boundaries produces the same result
+/// for single-line inputs.
+///
+/// NOTE: StreamingParser uses line-oriented streaming, which means it parses
+/// complete lines independently. Multi-line elements (with child lines) will
+/// NOT produce identical results when split across line boundaries, because
+/// the parser doesn't track indentation state across parse calls.
+///
+/// For true cross-line streaming, the parser would need to track element stack
+/// state between chunks. This is a known limitation of line-oriented streaming.
 #[test]
-#[ignore]
 fn chunk_boundary_consistency() {
-    // TODO: When Parser supports multi-chunk input:
-    // 1. Parse full input in one chunk, record events
-    // 2. Parse same input split at every position, record events
-    // 3. Verify event sequences match
+    // Only test SINGLE-LINE inputs - multi-line requires stateful streaming
+    let inputs = [
+        b"|el :attr true-is-the-best\n".as_slice(),
+        b"|el :count 42\n".as_slice(),
+        b"|el :ratio 3.14\n".as_slice(),
+        b"|el :enabled true\n".as_slice(),
+        b"|div[main].container\n".as_slice(),
+        b"; comment line\n".as_slice(),
+        b"|element\n".as_slice(),
+    ];
 
-    // Example structure for when implemented:
-    // let full = b"|el :attr true-is-the-best\n";
-    // let full_events = collect_events(full);
-    //
-    // for split_at in 1..full.len() {
-    //     let chunk1 = &full[..split_at];
-    //     let chunk2 = &full[split_at..];
-    //     let chunked_events = parse_multi_chunk(&[chunk1, chunk2]);
-    //     assert_eq!(full_events, chunked_events);
-    // }
+    for full in inputs {
+        let full_events = collect_events(full);
+
+        // Test splitting at every position
+        for split_at in 1..full.len() {
+            let chunk1 = &full[..split_at];
+            let chunk2 = &full[split_at..];
+            let chunked_events = parse_multi_chunk(&[chunk1, chunk2]);
+
+            if full_events != chunked_events {
+                panic!(
+                    "Chunk boundary mismatch at position {} of {:?}\n\
+                     Full events:    {:?}\n\
+                     Chunked events: {:?}",
+                    split_at,
+                    String::from_utf8_lossy(full),
+                    full_events,
+                    chunked_events
+                );
+            }
+        }
+    }
+}
+
+/// Test multi-chunk parsing with more than 2 chunks (single-line input)
+#[test]
+fn multi_chunk_parsing() {
+    // Single line - multi-line requires stateful streaming (see chunk_boundary_consistency)
+    let full = b"|el :author Joseph :count 42\n";
+
+    // Parse in 4 chunks (roughly equal-sized)
+    let chunk_size = full.len() / 4;
+    let chunks: Vec<&[u8]> = full.chunks(chunk_size).collect();
+
+    let full_events = collect_events(full);
+    let chunked_events = parse_multi_chunk(&chunks);
+
+    assert_eq!(
+        full_events, chunked_events,
+        "Multi-chunk parsing should match single-buffer:\n\
+         Full: {:?}\nChunked: {:?}",
+        full_events, chunked_events
+    );
+}
+
+/// Test streaming parser with byte-at-a-time input
+#[test]
+fn byte_at_a_time_streaming() {
+    let full = b"|el :attr value\n";
+
+    // Feed one byte at a time
+    let chunks: Vec<&[u8]> = full.iter().map(|b| std::slice::from_ref(b)).collect();
+    let chunked_events = parse_multi_chunk(&chunks);
+
+    let full_events = collect_events(full);
+    assert_eq!(
+        full_events, chunked_events,
+        "Byte-at-a-time should match single-buffer"
+    );
+}
+
+/// Test that streaming parser tracks global offset correctly
+#[test]
+fn streaming_offset_tracking() {
+    let mut parser = StreamingParser::new();
+
+    // First chunk
+    parser.parse(b"|el :a 1\n", |_| {});
+    assert_eq!(parser.offset(), 9, "Offset after first chunk");
+
+    // Second chunk
+    parser.parse(b"|el :b 2\n", |_| {});
+    assert_eq!(parser.offset(), 18, "Offset after second chunk");
 }
 
 use rand::Rng;

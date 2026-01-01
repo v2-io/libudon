@@ -53,10 +53,20 @@
     |c[\n]                    | BareValue(USE_MARK)              |return
     |c[ ]                     |                                  |>> :check_space
     |c[:bracket]              | BareValue(USE_MARK)              |return
+    |c[@]                     | ->                               |>> :maybe_ref
     |c[0]                     | ->                               |>> :num_zero
     |c[123456789]             |                                  |>> :num_dec
     |c[-+]                    | ->                               |>> :num_sign
     |LETTER                   | ->                               |>> :accumulate
+    |default                  | ->                               |>>
+
+  ; === Reference @[name] ===
+  |state[:maybe_ref]
+    |c[<L>]                   | -> | MARK                        |>> :reference
+    |default                  |                                  |>> :string
+
+  |state[:reference]
+    |c[<R>]                   | TERM | Reference(USE_MARK) | ->  |return
     |default                  | ->                               |>>
 
   |state[:check_space]

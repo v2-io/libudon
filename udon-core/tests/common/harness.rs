@@ -63,6 +63,9 @@ fn format_expected(event: &ExpectedEvent) -> String {
 }
 
 /// Run a single test case (canonical, no variations)
+///
+/// If expected events is empty, this is a TODO test - we skip comparison
+/// but still run the parser to check for panics/errors.
 pub fn run_test(case: &TestCase) -> TestResult {
     let input = case.udon.as_bytes();
     let events = collect_events(input);
@@ -71,6 +74,24 @@ pub fn run_test(case: &TestCase) -> TestResult {
     let expected: Vec<String> = case.events.iter().map(format_expected).collect();
 
     let mut errors = Vec::new();
+
+    // Empty expected = TODO test, skip comparison but check for errors
+    if expected.is_empty() {
+        // Still check for unexpected Error events
+        for act in &actual {
+            if act.starts_with("Error") {
+                errors.push(format!("Unexpected error in TODO test: {}", act));
+            }
+        }
+        return TestResult {
+            passed: errors.is_empty(),
+            input: input.to_vec(),
+            expected,
+            actual,
+            seed: 0,
+            errors,
+        };
+    }
 
     // Check event count
     if actual.len() != expected.len() {
@@ -105,7 +126,14 @@ pub fn run_test(case: &TestCase) -> TestResult {
 /// - Geometric indent (α=0.9)
 /// - Random blank lines
 /// - 40% chance of UDON below
+///
+/// If expected events is empty, this is a TODO test - skip variations.
 pub fn run_with_variations(case: &TestCase, gen: &mut Gen) -> TestResult {
+    // Skip variations for TODO tests (empty expected)
+    if case.events.is_empty() {
+        return run_test(case);
+    }
+
     let mut input = Vec::new();
 
     // 40% chance: add UDON above

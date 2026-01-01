@@ -71,8 +71,17 @@
     |c[:]                     | -> | /block_attr                 |>> :line
     |c[!]                     | -> | /block_directive(col)       |>> :line
     |c[;]                     | -> | /line_comment               |>> :line
+    |c[`]                     | ->                               |>> :check_freeform
     |c[']                     | -> | /prose(col, -1)             |>> :line
     |default                  | /prose(col, -1)                  |>> :line
+
+  |state[:check_freeform]
+    |c[`]                     | ->                               |>> :check_freeform2
+    |default                  | /prose_backtick(col, -1)         |>> :line
+
+  |state[:check_freeform2]
+    |c[`]                     | -> | /freeform                   |>> :line
+    |default                  | /prose_backticks(col, -1)        |>> :line
 
   |state[:check_pipe]
     |c[LETTER'[.?!*+]         | /element(col, -1)                |>> :line
@@ -406,12 +415,84 @@
     | /text(line_col, parent_col, 124)                           |return
 
 
+; prose_backtick - single backtick (not freeform, just text starting with `)
+|function[prose_backtick]  :line_col :parent_col
+  |if[parent_col >= 0 && line_col <= parent_col]             |return
+
+  |state[:content]
+    | /text(line_col, parent_col, 96)                            |return  ; 96 = '`'
+
+
+; prose_backticks - two backticks (not freeform, just text starting with ``)
+|function[prose_backticks]  :line_col :parent_col
+  |if[parent_col >= 0 && line_col <= parent_col]             |return
+
+  |state[:content]
+    | /text_backticks(line_col, parent_col)                      |return
+
+
+; text_backticks - text that starts with `` (for non-freeform case)
+|function[text_backticks:Text]  :line_col :parent_col  | MARK | PREPEND(`) | PREPEND(`)
+  |state[:main]
+    |c[\n]                    | TERM                             |return
+    |c[|]                     | ->                               |>> :check_pipe
+    |c[;]                     | ->                               |>> :check_semi
+    |c[!]                     | ->                               |>> :check_bang
+    |default                  | ->                               |>>
+
+  |state[:check_pipe]
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
+    |default                  |                                  |>> :main
+
+  |state[:check_semi]
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
+    |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
+
+  |state[:check_bang]
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /inline_directive | MARK |>> :main
+    |default                  |                                  |>> :main
+
+
+; ============================================================================
+; Freeform Blocks (```)
+; ============================================================================
+
+; Freeform block - captures content until closing ```
+|function[freeform:Freeform]
+  |state[:lang]
+    |c[\n]                    | ->                               |>> :content
+    |c[LETTER]                | /name                            |>> :eol
+    |default                  |                                  |>> :content
+
+  |state[:eol]
+    |c[\n]                    | ->                               |>> :content
+    |default                  | ->                               |>>  ; consume rest of line
+
+  |state[:content]
+    |c[\n]                    | ->                               |>>
+    |c[`]                     |                                  |>> :maybe_end
+    |default                  | MARK                             |>> :line
+
+  |state[:line]
+    |c[\n]                    | TERM | RawContent(USE_MARK) | -> |>> :content
+    |default                  | ->                               |>>
+
+  |state[:maybe_end]
+    |c[`]                     | ->                               |>> :maybe_end2
+    |default                  | MARK | PREPEND(`)               |>> :line
+
+  |state[:maybe_end2]
+    |c[`]                     | -> | ->                          |return  ; consume final `
+    |default                  | MARK | PREPEND(`) | PREPEND(`)  |>> :line
+
+
 ; text - block-level prose content
 ; Same pattern as sameline_text: advance past special chars, check what follows.
-; prepend: 0 = none, 124 = '|', 33 = '!'
+; prepend: 0 = none, 124 = '|', 33 = '!', 96 = '`'
 |function[text:Text]  :line_col :parent_col :prepend
   |state[:entry]
     |if[prepend == 124]      | PREPEND(|)                       |>> :main
+    |if[prepend == 96]       | PREPEND(`)                       |>> :main
     |default                  |                                  |>> :main
 
   |state[:main]
@@ -422,15 +503,15 @@
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | /embedded | MARK |>> :main
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
     |default                  |                                  |>> :main
 
   |state[:check_semi]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | /brace_comment | MARK |>> :main
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
     |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | /inline_directive | MARK |>> :main
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /inline_directive | MARK |>> :main
     |default                  |                                  |>> :main
 
 
@@ -453,16 +534,16 @@
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | /embedded | MARK |>> :main
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
     |c[LETTER'[.?!*+]         | TERM(-1) | Text(USE_MARK) | /element(COL - 1, elem_col) | MARK |>> :main
     |default                  |                                  |>> :main
 
   |state[:check_semi]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | /brace_comment | MARK |>> :main
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
     |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
-    |c[{]                     | TERM(-1) | Text(USE_MARK) | /inline_directive | MARK |>> :main
+    |c[{]                     | TERM(-1) | Text(USE_MARK) | -> | /inline_directive | MARK |>> :main
     |default                  |                                  |>> :main
 
 
@@ -476,10 +557,11 @@
     |default                  | /line_comment_content            |return
 
 
-; DRYed: line_comment_content - captures content to newline, emits Comment
+; DRYed: line_comment_content - captures content to newline or EOF, emits Comment
 ; Used by all line comment variants (they were 100% identical)
 |function[line_comment_content:Comment]  | MARK
   |state[:main]
+    |eof                      | TERM                             |return  ; EOF is valid end
     |c[\n]                    | TERM                             |return
     |default                  | ->                               |>>
 
@@ -547,21 +629,130 @@
 
 
 ; ============================================================================
-; Directives (stub)
+; Block Directives
 ; ============================================================================
 
+; Block directive - !name or !:lang: for raw
 |function[block_directive:Directive]  :line_col
-  ; TODO: full implementation
+  |state[:dispatch]
+    |c[:]                     | ->                               |>> :raw_kind
+    |c[LETTER]                | /name                            |>> :after_name
+    |default                  |                                  |return  ; malformed
+
+  ; Raw block !:lang: - parse kind name
+  |state[:raw_kind]
+    |c[LETTER]                | /name | Raw                      |>> :raw_colon
+    |default                  |                                  |return  ; malformed !:
+
+  |state[:raw_colon]
+    |c[:]                     | ->                               |>> :raw_eol
+    |default                  |                                  |return  ; missing second :
+
+  |state[:raw_eol]
+    |c[\n]                    | ->                               |>> :raw_content
+    |c[ \t]                   | ->                               |>>
+    |default                  | ->                               |>>  ; consume rest of line
+
+  ; Raw content - capture everything at greater indent
+  |state[:raw_content]
+    |c[\n]                    | ->                               |>>
+    |c[ ]                     | col = /count_indent              |>> :raw_check
+    |default                  |                                  |return  ; non-indented, done
+
+  |state[:raw_check]
+    |if[col <= line_col]                                         |return  ; dedent
+    |default                  | MARK                             |>> :raw_line
+
+  |state[:raw_line]
+    |c[\n]                    | TERM | RawContent(USE_MARK) | -> |>> :raw_content
+    |default                  | ->                               |>>
+
+  ; Regular directive - parse condition/args and children
+  |state[:after_name]
+    |c[\n]                    | ->                               |>> :children
+    |c[ \t]                   | ->                               |>> :condition
+    |default                  |                                  |>> :children
+
+  |state[:condition]
+    |c[\n]                    | ->                               |>> :children
+    |default                  | MARK | /directive_args           |>> :children
+
+  ; Children at greater indent
+  |state[:children]
+    |c[\n]                    | ->                               |>>
+    |c[ ]                     | col = /count_indent              |>> :check_child
+    |c[\t]                    | /error(no_tabs) | ->[\n]         |>>
+    |default                  | col = COL - 1                    |>> :check_child
+
+  |state[:check_child]
+    |if[col <= line_col]                                         |return
+    |                                                            |>> :child_dispatch
+
+  |state[:child_dispatch]
+    |c[|]                     | ->                               |>> :child_pipe
+    |c[:]                     | -> | /block_attr                 |>> :children
+    |c[!]                     | -> | /block_directive(col)       |>> :children
+    |c[;]                     | -> | /line_comment               |>> :children
+    |c[']                     | -> | /prose(col, line_col)       |>> :children
+    |default                  | /prose(col, line_col)            |>> :children
+
+  |state[:child_pipe]
+    |c[{]                     | -> | /embedded                   |>> :children
+    |c[LETTER'[.?!*+]         | /element(col, line_col)          |>> :children
+    |default                  | /prose_pipe(col, line_col)       |>> :children
+
+
+; Directive arguments - capture until newline
+|function[directive_args:Text]
   |state[:main]
-    |c[\n]                    |                                  |return
+    |c[\n]                    | TERM                             |return
     |default                  | ->                               |>>
 
 
-|function[inline_directive:Directive]
-  ; TODO: full implementation with !{{...}}, !{:kind: ...}, !{name ...}
-  ; Uses shared skip_brace_balanced helper
+; Inline dynamics - dispatch based on first char after {
+; Called with position at first char inside braces
+|function[inline_directive]
+  |state[:dispatch]
+    |c[{]                     | -> | /interpolation              |return  ; !{{expr}}
+    |c[:]                     | -> | /inline_raw                 |return  ; !{:kind: content}
+    |default                  | /inline_dir_body                 |return  ; !{name args}
+
+
+; Interpolation !{{expr}} - double-brace
+|function[interpolation:Interpolation]  | MARK
   |state[:main]
-    | /skip_brace_balanced                                       |return
+    |c[}]                     | TERM | -> | ->                   |return  ; consume }}
+    |default                  | ->                               |>>
+
+
+; Inline raw !{:kind: content}
+|function[inline_raw:Directive]
+  |state[:kind]
+    |c[:]                     | ->                               |>> :content
+    |default                  | /name                            |>>  ; kind name
+
+  |state[:content]
+    | MARK                                                       |>> :scan
+
+  |state[:scan]
+    |c[}]                     | TERM | RawContent(USE_MARK) | -> |return
+    |default                  | ->                               |>>
+
+
+; Regular inline directive !{name args}
+|function[inline_dir_body:Directive]
+  |state[:name]
+    |c[LETTER]                | /name                            |>> :after_name
+    |default                  | /skip_brace_balanced             |return  ; malformed
+
+  |state[:after_name]
+    |c[}]                     | ->                               |return
+    |c[ \t]                   | ->                               |>> :args
+    |default                  | /skip_brace_balanced             |return
+
+  |state[:args]
+    |c[}]                     | ->                               |return
+    |default                  | /skip_brace_balanced             |return  ; TODO: parse args properly
 
 
 ; ============================================================================

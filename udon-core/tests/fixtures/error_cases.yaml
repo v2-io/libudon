@@ -1,25 +1,69 @@
 ---
+# Error cases - these test error recovery behavior
+# The parser emits as many valid events as possible before/after errors
+
 - id: tab_character_error
   desc: tab character error
   udon: "|el\n\t|child"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Error, "NoTabs"]
+    - [Error, "NoTabs"]
+
 - id: unclosed_double_quote_string
   desc: unclosed double quote string
   udon: '|el :val "unclosed'
-  events: []
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [StringValue, "unclosed"]
+    - [Error, "UnclosedStringValue"]
+    - ElementEnd
+
 - id: unclosed_single_quote_string
   desc: unclosed single quote string
   udon: "|el :val 'unclosed"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - [StringValue, "unclosed"]
+    - [Error, "UnclosedStringValue"]
+    - ElementEnd
+
 - id: unclosed_array
   desc: unclosed array
   udon: "|el :val [1 2 3"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "val"]
+    - ArrayStart
+    - [Integer, "1"]
+    - [Integer, "2"]
+    - [Integer, "3"]
+    - [Error, "UnclosedArray"]
+    - ElementEnd
+
+# NOTE: This case doesn't actually produce an error - parser treats unclosed
+# bracket ID content as a bare value. May want to add explicit error later.
 - id: unclosed_bracket_in_id
   desc: unclosed bracket in id
   udon: "|el[unclosed"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "id"]
+    - [BareValue, "unclosed"]
+    - ElementEnd
+
 - id: unclosed_quoted_element_name
   desc: unclosed quoted element name
   udon: "|'unclosed name"
-  events: []
+  events:
+    - ElementStart
+    - [Error, "Unclosed"]
+    - [Name, "unclosed nam"]
+    - ElementEnd

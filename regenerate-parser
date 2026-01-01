@@ -2,12 +2,12 @@
 #
 # regenerate-parser - Regenerate the UDON parser from .desc files
 #
-# Concatenates udon.desc and values.desc, runs descent, and optionally builds.
+# Updates descent to latest, concatenates .desc files, runs descent, and builds.
 #
 # Usage:
-#   ./regenerate-parser           # Generate parser and build
+#   ./regenerate-parser           # Update descent, generate parser, and build
 #   ./regenerate-parser --trace   # Generate with tracing (for debugging)
-#   ./regenerate-parser --no-build # Generate parser only
+#   ./regenerate-parser --no-build # Generate parser only (no cargo build)
 #   ./regenerate-parser --check    # Check descent availability only
 
 set -euo pipefail
@@ -54,6 +54,25 @@ check_descent() {
         return 1
     fi
 
+    return 0
+}
+
+# Update descent to latest and show version
+update_descent() {
+    info "Updating descent..."
+
+    # Pull latest if it's a git repo
+    if [[ -d "$DESCENT_DIR/.git" ]]; then
+        if ! (cd "$DESCENT_DIR" && git pull --ff-only 2>/dev/null); then
+            warn "Could not fast-forward descent (local changes?), using current version"
+        fi
+    fi
+
+    # Update bundle
+    if ! (cd "$DESCENT_DIR" && bundle install --quiet 2>/dev/null); then
+        warn "bundle install had issues, continuing anyway"
+    fi
+
     # Get version info
     local version
     if [[ -f "$DESCENT_DIR/lib/descent/version.rb" ]]; then
@@ -72,7 +91,6 @@ check_descent() {
     fi
 
     success "descent v${version}${git_info} at $DESCENT_DIR"
-    return 0
 }
 
 # Generate the parser
@@ -170,6 +188,8 @@ main() {
     if $check_only; then
         exit 0
     fi
+
+    update_descent
 
     if ! generate_parser "$trace"; then
         exit 1

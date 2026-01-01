@@ -1,17 +1,15 @@
-use udon_core::{Parser, Event};
+use udon_core::Parser;
 
 fn main() {
+    // Embedded element error cases
     let tests = [
-        ("```\nfreeform content\n```", "basic freeform block"),
-        ("```\n|not-an-element\n|another\n```", "freeform preserves pipes"),
-        ("|code\n  ```\n  raw content\n  ```\n", "freeform inside element"),
-        ("```\nunclosed", "unclosed freeform"),
+        ("|p This has |{em unclosed", "unclosed_embedded_element_error"),
+        ("|p |{a |{b text}", "unclosed_nested_embedded_error"),
     ];
-    
+
     for (input, desc) in tests {
         println!("\n=== {} ===", desc);
         println!("Input: {:?}", input);
-        println!("Events:");
         Parser::new(input.as_bytes()).parse(|event| {
             println!("  {:?}", event);
         });

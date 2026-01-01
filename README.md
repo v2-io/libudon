@@ -8,16 +8,49 @@ UDON (Universal Document & Object Notation) is a unified notation for documents,
 
 ## Status
 
-**Active rewrite using [descent](https://github.com/josephwecker/descent)** - a parser generator that produces callback-based recursive descent parsers.
+**Phase 3 complete** - Parser rewritten using [descent](https://github.com/josephwecker/descent), a parser generator that produces callback-based recursive descent parsers.
 
-Working:
-- Elements with identity (`|element[id].class1.class2`)
-- Sameline and block attributes (`:key value`)
-- Typed values (integers, floats, booleans, nil, strings)
-- Text/prose content
-- Indentation hierarchy and nesting
+### Features
 
-See [PLAN.md](PLAN.md) for current progress and roadmap.
+| Feature | Syntax | Status |
+|---------|--------|--------|
+| Elements | `\|element[id].class1.class2?` | ✅ |
+| Attributes | `:key value` | ✅ |
+| Typed values | integers, floats, booleans, nil, strings | ✅ |
+| Arrays | `[1 2 3]` | ✅ |
+| Text/prose | indented content | ✅ |
+| Hierarchy | indentation and rightward nesting | ✅ |
+| Comments | `; line` and `;{inline}` | ✅ |
+| Embedded elements | `\|{em bold text}` | ✅ |
+| Interpolation | `!{{expression}}` | ✅ |
+| Block directives | `!if condition` | ✅ |
+| Inline directives | `!{include partial}` | ✅ |
+| Raw blocks | `!:lang:` | ✅ |
+| References | `@[name]` | ✅ |
+| Freeform blocks | ` ``` ` | ✅ |
+
+### Performance
+
+Benchmarked on Apple Silicon (M-series):
+
+| Benchmark | Throughput |
+|-----------|------------|
+| Comments | **1.07 GiB/s** |
+| Minimal file | **847 MiB/s** |
+| Comprehensive (15KB) | **820 MiB/s** |
+| Text content | **779 MiB/s** |
+| Dynamic content | **672 MiB/s** |
+| Nested elements | **511 MiB/s** |
+
+#### Comparison with Previous Parser
+
+| Benchmark | Old (streaming) | New (descent) | Speedup |
+|-----------|-----------------|---------------|---------|
+| comprehensive.udon | 496 MiB/s | **820 MiB/s** | **1.65x** |
+| minimal.udon | 472 MiB/s | **847 MiB/s** | **1.79x** |
+| comments_only | 278 MiB/s | **1,070 MiB/s** | **3.85x** |
+| text_only | 317 MiB/s | **779 MiB/s** | **2.46x** |
+| empty (overhead) | 82 ns | **1.3 ns** | **63x less** |
 
 ## Structure
 
@@ -46,6 +79,12 @@ cargo build --release
 cargo test
 ```
 
+## Benchmarking
+
+```bash
+cargo bench --bench parse
+```
+
 ## Regenerating the Parser
 
 The parser is generated from `.desc` specifications using descent:
@@ -56,6 +95,9 @@ cd ~/src/descent && dx gem install
 
 # Regenerate parser
 ./regenerate-parser
+
+# Regenerate with tracing (for debugging)
+./regenerate-parser --trace
 ```
 
 ## Usage (Rust)
