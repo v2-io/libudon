@@ -1,25 +1,69 @@
 ---
+# Element suffix tests - suffixes ?!*+ become Attr+BoolTrue
+# Per SPEC: identity = [name] [bracket] {.class} [suffix]
+# Suffix ENDS identity - anything after is content
+
 - id: element_with_question
-  desc: element with question
+  desc: Question mark suffix
   udon: "|foo?"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "?"]
+    - BoolTrue
+    - ElementEnd
+
 - id: element_with_bang
-  desc: element with bang
+  desc: Bang/exclamation suffix
   udon: "|foo!"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "!"]
+    - BoolTrue
+    - ElementEnd
+
 - id: element_with_star
-  desc: element with star
+  desc: Star/asterisk suffix
   udon: "|foo*"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "*"]
+    - BoolTrue
+    - ElementEnd
+
 - id: element_with_plus
-  desc: element with plus
+  desc: Plus suffix
   udon: "|foo+"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "+"]
+    - BoolTrue
+    - ElementEnd
+
 - id: suffix_after_id
-  desc: suffix after id
+  desc: Suffix can appear after id bracket
   udon: "|foo[id]?"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "id"]
+    - [BareValue, "id"]
+    - [Attr, "?"]
+    - BoolTrue
+    - ElementEnd
+
+# Space before suffix means it's TEXT content, not a suffix!
+# This matches SPEC - after identity parsing, space leads to content
 - id: suffix_space_separated
-  desc: suffix space separated
+  desc: Space before suffix makes it text content
   udon: "|foo.bar ?"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "class"]
+    - [BareValue, "bar"]
+    - [Text, "?"]
+    - ElementEnd

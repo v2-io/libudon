@@ -1,25 +1,51 @@
 ---
+# Element name variations - SPEC section on element identity
+
 - id: simple_element
-  desc: simple element
+  desc: Simple element name (letters only)
   udon: "|foo"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - ElementEnd
+
 - id: element_with_hyphen
-  desc: element with hyphen
+  desc: Element name with hyphen (valid in LABEL)
   udon: "|foo-bar"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo-bar"]
+    - ElementEnd
+
 - id: element_with_underscore
-  desc: element with underscore
+  desc: Element name with underscore (valid in LABEL)
   udon: "|foo_bar"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo_bar"]
+    - ElementEnd
+
 - id: element_with_numbers
-  desc: element with numbers
+  desc: Element name with numbers (valid in LABEL after first letter)
   udon: "|h1"
-  events: []
-- id: anonymous_element
-  desc: anonymous element
+  events:
+    - ElementStart
+    - [Name, "h1"]
+    - ElementEnd
+
+# NOTE: The original test "| text" is NOT an anonymous element - it's prose.
+# Per SPEC lines 809-810: anonymous elements use |[id] or |.class syntax.
+# Pipe-space-text falls through to prose_pipe in the grammar.
+- id: pipe_space_prose
+  desc: Pipe followed by space is prose, not anonymous element
   udon: "| text"
-  events: []
+  events:
+    - [Text, " text"]
+
 - id: quoted_element_name
-  desc: quoted element name
+  desc: Quoted element name allowing special characters
   udon: "|'has spaces'"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "has spaces"]
+    - ElementEnd

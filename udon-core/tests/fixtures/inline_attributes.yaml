@@ -1,17 +1,51 @@
 ---
+# Inline (sameline) attribute tests
+# Per SPEC: sameline attr values terminate at SPACE or newline
+
 - id: multiple_inline_attributes
-  desc: multiple inline attributes
+  desc: Multiple sameline attributes separated by spaces
   udon: "|el :k1 v1 :k2 v2"
-  events: []
-- id: attribute_value_terminates_at_next_attribute
-  desc: attribute value terminates at next attribute
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "k1"]
+    - [BareValue, "v1"]
+    - [Attr, "k2"]
+    - [BareValue, "v2"]
+    - ElementEnd
+
+# Per SPEC: sameline attr values terminate at SPACE
+# So "hello" is the value, "world :count 5" becomes text content!
+- id: sameline_attr_value_terminates_at_space
+  desc: Sameline attr value ends at space, rest becomes text
   udon: "|el :msg hello world :count 5"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "msg"]
+    - [BareValue, "hello"]
+    - [Text, "world :count 5"]
+    - ElementEnd
+
 - id: attribute_value_terminates_at_inline_child
-  desc: attribute value terminates at inline child
+  desc: Sameline attr followed by inline child element
   udon: "|parent :attr value |child"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - [Attr, "attr"]
+    - [BareValue, "value"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd
+    - ElementEnd
+
 - id: quoted_attribute_key
-  desc: quoted attribute key
+  desc: Quoted attribute key with spaces
   udon: "|el :'my key' value"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "my key"]
+    - [BareValue, "value"]
+    - ElementEnd

@@ -1,13 +1,30 @@
 ---
+# Element ID tests - the [id] shorthand syntax for id attribute
+
 - id: element_with_id
-  desc: element with id
+  desc: Element with name and id bracket
   udon: "|foo[myid]"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "id"]
+    - [BareValue, "myid"]
+    - ElementEnd
+
 - id: anonymous_with_id
-  desc: anonymous with id
+  desc: Anonymous element with only id bracket
   udon: "|[myid]"
-  events: []
+  events:
+    - ElementStart
+    - [Attr, "id"]
+    - [BareValue, "myid"]
+    - ElementEnd
+
+# Empty brackets don't produce an attribute - nothing to set
 - id: empty_id
-  desc: empty id
+  desc: Element with empty id brackets
   udon: "|foo[]"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - ElementEnd

@@ -1,37 +1,76 @@
 ---
+# Element recognition tests - what makes |... an element vs prose
+# Per grammar: LETTER, ', [, ., ?, !, *, + start element
+# Everything else (space, number, hyphen, etc.) → prose
+
 - id: pipe_followed_by_letter_is_element
-  desc: pipe followed by letter is element
+  desc: Pipe + letter = element
   udon: "|div"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - ElementEnd
+
 - id: pipe_followed_by_bracket_is_anonymous_with_id
-  desc: pipe followed by bracket is anonymous with id
+  desc: Pipe + bracket = anonymous element with id
   udon: "|[myid]"
-  events: []
+  events:
+    - ElementStart
+    - [Attr, "id"]
+    - [BareValue, "myid"]
+    - ElementEnd
+
 - id: pipe_followed_by_dot_is_anonymous_with_class
-  desc: pipe followed by dot is anonymous with class
+  desc: Pipe + dot = anonymous element with class
   udon: "|.myclass"
-  events: []
+  events:
+    - ElementStart
+    - [Attr, "class"]
+    - [BareValue, "myclass"]
+    - ElementEnd
+
 - id: pipe_followed_by_brace_is_embedded
-  desc: pipe followed by brace is embedded
+  desc: Pipe + brace starts embedded element in content
   udon: "|p |{em emphasized}"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - EmbeddedStart
+    - [Name, "em"]
+    - [Text, "emphasized"]
+    - EmbeddedEnd
+    - ElementEnd
+
 - id: pipe_followed_by_quote_is_quoted_name
-  desc: pipe followed by quote is quoted name
+  desc: Pipe + quote = element with quoted name
   udon: "|'my element'"
-  events: []
-- id: pipe_followed_by_space_is_anonymous_element
-  desc: pipe followed by space is anonymous element
+  events:
+    - ElementStart
+    - [Name, "my element"]
+    - ElementEnd
+
+# IMPORTANT: pipe+space is PROSE, not an anonymous element!
+# This is by design - allows markdown tables, etc.
+- id: pipe_followed_by_space_is_prose
+  desc: Pipe + space = prose (NOT anonymous element)
   udon: "| content"
-  events: []
+  events:
+    - [Text, " content"]
+
 - id: pipe_in_markdown_table_is_prose
-  desc: pipe in markdown table is prose
+  desc: Markdown table syntax is prose
   udon: "| Header | Header |"
-  events: []
+  events:
+    - [Text, " Header | Header |"]
+
 - id: pipe_followed_by_number_is_prose
-  desc: pipe followed by number is prose
+  desc: Pipe + number = prose
   udon: "|123"
-  events: []
+  events:
+    - [Text, "123"]
+
 - id: pipe_followed_by_hyphen_is_prose
-  desc: pipe followed by hyphen is prose
+  desc: Pipe + hyphen = prose
   udon: "|- list item"
-  events: []
+  events:
+    - [Text, "- list item"]

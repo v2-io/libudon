@@ -1,9 +1,17 @@
 ---
+# Basic text handling tests
+
 - id: inline_text
-  desc: inline text
+  desc: Sameline text content in an element
   udon: "|p Hello world"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Hello world"]
+    - ElementEnd
+
 - id: prose_line
-  desc: prose line
+  desc: Prose text at document root (no element)
   udon: Just some prose
-  events: []
+  events:
+    - [Text, "Just some prose"]

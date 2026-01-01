@@ -1,9 +1,30 @@
 ---
+# Combined element identity tests
+
+# Space before ? means the ? is TEXT content, not part of identity
 - id: full_identity
-  desc: full identity
+  desc: Full identity with name, id, classes, then text
   udon: "|foo[id].bar.baz ?"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "id"]
+    - [BareValue, "id"]
+    - [Attr, "class"]
+    - [BareValue, "bar"]
+    - [Attr, "class"]
+    - [BareValue, "baz"]
+    - [Text, "?"]
+    - ElementEnd
+
+# Suffix ends identity - [id] becomes text content, not an id bracket!
 - id: suffix_before_id
-  desc: suffix before id
+  desc: Suffix before bracket ends identity early
   udon: "|foo?[id]"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "?"]
+    - BoolTrue
+    - [Text, "[id]"]
+    - ElementEnd

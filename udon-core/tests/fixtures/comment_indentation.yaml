@@ -1,46 +1,73 @@
 ---
+# Comment indentation tests - block comments respect element hierarchy
+
 - id: block_comment_inside_element
-  desc: block comment inside element
-  udon: |-
-    |parent
-      |child
-       ; inside child
-  events: []
+  desc: Block comment indented under child becomes child content
+  udon: "|parent\n  |child\n   ; inside child\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - [Comment, " inside child"]
+    - ElementEnd
+    - ElementEnd
+
 - id: block_comment_as_sibling
-  desc: block comment as sibling
-  udon: |-
-    |parent
-      |child
-      ; sibling comment
-  events: []
+  desc: Block comment at same indent as child is sibling of child
+  udon: "|parent\n  |child\n  ; sibling comment\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd
+    - [Comment, " sibling comment"]
+    - ElementEnd
+
 - id: block_comment_closes_multiple_levels
-  desc: block comment closes multiple levels
-  udon: |-
-    |parent
-      |child
-        |grandchild
-    ; closes all
-    |sibling
-  events: []
+  desc: Dedented comment closes all nested elements
+  udon: "|parent\n  |child\n    |grandchild\n; closes all\n|sibling\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementStart
+    - [Name, "grandchild"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - [Comment, " closes all"]
+    - ElementStart
+    - [Name, "sibling"]
+    - ElementEnd
+
+# NOTE: Inline brace comments ;{...} have parsing issues - see PLAN.md
+# Current parser doesn't properly close on }
 - id: inline_comment_stripped_from_output
-  desc: inline comment stripped from output
+  desc: Inline brace comment in text
   udon: "|p This is text ;{TODO} and more."
   events: []
+
 - id: inline_comment_at_end_of_line
-  desc: inline comment at end of line
+  desc: Inline brace comment at end of line
   udon: "|p Some text ;{comment at end}"
   events: []
+
 - id: nested_inline_comment
-  desc: nested inline comment
+  desc: Nested inline brace comments
   udon: "|p Text ;{outer ;{inner} outer} more."
   events: []
+
+# NOTE: Escape prefix currently doesn't prevent comment interpretation
+# within prose - only at line start. See PLAN.md for bug tracking.
 - id: escaped_semicolon_at_line_start
-  desc: escaped semicolon at line start
+  desc: Escaped semicolon at line start
   udon: "'; This starts with semicolon"
   events: []
+
 - id: escaped_semicolon_in_element
-  desc: escaped semicolon in element
-  udon: |-
-    |p
-      '; literal semicolon
+  desc: Escaped semicolon in element prose
+  udon: "|p\n  '; literal semicolon\n"
   events: []

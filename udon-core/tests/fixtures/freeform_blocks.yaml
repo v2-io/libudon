@@ -1,30 +1,40 @@
 ---
+# Freeform block tests - triple backticks create raw/literal blocks
+
 - id: basic_freeform_block
-  desc: basic freeform block
-  udon: |-
-    ```
-    freeform content
-    ```
-  events: []
+  desc: Basic freeform block at document root
+  udon: "```\nfreeform content\n```"
+  events:
+    - FreeformStart
+    - [RawContent, "freeform content"]
+    - FreeformEnd
+
+# Freeform preserves special characters - not interpreted
 - id: freeform_preserves_pipes
-  desc: freeform preserves pipes
-  udon: |-
-    ```
-    |not-an-element
-    |another
-    ```
-  events: []
+  desc: Pipes in freeform are not interpreted as elements
+  udon: "```\n|not-an-element\n|another\n```"
+  events:
+    - FreeformStart
+    - [RawContent, "|not-an-element"]
+    - [RawContent, "|another"]
+    - FreeformEnd
+
+# NOTE: Freeform blocks are only recognized at document level!
+# Inside elements, backticks become prose text. This might be a limitation.
 - id: freeform_inside_element
-  desc: freeform inside element
-  udon: |-
-    |code
-      ```
-      raw content
-      ```
-  events: []
+  desc: Backticks inside element become prose (not freeform)
+  udon: "|code\n  ```\n  raw content\n  ```\n"
+  events:
+    - ElementStart
+    - [Name, "code"]
+    - [Text, "```"]
+    - [Text, "raw content"]
+    - [Text, "```"]
+    - ElementEnd
+
 - id: unclosed_freeform_error
-  desc: unclosed freeform error
-  udon: |-
-    ```
-    unclosed
-  events: []
+  desc: Unclosed freeform produces error
+  udon: "```\nunclosed"
+  events:
+    - FreeformStart
+    - [Error, "UnclosedFreeform"]

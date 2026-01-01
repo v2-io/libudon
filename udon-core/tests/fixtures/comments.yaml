@@ -101,11 +101,9 @@
   events:
     - [Text, "Hello"]
 
-# NOTE: Parser emits UnclosedComment error for EOF without newline.
-# This might be intentional strictness.
+# EOF is a valid terminator for comments - no error expected
 - id: comment_no_trailing_newline
-  desc: Comment at EOF without trailing newline (gets error)
+  desc: Comment at EOF without trailing newline
   udon: "; comment"
   events:
     - [Comment, " comment"]
-    - [Error, "UnclosedComment"]

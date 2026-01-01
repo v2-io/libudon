@@ -1,17 +1,44 @@
 ---
+# Element class tests - the .class shorthand syntax
+
 - id: element_with_class
-  desc: element with class
+  desc: Element with name and single class
   udon: "|foo.bar"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "class"]
+    - [BareValue, "bar"]
+    - ElementEnd
+
+# Multiple classes: each .class emits separate Attr("class") + BareValue pairs
 - id: element_with_multiple_classes
-  desc: element with multiple classes
+  desc: Element with multiple classes
   udon: "|foo.bar.baz"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "class"]
+    - [BareValue, "bar"]
+    - [Attr, "class"]
+    - [BareValue, "baz"]
+    - ElementEnd
+
 - id: anonymous_with_class
-  desc: anonymous with class
+  desc: Anonymous element with only class
   udon: "|.foo"
-  events: []
+  events:
+    - ElementStart
+    - [Attr, "class"]
+    - [BareValue, "foo"]
+    - ElementEnd
+
 - id: quoted_class_name
-  desc: quoted class name
+  desc: Quoted class name allowing special characters
   udon: "|foo.'has spaces'"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "class"]
+    - [BareValue, "has spaces"]
+    - ElementEnd
