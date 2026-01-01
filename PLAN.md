@@ -38,15 +38,15 @@ The tree builder (when implemented) will be just another event consumer.
 
 ### What's Incomplete
 
-- [ ] Element suffixes (`?`, `!`, `*`, `+`)
-- [ ] Embedded elements (`|{name attrs content}`)
+- [x] Element suffixes (`?`, `!`, `*`, `+`)
+- [x] Embedded elements (`|{name attrs content}`)
 - [ ] Directives (`!if`, `!for`, `!include`, etc.)
 - [ ] Raw blocks (`!:lang:`)
 - [ ] Interpolation (`!{{expr}}`)
-- [ ] Escape sequences (`'|` escapes pipe in prose)
-- [ ] Comments (`;` handling in various contexts)
-- [ ] Quoted strings in values
-- [ ] Arrays (`[a b c]`)
+- [ ] Block-level escape prefix (`'` before `|;:!'` at line start)
+- [x] Comments (`;` line comments working, `\;` sameline escape needed)
+- [ ] Quoted strings in values (`"double"`, `'single'`)
+- [x] Arrays (`[a b c]`)
 
 ## Phase 3: Build Forward (IN PROGRESS)
 
@@ -142,13 +142,72 @@ Issues identified in `generator/udon.desc` and `generator/values.desc`:
 Canonical tests pass, but variation tests (with random indentation) reveal edge cases:
 
 - [ ] **Freeform blocks with indentation** - `basic_freeform_block`, `freeform_preserves_pipes`
-  - Freeform parser includes leading whitespace in RawContent
-  - Doesn't find closing ``` when input is indented
+  - Freeform blocks (```) preserve all whitespace by design
+  - **Fix:** Variation tests should either skip indentation for freeform, or normalize whitespace in expectations
 - [ ] **Error cases with indentation** - `tab_character_error`, `unclosed_*` variants
   - Error handling doesn't account for indented input variations
 - [ ] **Embedded elements** - `unclosed_embedded_element_error` variations
 
-These need investigation - the variation test framework is surfacing real edge cases.
+### Next Priority: Attribute Values
+
+- [ ] **Quoted string values** (`"double"` and `'single'`)
+  - Needed for values containing spaces, special chars
+  - `double_quoted` and `single_quoted` functions exist but may need work
+
+- [ ] **values.desc DRY** - 21 nearly-identical number parsing states
+  - Could reduce significantly with parameterization
+
+### Grammar Clarity: Separation of Concerns & State Organization
+
+**Opportunity:** The .desc files can be significantly clearer through better separation
+of concerns and more intentional use of states. Railroad diagrams generated from the
+grammar should read like documentation — showing complete syntactic constructs.
+
+**Principles emerging:**
+
+1. **Functions describe complete constructs** — A function named `array` should parse
+   a complete array `[...]`, not just "array contents after `[` was consumed elsewhere."
+   Use an `:entry` state to own the opening delimiter.
+
+2. **States have single responsibilities** — Rather than one complex state handling
+   entry, content, and exit, use separate states: `:entry`, `:content`/`:items`, etc.
+
+3. **Callers dispatch, callees consume** — Callers check what's coming to decide whom
+   to call, but don't consume. The called function owns its syntax from first byte to last.
+
+4. **Delegate to appropriate abstractions** — `array` shouldn't know about quote parsing;
+   it calls `/value` for each item and `value` handles the dispatch to typed values,
+   quoted strings, or nested arrays.
+
+**Example — array refactored:**
+
+```
+; Caller dispatches without consuming:
+|c['[']  | /array                         |>>
+
+; Array owns its complete syntax:
+|function[array:Array]
+  |state[:entry]
+    |c['[']  | ->                         |>> :items
+  |state[:items]
+    |c[']']  | ->                         |return
+    |c[' \t\n'] | ->                      |>>
+    |default | /value(1, ']')             |>>
+```
+
+**Current issues in grammar:**
+
+| Function | Issue |
+|----------|-------|
+| `name` | Shows `XLBL_CONT*` only; missing initial `XLBL_START` |
+| `double_quoted`/`single_quoted` | Missing opening quote |
+| `quoted_name`, `quoted_class` | Missing `'` delimiter |
+| `embedded` | Caller consumes `|{` |
+| `brace_comment` | Caller consumes `{` |
+| `interpolation` | Caller consumes `{{` |
+
+**Completed:**
+- [x] `array` — owns `[` via `:entry` state, delegates items to `/value`
 
 ### Compliance Issues
 

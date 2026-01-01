@@ -334,7 +334,7 @@
   |state[:start]
     |c[<DQ>]                  | -> | /double_quoted              |return
     |c[<SQ>]                  | -> | /single_quoted              |return
-    |c['[']                   | -> | /array                      |return
+    |c['[']                   | /array                           |return  ; array owns its delimiter
     |default                  | MARK | /typed_value(:space_term, :bracket) |return
 
 ; Bracket ID value - IDs are always BareValue (no type detection)
@@ -360,15 +360,14 @@
     |default                  | ->                               |>>
 
 ; Array - items are space-separated, ] terminates
-; Supports: bare values, quoted strings, nested arrays, typed values
+; Array owns its delimiter; items are values (quotes, nested arrays, typed values)
 |function[array:Array]
+  |state[:entry]
+    |c['[']  | ->                                                 |>> :items
   |state[:items]
-    |c[']']                   | ->                               |return
-    |c[' \t\n']               | ->                               |>>
-    |c[<DQ>]                  | -> | /double_quoted              |>>
-    |c[<SQ>]                  | -> | /single_quoted              |>>
-    |c['[']                   | -> | /array                      |>>
-    |default                  | MARK | /typed_value(1, ']')      |>>
+    |c[']']  | ->                                                 |return
+    |c[' \t\n'] | ->                                              |>>
+    |default | /value(1, ']')                                     |>>
 
 
 ; ============================================================================

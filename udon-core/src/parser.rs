@@ -1625,7 +1625,6 @@ impl<'a> Parser<'a> {
                     return;
                 }
                 Some(b'[') => {
-                    self.advance();
                     self.parse_array(on_event);
                     return;
                 }
@@ -1730,40 +1729,47 @@ impl<'a> Parser<'a> {
     {
         let start_span = self.span();
         on_event(Event::ArrayStart { span: start_span.clone() });
+        #[derive(Clone, Copy)]
+        enum State { Entry, Items,  }
+        let mut state = State::Entry;
         loop {
-            if self.eof() {
-                on_event(Event::Error { code: ParseErrorCode::UnclosedArray, span: self.span() });
-                return;
-            }
-            match self.peek() {
-                Some(b']') => {
+            match state {
+                State::Entry => {
+                    if self.eof() {
+                        on_event(Event::Error { code: ParseErrorCode::UnclosedArray, span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'[') => {
+                    self.advance();
+                    state = State::Items;
+                    continue;
+                        }
+                        _ => {
+                            return;
+                        }
+                    }
+                }
+                State::Items => {
+                    if self.eof() {
+                        on_event(Event::Error { code: ParseErrorCode::UnclosedArray, span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b']') => {
                     self.advance();
                     on_event(Event::ArrayEnd { span: self.span() });
                     return;
-                }
-                Some(b' ' | b'\t' | b'\n') => {
+                        }
+                        Some(b' ' | b'\t' | b'\n') => {
                     self.advance();
                     continue;
-                }
-                Some(b'"') => {
-                    self.advance();
-                    self.parse_double_quoted(on_event);
+                        }
+                        _ => {
+                    self.parse_value(1, b']', on_event);
                     continue;
-                }
-                Some(b'\'') => {
-                    self.advance();
-                    self.parse_single_quoted(on_event);
-                    continue;
-                }
-                Some(b'[') => {
-                    self.advance();
-                    self.parse_array(on_event);
-                    continue;
-                }
-                _ => {
-                    self.mark();
-                    self.parse_typed_value(1, b']', on_event);
-                    continue;
+                        }
+                    }
                 }
             }
         }
