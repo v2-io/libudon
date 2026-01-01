@@ -158,7 +158,6 @@ pub enum ParseErrorCode {
     UnclosedComment,
     UnclosedText,
     UnclosedInterpolation,
-    UnclosedDirective,
     NoTabs,
 }
 
@@ -280,46 +279,6 @@ impl<'a> Parser<'a> {
     #[inline(always)]
     fn col(&self) -> i32 {
         self.column as i32
-    }
-
-    /// Previous byte (0 at start of input).
-    #[inline(always)]
-    fn prev(&self) -> u8 {
-        if self.pos > 0 {
-            self.input[self.pos - 1]
-        } else {
-            0
-        }
-    }
-
-    #[inline(always)]
-    fn is_letter(b: u8) -> bool {
-        b.is_ascii_alphabetic()
-    }
-
-    #[inline(always)]
-    fn is_label_cont(b: u8) -> bool {
-        b.is_ascii_alphanumeric() || b == b'_' || b == b'-'
-    }
-
-    #[inline(always)]
-    fn is_digit(b: u8) -> bool {
-        b.is_ascii_digit()
-    }
-
-    #[inline(always)]
-    fn is_hex_digit(b: u8) -> bool {
-        b.is_ascii_hexdigit()
-    }
-
-    #[inline(always)]
-    fn is_ws(b: u8) -> bool {
-        b == b' ' || b == b'\t'
-    }
-
-    #[inline(always)]
-    fn is_nl(b: u8) -> bool {
-        b == b'\n'
     }
 
     // ========== Unicode Identifier Classes ==========
@@ -476,34 +435,6 @@ impl<'a> Parser<'a> {
         self.apply_scan_offset(offset)
     }
 
-    /// Scan forward to find first occurrence of b1..b5 (chained memchr).
-    #[inline]
-    fn scan_to5(&mut self, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8) -> Option<u8> {
-        let haystack = &self.input[self.pos..];
-        let p1 = memchr::memchr3(b1, b2, b3, haystack);
-        let p2 = memchr::memchr2(b4, b5, haystack);
-        let offset = match (p1, p2) {
-            (Some(x), Some(y)) => Some(x.min(y)),
-            (Some(x), None) | (None, Some(x)) => Some(x),
-            (None, None) => None,
-        };
-        self.apply_scan_offset(offset)
-    }
-
-    /// Scan forward to find first occurrence of b1..b6 (chained memchr).
-    #[inline]
-    fn scan_to6(&mut self, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8, b6: u8) -> Option<u8> {
-        let haystack = &self.input[self.pos..];
-        let p1 = memchr::memchr3(b1, b2, b3, haystack);
-        let p2 = memchr::memchr3(b4, b5, b6, haystack);
-        let offset = match (p1, p2) {
-            (Some(x), Some(y)) => Some(x.min(y)),
-            (Some(x), None) | (None, Some(x)) => Some(x),
-            (None, None) => None,
-        };
-        self.apply_scan_offset(offset)
-    }
-
     /// Apply scan offset result, updating position and line/column.
     #[inline]
     fn apply_scan_offset(&mut self, offset: Option<usize>) -> Option<u8> {
@@ -533,6 +464,34 @@ impl<'a> Parser<'a> {
                 None
             }
         }
+    }
+
+    /// Scan forward to find first occurrence of b1..b5 (chained memchr).
+    #[inline]
+    fn scan_to5(&mut self, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8) -> Option<u8> {
+        let haystack = &self.input[self.pos..];
+        let p1 = memchr::memchr3(b1, b2, b3, haystack);
+        let p2 = memchr::memchr2(b4, b5, haystack);
+        let offset = match (p1, p2) {
+            (Some(x), Some(y)) => Some(x.min(y)),
+            (Some(x), None) | (None, Some(x)) => Some(x),
+            (None, None) => None,
+        };
+        self.apply_scan_offset(offset)
+    }
+
+    /// Scan forward to find first occurrence of b1..b6 (chained memchr).
+    #[inline]
+    fn scan_to6(&mut self, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8, b6: u8) -> Option<u8> {
+        let haystack = &self.input[self.pos..];
+        let p1 = memchr::memchr3(b1, b2, b3, haystack);
+        let p2 = memchr::memchr3(b4, b5, b6, haystack);
+        let offset = match (p1, p2) {
+            (Some(x), Some(y)) => Some(x.min(y)),
+            (Some(x), None) | (None, Some(x)) => Some(x),
+            (None, None) => None,
+        };
+        self.apply_scan_offset(offset)
     }
 
     // ========== Keyword Lookup: bare_kw ==========
@@ -599,7 +558,7 @@ impl<'a> Parser<'a> {
                     return;
                         }
                         _ => {
-                    col = 0;
+                    col = self.col() - 1;
                     state = State::Dispatch;
                     continue;
                         }
@@ -981,7 +940,7 @@ impl<'a> Parser<'a> {
         on_event(Event::ElementStart { span: start_span.clone() });
         let mut col: i32 = 0;
         #[derive(Clone, Copy)]
-        enum State { Identity, PostIdentity, PreContent, CheckSamelinePipe, CheckSamelineSemi, CheckSamelineBang, PostChild, Children, CheckChild, ChildDispatch, ChildApos, ChildPipe, AfterChild,  }
+        enum State { Identity, PostIdentity, PreContent, CheckSamelinePipe, CheckSamelineSemi, CheckSamelineBang, PostSamelineInline, PostChild, Children, CheckChild, ChildDispatch, ChildApos, ChildPipe, AfterChild,  }
         let mut state = State::Identity;
         loop {
             match state {
@@ -1107,11 +1066,29 @@ impl<'a> Parser<'a> {
                         Some(b'{') => {
                     self.advance();
                     self.parse_sameline_directive(on_event);
-                    state = State::PreContent;
+                    state = State::PostSamelineInline;
                     continue;
                         }
                         _ => {
                     self.parse_sameline_text(elem_col, b"!", on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                    }
+                }
+                State::PostSamelineInline => {
+                    if self.eof() {
+                    on_event(Event::ElementEnd { span: self.span() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'\n') => {
+                    self.advance();
+                    state = State::Children;
+                    continue;
+                        }
+                        _ => {
+                    self.parse_sameline_text(elem_col, b"", on_event);
                     state = State::Children;
                     continue;
                         }
@@ -1878,17 +1855,23 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse text_backticks -> Text
+    /// Parse text_backticks
     fn parse_text_backticks<F>(&mut self, line_col: i32, parent_col: i32, on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
-        self.mark();
         #[derive(Clone, Copy)]
-        enum State { Main, CheckPipe, CheckSemi, CheckBang,  }
-        let mut state = State::Main;
+        enum State { Entry, Main, CheckPipe, CheckSemi, CheckBang, AfterInline,  }
+        let mut state = State::Entry;
         loop {
             match state {
+                State::Entry => {
+                    self.mark();
+                    self.prepend_bytes(b"`");
+                    self.prepend_bytes(b"`");
+                    state = State::Main;
+                    continue;
+                }
                 State::Main => {
                     match self.scan_to4(b'\n', b'|', b';', b'!') {
                         Some(b'\n') => {
@@ -1912,16 +1895,18 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         None => {
-                            on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                         }
                         _ => unreachable!("scan_to only returns target chars"),
                     }
                 }
                 State::CheckPipe => {
                     if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                     }
                     match self.peek() {
                         Some(b'{') => {
@@ -1929,8 +1914,7 @@ impl<'a> Parser<'a> {
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_embedded(on_event);
-                    self.mark();
-                    state = State::Main;
+                    state = State::AfterInline;
                     continue;
                         }
                         _ => {
@@ -1941,8 +1925,9 @@ impl<'a> Parser<'a> {
                 }
                 State::CheckSemi => {
                     if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                     }
                     match self.peek() {
                         Some(b'{') => {
@@ -1950,8 +1935,7 @@ impl<'a> Parser<'a> {
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_brace_comment(on_event);
-                    self.mark();
-                    state = State::Main;
+                    state = State::AfterInline;
                     continue;
                         }
                         _ => {
@@ -1964,8 +1948,9 @@ impl<'a> Parser<'a> {
                 }
                 State::CheckBang => {
                     if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                     }
                     match self.peek() {
                         Some(b'{') => {
@@ -1973,11 +1958,25 @@ impl<'a> Parser<'a> {
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_sameline_directive(on_event);
-                    self.mark();
-                    state = State::Main;
+                    state = State::AfterInline;
                     continue;
                         }
                         _ => {
+                    state = State::Main;
+                    continue;
+                        }
+                    }
+                }
+                State::AfterInline => {
+                    if self.eof() {
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'\n') => {
+                    return;
+                        }
+                        _ => {
+                    self.mark();
                     state = State::Main;
                     continue;
                         }
@@ -2115,18 +2114,18 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse text -> Text
+    /// Parse text
     fn parse_text<F>(&mut self, line_col: i32, parent_col: i32, prepend: &'static [u8], on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
-        self.mark();
         #[derive(Clone, Copy)]
-        enum State { Entry, Main, CheckPipe, CheckSemi, CheckBang,  }
+        enum State { Entry, Main, CheckPipe, CheckSemi, CheckBang, AfterInline,  }
         let mut state = State::Entry;
         loop {
             match state {
                 State::Entry => {
+                    self.mark();
                     self.prepend_bytes(prepend);
                     state = State::Main;
                     continue;
@@ -2154,16 +2153,18 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         None => {
-                            on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                         }
                         _ => unreachable!("scan_to only returns target chars"),
                     }
                 }
                 State::CheckPipe => {
                     if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                     }
                     match self.peek() {
                         Some(b'{') => {
@@ -2171,8 +2172,7 @@ impl<'a> Parser<'a> {
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_embedded(on_event);
-                    self.mark();
-                    state = State::Main;
+                    state = State::AfterInline;
                     continue;
                         }
                         _ => {
@@ -2183,8 +2183,9 @@ impl<'a> Parser<'a> {
                 }
                 State::CheckSemi => {
                     if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                     }
                     match self.peek() {
                         Some(b'{') => {
@@ -2192,8 +2193,7 @@ impl<'a> Parser<'a> {
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_brace_comment(on_event);
-                    self.mark();
-                    state = State::Main;
+                    state = State::AfterInline;
                     continue;
                         }
                         _ => {
@@ -2206,8 +2206,9 @@ impl<'a> Parser<'a> {
                 }
                 State::CheckBang => {
                     if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                     }
                     match self.peek() {
                         Some(b'{') => {
@@ -2215,11 +2216,25 @@ impl<'a> Parser<'a> {
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_sameline_directive(on_event);
-                    self.mark();
-                    state = State::Main;
+                    state = State::AfterInline;
                     continue;
                         }
                         _ => {
+                    state = State::Main;
+                    continue;
+                        }
+                    }
+                }
+                State::AfterInline => {
+                    if self.eof() {
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'\n') => {
+                    return;
+                        }
+                        _ => {
+                    self.mark();
                     state = State::Main;
                     continue;
                         }
@@ -2229,18 +2244,18 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse sameline_text -> Text
+    /// Parse sameline_text
     fn parse_sameline_text<F>(&mut self, elem_col: i32, prepend: &'static [u8], on_event: &mut F)
     where
         F: FnMut(Event<'a>),
     {
-        self.mark();
         #[derive(Clone, Copy)]
-        enum State { Entry, Main, CheckPipe, CheckSemi, CheckBang,  }
+        enum State { Entry, Main, CheckPipe, CheckSemi, CheckBang, AfterInline,  }
         let mut state = State::Entry;
         loop {
             match state {
                 State::Entry => {
+                    self.mark();
                     self.prepend_bytes(prepend);
                     state = State::Main;
                     continue;
@@ -2268,16 +2283,18 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         None => {
-                            on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                            return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                         }
                         _ => unreachable!("scan_to only returns target chars"),
                     }
                 }
                 State::CheckPipe => {
                     if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                     }
                     match self.peek() {
                         Some(b'{') => {
@@ -2285,16 +2302,14 @@ impl<'a> Parser<'a> {
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_embedded(on_event);
-                    self.mark();
-                    state = State::Main;
+                    state = State::AfterInline;
                     continue;
                         }
                         Some(b) if Self::is_xlbl_start(b) || b == b'\'' || b == b'[' || b == b'.' || b == b'?' || b == b'!' || b == b'*' || b == b'+' => {
                     self.set_term(-1);
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.parse_element(self.col() - 1, elem_col, on_event);
-                    self.mark();
-                    state = State::Main;
+                    state = State::AfterInline;
                     continue;
                         }
                         _ => {
@@ -2305,8 +2320,9 @@ impl<'a> Parser<'a> {
                 }
                 State::CheckSemi => {
                     if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                     }
                     match self.peek() {
                         Some(b'{') => {
@@ -2314,8 +2330,7 @@ impl<'a> Parser<'a> {
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_brace_comment(on_event);
-                    self.mark();
-                    state = State::Main;
+                    state = State::AfterInline;
                     continue;
                         }
                         _ => {
@@ -2328,8 +2343,9 @@ impl<'a> Parser<'a> {
                 }
                 State::CheckBang => {
                     if self.eof() {
-                        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                        return;
+                    self.set_term(0);
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
+                    return;
                     }
                     match self.peek() {
                         Some(b'{') => {
@@ -2337,11 +2353,25 @@ impl<'a> Parser<'a> {
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_sameline_directive(on_event);
-                    self.mark();
-                    state = State::Main;
+                    state = State::AfterInline;
                     continue;
                         }
                         _ => {
+                    state = State::Main;
+                    continue;
+                        }
+                    }
+                }
+                State::AfterInline => {
+                    if self.eof() {
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'\n') => {
+                    return;
+                        }
+                        _ => {
+                    self.mark();
                     state = State::Main;
                     continue;
                         }
@@ -2416,7 +2446,6 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         Some(b'}') => {
-                    self.advance();
                     depth -= 1;
                     state = State::Check;
                     continue;
@@ -2436,6 +2465,7 @@ impl<'a> Parser<'a> {
                     return;
                         }
                         _ => {
+                    self.advance();
                     state = State::Main;
                     continue;
                         }
@@ -2459,7 +2489,8 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 _ => {
                     self.parse_skip_brace_balanced(on_event);
-                    self.set_term(-1);
+                    self.set_term(0);
+                    self.advance();
                     on_event(Event::Comment { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
@@ -2815,6 +2846,7 @@ impl<'a> Parser<'a> {
                         None => {
                     self.set_term(0);
                     on_event(Event::RawContent { content: self.term(), span: self.span_from_mark() });
+                    on_event(Event::DirectiveEnd { span: self.span() });
                     return;
                         }
                         _ => unreachable!("scan_to only returns target chars"),
@@ -3098,14 +3130,15 @@ impl<'a> Parser<'a> {
     {
         let start_span = self.span();
         on_event(Event::DirectiveStart { span: start_span.clone() });
+        let mut depth: i32 = 0;
         #[derive(Clone, Copy)]
-        enum State { Kind, Content, Scan,  }
+        enum State { Kind, Content, Scan, CheckClose,  }
         let mut state = State::Kind;
         loop {
             match state {
                 State::Kind => {
                     if self.eof() {
-                        on_event(Event::Error { code: ParseErrorCode::UnclosedDirective, span: self.span() });
+                        on_event(Event::DirectiveEnd { span: self.span() });
                         return;
                     }
                     match self.peek() {
@@ -3126,18 +3159,42 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 State::Scan => {
-                    match self.scan_to1(b'}') {
-                        Some(b'}') => {
-                    self.set_term(0);
-                    on_event(Event::RawContent { content: self.term(), span: self.span_from_mark() });
+                    match self.scan_to2(b'{', b'}') {
+                        Some(b'{') => {
                     self.advance();
-                    return;
+                    depth += 1;
+                    continue;
+                        }
+                        Some(b'}') => {
+                    state = State::CheckClose;
+                    continue;
                         }
                         None => {
-                            on_event(Event::Error { code: ParseErrorCode::UnclosedDirective, span: self.span() });
+                            on_event(Event::DirectiveEnd { span: self.span() });
                             return;
                         }
                         _ => unreachable!("scan_to only returns target chars"),
+                    }
+                }
+                State::CheckClose => {
+                    if self.eof() {
+                        on_event(Event::DirectiveEnd { span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        _ if depth > 0 => {
+                    self.advance();
+                    depth -= 1;
+                    state = State::Scan;
+                    continue;
+                        }
+                        _ => {
+                    self.set_term(0);
+                    on_event(Event::RawContent { content: self.term(), span: self.span_from_mark() });
+                    self.advance();
+                    on_event(Event::DirectiveEnd { span: self.span() });
+                    return;
+                        }
                     }
                 }
             }

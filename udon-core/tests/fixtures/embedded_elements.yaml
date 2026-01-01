@@ -103,7 +103,6 @@
     - [Text, "unclosed"]
     - [Error, "UnclosedText"]
     - EmbeddedEnd
-    - [Text, ""]
     - ElementEnd
 
 # Error test - outer embedded not closed (inner is closed)

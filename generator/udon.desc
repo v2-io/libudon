@@ -64,7 +64,7 @@
     |c['\n']                  | ->                               |>>
     |c[' ']                   | col = /count_indent              |>> :dispatch
     |c['\t']                  | /error(no_tabs) | ->['\n']       |>> :line
-    |default                  | col = 0                          |>> :dispatch
+    |default                  | col = COL - 1                    |>> :dispatch  ; use actual column
 
   |state[:dispatch]
     |c['|']                   | ->                               |>> :check_pipe
@@ -202,8 +202,14 @@
     |default                  | /line_comment_content            |>> :children
 
   |state[:check_sameline_bang]
-    |c['{']                   | -> | /sameline_directive           |>> :pre_content
+    |c['{']                   | -> | /sameline_directive           |>> :post_sameline_inline
     |default                  | /sameline_text(:elem_col, '!')   |>> :children
+
+  ; After inline directive on sameline - don't skip spaces, they're content now
+  |state[:post_sameline_inline]
+    |c['\n']                  | ->                               |>> :children
+    |eof                      |                                  |return
+    |default                  | /sameline_text(:elem_col, <>)    |>> :children
 
   |state[:post_child]
     |c['\n']                  | ->                               |>> :children
@@ -411,25 +417,39 @@
 
 
 ; text_backticks - text that starts with `` (for non-freeform case)
-|function[text_backticks:Text]  :line_col :parent_col  | MARK | PREPEND('`') | PREPEND('`')
+; Manual emit control, no :Text auto-emit
+|function[text_backticks]  :line_col :parent_col
+  |state[:entry]
+    | MARK | PREPEND('`') | PREPEND('`')                         |>> :main
+
   |state[:main]
-    |c['\n']                  | TERM                             |return
+    |eof                      | TERM | Text(USE_MARK)            |return
+    |c['\n']                  | TERM | Text(USE_MARK)            |return
     |c['|']                   | ->                               |>> :check_pipe
     |c[';']                   | ->                               |>> :check_semi
     |c['!']                   | ->                               |>> :check_bang
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
+    |eof                      | TERM | Text(USE_MARK)            |return  ; include | in text
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded |>> :after_inline
     |default                  |                                  |>> :main
 
   |state[:check_semi]
-    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
+    |eof                      | TERM | Text(USE_MARK)            |return  ; include ; in text
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment |>> :after_inline
     |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
-    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /sameline_directive | MARK |>> :main
+    |eof                      | TERM | Text(USE_MARK)            |return  ; include ! in text
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /sameline_directive |>> :after_inline
     |default                  |                                  |>> :main
+
+  ; After inline construct - only set MARK if more content follows
+  |state[:after_inline]
+    |c['\n']                  |                                  |return  ; at end, no emit
+    |eof                      |                                  |return  ; at end, no emit
+    |default                  | MARK                             |>> :main
 
 
 ; ============================================================================
@@ -465,61 +485,81 @@
     |default                  | MARK | PREPEND('``')             |>> :line
 
 
-; text - block-level prose content
+; text - block-level prose content (manual emit control, no :Text auto-emit)
 ; Same pattern as sameline_text: advance past special chars, check what follows.
 ; :prepend = <> (none), '|' (pipe prefix), '`' (backtick prefix)
-|function[text:Text]  :line_col :parent_col :prepend
+|function[text]  :line_col :parent_col :prepend
   |state[:entry]
-    | PREPEND(:prepend)                                          |>> :main
+    | MARK | PREPEND(:prepend)                                   |>> :main
 
   |state[:main]
-    |c['\n']                  | TERM                             |return
+    |eof                      | TERM | Text(USE_MARK)            |return
+    |c['\n']                  | TERM | Text(USE_MARK)            |return
     |c['|']                   | ->                               |>> :check_pipe
     |c[';']                   | ->                               |>> :check_semi
     |c['!']                   | ->                               |>> :check_bang
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
+    |eof                      | TERM | Text(USE_MARK)            |return  ; include | in text
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded |>> :after_inline
     |default                  |                                  |>> :main
 
   |state[:check_semi]
-    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
+    |eof                      | TERM | Text(USE_MARK)            |return  ; include ; in text
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment |>> :after_inline
     |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
-    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /sameline_directive | MARK |>> :main
+    |eof                      | TERM | Text(USE_MARK)            |return  ; include ! in text
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /sameline_directive |>> :after_inline
     |default                  |                                  |>> :main
 
+  ; After inline construct - only set MARK if more content follows
+  |state[:after_inline]
+    |c['\n']                  |                                  |return  ; at end, no emit
+    |eof                      |                                  |return  ; at end, no emit
+    |default                  | MARK                             |>> :main
 
-; sameline_text - text on same line as element
+
+; sameline_text - text on same line as element (manual emit control, no :Text auto-emit)
 ; When special chars (|;!) are encountered, we advance past them, then check
 ; what follows. If special construct, emit text before it and parse construct.
 ; If not special, just continue (char is included in text).
 ; :prepend = <> (none), '|' (pipe prefix), '!' (bang prefix)
-|function[sameline_text:Text]  :elem_col :prepend  | MARK
+|function[sameline_text]  :elem_col :prepend
   |state[:entry]
-    | PREPEND(:prepend)                                          |>> :main
+    | MARK | PREPEND(:prepend)                                   |>> :main
 
   |state[:main]
-    |c['\n']                  | TERM                             |return
+    |eof                      | TERM | Text(USE_MARK)            |return
+    |c['\n']                  | TERM | Text(USE_MARK)            |return
     |c['|']                   | ->                               |>> :check_pipe
     |c[';']                   | ->                               |>> :check_semi
     |c['!']                   | ->                               |>> :check_bang
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded | MARK |>> :main
-    |c[<XLBL_START SQ '[' '.?!*+'>] | TERM(-1) | Text(USE_MARK) | /element(COL - 1, :elem_col) | MARK |>> :main
+    |eof                      | TERM | Text(USE_MARK)            |return  ; include | in text
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded |>> :after_inline
+    |c[<XLBL_START SQ '[' '.?!*+'>] | TERM(-1) | Text(USE_MARK) | /element(COL - 1, :elem_col) |>> :after_inline
     |default                  |                                  |>> :main
 
   |state[:check_semi]
-    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
+    |eof                      | TERM | Text(USE_MARK)            |return  ; include ; in text
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment |>> :after_inline
     |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
-    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /sameline_directive | MARK |>> :main
+    |eof                      | TERM | Text(USE_MARK)            |return  ; include ! in text
+    |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /sameline_directive |>> :after_inline
     |default                  |                                  |>> :main
+
+  ; After inline construct - only set MARK if more content follows
+  |state[:after_inline]
+    |c['\n']                  |                                  |return  ; at end, no emit
+    |eof                      |                                  |return  ; at end, no emit
+    |default                  | MARK                             |>> :main
 
 
 ; ============================================================================
@@ -543,20 +583,21 @@
 
 ; DRYed: skip_brace_balanced - void helper for {}-counting
 ; Caller handles MARK/TERM and emit type. Assumes opening { already consumed.
+; Returns with position AT the closing } (not consumed)
 |function[skip_brace_balanced]  | depth = 1
   |state[:main]
     |c['{']                   | -> | depth += 1                  |>>
-    |c['}']                  | -> | depth -= 1                  |>> :check
+    |c['}']                   | depth -= 1                       |>> :check
     |default                  | ->                               |>>
 
   |state[:check]
-    |if[depth == 0]                                              |return
-    |                                                            |>> :main
+    |if[depth == 0]                                              |return  ; stop before }
+    | ->                                                         |>> :main  ; consume } and continue
 
 
 |function[brace_comment:Comment]  | MARK
   |state[:main]
-    | /skip_brace_balanced | TERM(-1)                            |return
+    | /skip_brace_balanced | TERM | ->                           |return  ; consume the }
 
 
 ; ============================================================================
@@ -718,7 +759,9 @@
 
 
 ; Inline raw !{:kind: content}
-|function[sameline_raw:Directive]
+; sameline_raw - raw content inside !{:kind:...}
+; Per FULL-SPEC.md lines 796-797: uses brace-counting for nested {} pairs
+|function[sameline_raw:Directive]  | depth = 0
   |state[:kind]
     |c[':']                   | ->                               |>> :content
     |default                  | /name                            |>>  ; kind name
@@ -727,8 +770,13 @@
     | MARK                                                       |>> :scan
 
   |state[:scan]
-    |c['}']                  | TERM | RawContent(USE_MARK) | -> |return
+    |c['{']                   | -> | depth += 1                  |>>  ; nested open
+    |c['}']                   |                                  |>> :check_close
     |default                  | ->                               |>>
+
+  |state[:check_close]
+    |if[depth > 0]            | -> | depth -= 1                  |>> :scan  ; nested close
+    |default                  | TERM | RawContent(USE_MARK) | -> |return    ; final close
 
 
 ; Regular inline directive !{name args}

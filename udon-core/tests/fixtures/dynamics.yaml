@@ -1,83 +1,176 @@
 ---
 - id: basic_interpolation
   desc: basic interpolation
-  udon: "|p Hello, !{{user.name}}!"
-  events: []
+  udon: "|p Hello, !{{user.name}}!\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Hello, "]
+    - [Interpolation, "user.name"]
+    - [Text, "!"]
+    - ElementEnd
 - id: interpolation_standalone
   desc: interpolation standalone
-  udon: "!{{greeting}}"
-  events: []
+  udon: "!{{greeting}}\n"
+  events:
+    - DirectiveStart
+    - [Interpolation, "greeting"]
+    - DirectiveEnd
 - id: interpolation_property_access
   desc: interpolation property access
-  udon: "|p !{{user.profile.name}}"
-  events: []
+  udon: "|p !{{user.profile.name}}\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Interpolation, "user.profile.name"]
+    - ElementEnd
 - id: interpolation_array_access
   desc: interpolation array access
-  udon: "|p First: !{{items[0]}}"
-  events: []
+  udon: "|p First: !{{items[0]}}\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "First: "]
+    - [Interpolation, "items[0]"]
+    - ElementEnd
 - id: multiple_interpolations
   desc: multiple interpolations
-  udon: "|p !{{first}} and !{{second}} and !{{third}}"
-  events: []
+  udon: "|p !{{first}} and !{{second}} and !{{third}}\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Interpolation, "first"]
+    - [Text, " and "]
+    - [Interpolation, "second"]
+    - [Text, " and "]
+    - [Interpolation, "third"]
+    - ElementEnd
 - id: interpolation_with_filter
   desc: interpolation with filter
-  udon: "|p Hello, !{{name | capitalize}}!"
-  events: []
+  udon: "|p Hello, !{{name | capitalize}}!\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Hello, "]
+    - [Interpolation, "name | capitalize"]
+    - [Text, "!"]
+    - ElementEnd
 - id: interpolation_multiple_filters
   desc: interpolation multiple filters
   udon: "|p !{{text | strip | capitalize | truncate}}"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Interpolation, "text | strip | capitalize | truncate"]
+    - ElementEnd
 - id: interpolation_filter_with_arg
   desc: interpolation filter with arg
   udon: '|p !{{date | format "%Y-%m-%d"}}'
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Interpolation, 'date | format "%Y-%m-%d"']
+    - ElementEnd
 - id: interpolation_filter_with_multiple_args
   desc: interpolation filter with multiple args
   udon: '|p !{{price | currency "USD"}}'
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Interpolation, 'price | currency "USD"']
+    - ElementEnd
 - id: interpolation_at_child_line_start
   desc: interpolation at child line start
   udon: |-
     |parent
       !{{'the-issue' | embed}}
-  events: []
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - DirectiveStart
+    - [Interpolation, "'the-issue' | embed"]
+    - DirectiveEnd
+    - ElementEnd
 - id: inline_comment_at_child_line_start
   desc: inline comment at child line start
   udon: |-
     |parent
       ;{and this, as an edge case}
-  events: []
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - [Comment, "and this, as an edge case"]
+    - ElementEnd
 - id: interpolation_multiple_child_lines
   desc: interpolation multiple child lines
   udon: |-
     |parent
       !{{first}}
       !{{second}}
-  events: []
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - DirectiveStart
+    - [Interpolation, "first"]
+    - DirectiveEnd
+    - DirectiveStart
+    - [Interpolation, "second"]
+    - DirectiveEnd
+    - ElementEnd
 - id: interpolation_with_surrounding_text
   desc: interpolation with surrounding text
   udon: |-
     |parent
       before !{{middle}} after
-  events: []
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - [Text, "before "]
+    - [Interpolation, "middle"]
+    - [Text, " after"]
+    - ElementEnd
+# Note: interpolation in attribute values is not yet parsed - captured as BareValue
 - id: interpolation_in_attribute_value
   desc: interpolation in attribute value
   udon: "|a :href !{{base}}/users"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - [Attr, "href"]
+    - [BareValue, "!{{base}}/users"]
+    - ElementEnd
 - id: interpolation_full_attribute_value
   desc: interpolation full attribute value
   udon: "|div :class !{{computed_class}}"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Attr, "class"]
+    - [BareValue, "!{{computed_class}}"]
+    - ElementEnd
 - id: interpolation_in_element_id
   desc: interpolation in element id
   udon: "|div[!{{item.id}}]"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Attr, "id"]
+    - [BareValue, "!{{item.id}}"]
+    - ElementEnd
 - id: if_directive
   desc: if directive
   udon: |-
     !if logged_in
       |greeting Welcome!
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "if"]
+    - [Text, "logged_in"]
+    - ElementStart
+    - [Name, "greeting"]
+    - [Text, "Welcome!"]
+    - ElementEnd
+    - DirectiveEnd
 - id: if_else_directive
   desc: if else directive
   udon: |-
@@ -85,7 +178,22 @@
       |p Welcome
     !else
       |p Please login
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "if"]
+    - [Text, "logged_in"]
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Welcome"]
+    - ElementEnd
+    - DirectiveEnd
+    - DirectiveStart
+    - [Name, "else"]
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Please login"]
+    - ElementEnd
+    - DirectiveEnd
 - id: if_elif_else_directive
   desc: if elif else directive
   udon: |-
@@ -95,43 +203,116 @@
       |p Mod
     !else
       |p User
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "if"]
+    - [Text, "admin"]
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Admin"]
+    - ElementEnd
+    - DirectiveEnd
+    - DirectiveStart
+    - [Name, "elif"]
+    - [Text, "moderator"]
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Mod"]
+    - ElementEnd
+    - DirectiveEnd
+    - DirectiveStart
+    - [Name, "else"]
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "User"]
+    - ElementEnd
+    - DirectiveEnd
 - id: if_with_comparison
   desc: if with comparison
   udon: |-
     !if age >= 18
       |p Adult
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "if"]
+    - [Text, "age >= 18"]
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Adult"]
+    - ElementEnd
+    - DirectiveEnd
 - id: if_with_logical_operators
   desc: if with logical operators
   udon: |-
     !if verified and subscribed
       |p Premium user
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "if"]
+    - [Text, "verified and subscribed"]
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Premium user"]
+    - ElementEnd
+    - DirectiveEnd
 - id: if_with_contains
   desc: if with contains
   udon: |-
     !if tags contains "featured"
       |badge Featured
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "if"]
+    - [Text, 'tags contains "featured"']
+    - ElementStart
+    - [Name, "badge"]
+    - [Text, "Featured"]
+    - ElementEnd
+    - DirectiveEnd
 - id: unless_directive
   desc: unless directive
   udon: |-
     !unless disabled
       |button Click me
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "unless"]
+    - [Text, "disabled"]
+    - ElementStart
+    - [Name, "button"]
+    - [Text, "Click me"]
+    - ElementEnd
+    - DirectiveEnd
 - id: for_directive
   desc: for directive
   udon: |-
     !for item in items
       |li !{{item.name}}
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "for"]
+    - [Text, "item in items"]
+    - ElementStart
+    - [Name, "li"]
+    - [Interpolation, "item.name"]
+    - ElementEnd
+    - DirectiveEnd
 - id: for_with_index
   desc: for with index
   udon: |-
     !for item in items
       |li !{{forloop.index}}: !{{item}}
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "for"]
+    - [Text, "item in items"]
+    - ElementStart
+    - [Name, "li"]
+    - [Interpolation, "forloop.index"]
+    - [Text, ": "]
+    - [Interpolation, "item"]
+    - ElementEnd
+    - DirectiveEnd
 - id: for_nested
   desc: for nested
   udon: |-
@@ -139,19 +320,51 @@
       |tr
         !for cell in row
           |td !{{cell}}
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "for"]
+    - [Text, "row in rows"]
+    - ElementStart
+    - [Name, "tr"]
+    - DirectiveStart
+    - [Name, "for"]
+    - [Text, "cell in row"]
+    - ElementStart
+    - [Name, "td"]
+    - [Interpolation, "cell"]
+    - ElementEnd
+    - DirectiveEnd
+    - ElementEnd
+    - DirectiveEnd
 - id: for_with_limit
   desc: for with limit
   udon: |-
     !for item in items limit:5
       |li !{{item}}
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "for"]
+    - [Text, "item in items limit:5"]
+    - ElementStart
+    - [Name, "li"]
+    - [Interpolation, "item"]
+    - ElementEnd
+    - DirectiveEnd
 - id: let_directive
   desc: let directive
   udon: |-
     !let name = user.first_name
       |p Hello !{{name}}
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "let"]
+    - [Text, "name = user.first_name"]
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Hello "]
+    - [Interpolation, "name"]
+    - ElementEnd
+    - DirectiveEnd
 - id: include_directive
   desc: include directive
   udon: "!include partials/header"
@@ -174,48 +387,106 @@
   udon: |-
     !:elixir:
       def hello, do: :world
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "elixir"]
+    - [Raw, ""]
+    - [RawContent, "def hello, do: :world"]
+    - DirectiveEnd
 - id: raw_block_preserves_pipes
   desc: raw block preserves pipes
   udon: |-
     !:elixir:
       value |> transform() |> output()
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "elixir"]
+    - [Raw, ""]
+    - [RawContent, "value |> transform() |> output()"]
+    - DirectiveEnd
 - id: raw_block_preserves_colons
   desc: raw block preserves colons
   udon: |-
     !:python:
       def foo():
         return {:key => "value"}
-  events: []
-- id: raw_multiple_languages
-  desc: raw multiple languages
+  events:
+    - DirectiveStart
+    - [Name, "python"]
+    - [Raw, ""]
+    - [RawContent, "def foo():"]
+    - [RawContent, 'return {:key => "value"}']
+    - DirectiveEnd
+- id: raw_multiple_languages_sql
+  desc: raw multiple languages sql
   udon: |-
     !:sql:
       SELECT * FROM users
-  events: []
-- id: raw_multiple_languages
-  desc: raw multiple languages
+  events:
+    - DirectiveStart
+    - [Name, "sql"]
+    - [Raw, ""]
+    - [RawContent, "SELECT * FROM users"]
+    - DirectiveEnd
+- id: raw_multiple_languages_json
+  desc: raw multiple languages json
   udon: |-
     !:json:
       {"key": "value"}
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "json"]
+    - [Raw, ""]
+    - [RawContent, '{"key": "value"}']
+    - DirectiveEnd
 - id: raw_inline_directive
   desc: raw inline directive
   udon: '|p The data is !{:json:{"key": "value"}}.'
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "The data is "]
+    - DirectiveStart
+    - [Name, "json"]
+    - [RawContent, '{"key": "value"}']
+    - DirectiveEnd
+    - [Text, "."]
+    - ElementEnd
 - id: raw_inline_nested_braces
   desc: raw inline nested braces
   udon: "|p Pattern: !{:regex:[a-z]{3,5}}"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Pattern: "]
+    - DirectiveStart
+    - [Name, "regex"]
+    - [RawContent, "[a-z]{3,5}"]
+    - DirectiveEnd
+    - ElementEnd
 - id: raw_inline_sql
   desc: raw inline sql
   udon: "|p Query: !{:sql:SELECT * FROM users}"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Query: "]
+    - DirectiveStart
+    - [Name, "sql"]
+    - [RawContent, "SELECT * FROM users"]
+    - DirectiveEnd
+    - ElementEnd
 - id: raw_inline_with_nested_json
   desc: raw inline with nested json
   udon: '|p !{:json:{"outer": {"inner": [1, 2, 3]}}}'
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - DirectiveStart
+    - [Name, "json"]
+    - [RawContent, '{"outer": {"inner": [1, 2, 3]}}']
+    - DirectiveEnd
+    - ElementEnd
 # Error test - should produce UnclosedInterpolation error
 - id: unclosed_interpolation_error
   desc: unclosed interpolation error
@@ -226,30 +497,67 @@
     - [Text, "Hello "]
     - [Interpolation, "unclosed"]
     - [Error, "UnclosedInterpolation"]
-    - [Text, ""]
     - ElementEnd
+# Empty interpolation is valid per FULL-SPEC.md line 890-891
 - id: empty_interpolation
   desc: empty interpolation
   udon: "|p Value: !{{}}"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Value: "]
+    - [Interpolation, ""]
+    - ElementEnd
 - id: single_brace_is_directive_not_interpolation
   desc: single brace is directive not interpolation
   udon: "|p !{:text:hello world}"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - DirectiveStart
+    - [Name, "text"]
+    - [RawContent, "hello world"]
+    - DirectiveEnd
+    - ElementEnd
 - id: directive_at_root_level
   desc: directive at root level
   udon: |-
     !if true
       |root Content
-  events: []
+  events:
+    - DirectiveStart
+    - [Name, "if"]
+    - [Text, "true"]
+    - ElementStart
+    - [Name, "root"]
+    - [Text, "Content"]
+    - ElementEnd
+    - DirectiveEnd
 - id: directive_inside_element
   desc: directive inside element
   udon: |-
     |div
       !if show
         |p Conditional content
-  events: []
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - DirectiveStart
+    - [Name, "if"]
+    - [Text, "show"]
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Conditional content"]
+    - ElementEnd
+    - DirectiveEnd
+    - ElementEnd
+# Per FULL-SPEC.md lines 104-124, ' escapes |;:!' only at block level
+# Mid-content '! is NOT an escape - it's literal apostrophe followed by !
 - id: escaped_bang_is_not_directive
   desc: escaped bang is not directive
   udon: "|p This is '!not a directive"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "This is '!not a directive"]
+    - ElementEnd
