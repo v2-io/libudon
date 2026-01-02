@@ -1,7 +1,21 @@
 # Inline comments tests
 # Tests brace-delimited ;{...} comments within text content
+#
+# SPEC References:
+# - FULL-SPEC.md lines 401-416: Comment context rules
+# - FULL-SPEC.md lines 449-458: Inline comment syntax with brace-counting
+# - FULL-SPEC.md lines 489-499: Inline comment examples
+# - FULL-EBNF.md lines 199-208: inline_comment grammar
+#
+# Key rules from SPEC:
+# - Inline comments use ;{...} syntax (SPEC line 449)
+# - Brace-counting for nested {} pairs (SPEC lines 455-457)
+# - Comments are emitted as events, not stripped (SPEC lines 414-415)
+# - Space after } is part of text content (SPEC line 495 example)
 
 ---
+# SPEC line 449: "For inline comments within prose, use ;{...}"
+# SPEC line 495: Example shows spaces around comments are preserved in text
 - id: basic_inline_comment
   desc: basic inline comment
   udon: "|p Text ;{TODO: fix this} more text."
@@ -13,6 +27,8 @@
     - [Text, " more text."]
     - ElementEnd
 
+# SPEC lines 455-457: "Inline comments use brace-counting to find their end--
+# nested {} pairs are allowed as long as they are balanced."
 - id: inline_comment_with_nested_braces
   desc: inline comment with nested braces
   udon: "|p Text ;{comment with {nested} braces} continues."
@@ -24,6 +40,7 @@
     - [Text, " continues."]
     - ElementEnd
 
+# Multiple inline comments each emit separate Comment events
 - id: multiple_inline_comments
   desc: multiple inline comments
   udon: "|p First ;{note 1} middle ;{note 2} end."
@@ -37,6 +54,7 @@
     - [Text, " end."]
     - ElementEnd
 
+# SPEC line 412: In sameline context, ;{...} is the inline form
 - id: inline_comment_in_element
   desc: inline comment in element
   udon: "|div Content here ;{hidden note}"
@@ -47,9 +65,10 @@
     - [Comment, "hidden note"]
     - ElementEnd
 
+# Parser gracefully handles unclosed comment by consuming to EOF
+# SPEC does not define behavior for unclosed braces; this is reasonable
 - id: unclosed_inline_comment_error
   desc: unclosed inline comment error
-  # Note: Parser gracefully handles unclosed comment, emits content
   udon: "|p Text ;{unclosed comment"
   events:
     - ElementStart
@@ -58,23 +77,31 @@
     - [Comment, "unclosed comment"]
     - ElementEnd
 
+# SPEC line 407: At document root, ; starts a line comment
+# EBNF line 203: line_comment = ";" { CHAR }* ;
+# Note: The space after ; is part of the comment content
 - id: line_comment_standalone
   desc: line comment standalone
   udon: "; This is a line comment"
   events:
     - [Comment, " This is a line comment"]
 
+# SPEC line 495 example: "|p This is some text ;{TODO} and more text."
+# Output when stripped: "This is some text and more text."
+# This shows space AFTER } is preserved as part of subsequent text.
+# The space between "|p" and ";{" is consumed during element parsing.
 - id: inline_comment_in_text
   desc: inline comment in text
-  # Space after } is separator, not prose content
   udon: "|p ;{This is inline} text"
   events:
     - ElementStart
     - [Name, "p"]
     - [Comment, "This is inline"]
-    - [Text, "text"]
+    - [Text, " text"]
     - ElementEnd
 
+# SPEC lines 414-415: "Comments are emitted as events, not discarded.
+# The consuming layer decides whether to keep or strip them."
 - id: comment_emitted_not_stripped
   desc: comment emitted not stripped
   udon: "|p Before ;{emitted comment} after"

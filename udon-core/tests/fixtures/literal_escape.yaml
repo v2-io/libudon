@@ -1,23 +1,46 @@
 ---
+# Block-level escape tests
+# Per FULL-SPEC.md lines 104-130: At block level, apostrophe followed by
+# a block-marker character (|, ;, :, !, or ') triggers an escape.
+# The apostrophe is consumed; the marker is output literally as prose.
+
 - id: escaped_pipe_is_text
   desc: escaped pipe is text
+  # SPEC line 114: '|element -> "|element"
   udon: "'|not-element"
-  events: []
+  events:
+    - [Text, "|not-element"]
+
 - id: escaped_colon_is_text
   desc: escaped colon is text
+  # SPEC line 116: ':attr -> ":attr"
+  # The ':not-attr' becomes prose content of |el
   udon: |-
     |el
       ':not-attr
-  events: []
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Text, ":not-attr"]
+    - ElementEnd
+
 - id: escaped_semicolon_is_text
   desc: escaped semicolon is text
+  # SPEC line 115: ';comment -> ";comment"
   udon: "';not-comment"
-  events: []
+  events:
+    - [Text, ";not-comment"]
+
 - id: escaped_apostrophe_is_text
   desc: escaped apostrophe is text
+  # SPEC line 118: ''more -> "'more"
   udon: "''literal-apostrophe"
-  events: []
+  events:
+    - [Text, "'literal-apostrophe"]
+
 - id: escaped_bang_is_text
   desc: escaped bang is text
+  # SPEC line 117: '!directive -> "!directive"
   udon: "'!not-directive"
-  events: []
+  events:
+    - [Text, "!not-directive"]

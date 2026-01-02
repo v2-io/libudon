@@ -1,7 +1,11 @@
 # Comment and text tests
 # Tests from old parsing.rs comments_and_text module
+# Audited against FULL-SPEC.md
 
-# Empty input
+# ===========================================================================
+# Empty/Blank Input (baseline)
+# ===========================================================================
+
 - id: empty_input
   desc: Empty input produces no events
   udon: ""
@@ -12,9 +16,14 @@
   udon: "\n\n\n"
   events: []
 
-# Comment tests
+# ===========================================================================
+# Line Comments at Document Root
+# SPEC lines 401-407: Document root - `;` starts line comment
+# ===========================================================================
+
 - id: single_comment
-  desc: Single line comment
+  desc: Single line comment at document root
+  # SPEC line 407: Document root -> Line comment
   udon: "; this is a comment\n"
   events:
     - [Comment, " this is a comment"]
@@ -39,31 +48,54 @@
   events:
     - [Comment, ""]
 
-# Text at column 0 (prose not in element)
+- id: comment_no_trailing_newline
+  desc: Comment at EOF without trailing newline
+  # EOF is a valid terminator for comments - no error expected
+  udon: "; comment"
+  events:
+    - [Comment, " comment"]
+
+# ===========================================================================
+# Text (Prose) at Document Root
+# SPEC lines 401-407: Document root - `;` starts line comment
+# ===========================================================================
+
 - id: simple_text
-  desc: Simple text line (no element)
+  desc: Simple text line at document root
   udon: "Hello world\n"
   events:
     - [Text, "Hello world"]
 
 - id: text_with_inline_comment
-  desc: Text followed by inline comment
+  desc: Text at document root followed by line comment
+  # SPEC line 407: At document root, `;` starts line comment
   udon: "Some text ; with comment\n"
   events:
     - [Text, "Some text "]
     - [Comment, " with comment"]
 
 - id: mixed_content
-  desc: Comments and text interspersed
+  desc: Comments and text interspersed at document root
   udon: "; Comment\nText line\n; Another comment\n"
   events:
     - [Comment, " Comment"]
     - [Text, "Text line"]
     - [Comment, " Another comment"]
 
-# Inline comments in elements
+- id: text_no_trailing_newline
+  desc: Text at EOF without trailing newline
+  udon: "Hello"
+  events:
+    - [Text, "Hello"]
+
+# ===========================================================================
+# Comments in Sameline Context
+# SPEC lines 409-411: Sameline prose/attrs - `;` starts line comment
+# ===========================================================================
+
 - id: element_with_inline_comment
-  desc: Element with inline comment after content
+  desc: Element with inline comment after sameline content
+  # SPEC line 409: Sameline prose -> Line comment
   udon: "|p Hello ; comment\n"
   events:
     - ElementStart
@@ -74,6 +106,7 @@
 
 - id: element_only_comment
   desc: Element followed only by comment (no content)
+  # SPEC line 411: Sameline attrs -> Line comment (after values)
   udon: "|div ; just a comment\n"
   events:
     - ElementStart
@@ -81,9 +114,27 @@
     - [Comment, " just a comment"]
     - ElementEnd
 
-# Per SPEC 280-291: Block attr values terminate at ` ;` (space+semicolon)
+- id: element_attrs_then_comment
+  desc: Element with sameline attrs then comment
+  # SPEC line 411: Sameline attrs -> Line comment (after values)
+  udon: "|el :key value ; trailing comment\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "key"]
+    - [BareValue, "value"]
+    - [Comment, " trailing comment"]
+    - ElementEnd
+
+# ===========================================================================
+# Comments on Block Attribute Lines
+# SPEC lines 280-291: Block attr values terminate at ` ;` (space+semicolon)
+# SPEC line 410: Block attr line -> Line comment (after values)
+# ===========================================================================
+
 - id: comment_on_attr_line
-  desc: Comment on indented attribute line
+  desc: Comment on indented block attribute line
+  # SPEC lines 280-287: ` ;` terminates block attr value
   udon: "|el\n  :attr val ; comment\n"
   events:
     - ElementStart
@@ -93,16 +144,311 @@
     - [Comment, " comment"]
     - ElementEnd
 
-# Edge cases
-- id: text_no_trailing_newline
-  desc: Text at EOF without trailing newline
-  udon: "Hello"
+- id: attr_value_with_embedded_semicolon
+  desc: Block attr value with semicolon (no space before) is part of value
+  # SPEC lines 286-292: `;` without preceding space is part of value
+  udon: "|el\n  :url https://example.com/path?q=1;s=2\n"
   events:
-    - [Text, "Hello"]
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "url"]
+    - [BareValue, "https://example.com/path?q=1;s=2"]
+    - ElementEnd
 
-# EOF is a valid terminator for comments - no error expected
-- id: comment_no_trailing_newline
-  desc: Comment at EOF without trailing newline
-  udon: "; comment"
+- id: attr_value_semicolon_then_comment
+  desc: Block attr value with embedded semicolon then space-semicolon comment
+  # SPEC lines 283-284: semicolon with space before starts comment
+  udon: "|el\n  :data foo;bar ; this is comment\n"
   events:
-    - [Comment, " comment"]
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "data"]
+    - [BareValue, "foo;bar"]
+    - [Comment, " this is comment"]
+    - ElementEnd
+
+# ===========================================================================
+# Block Prose - Semicolons are LITERAL
+# SPEC line 408: Block prose -> **Literal** (not comment)
+# SPEC lines 429-448: Block prose preserves literal content including semicolons
+# ===========================================================================
+
+- id: block_prose_literal_semicolon
+  desc: Block prose preserves semicolons as literal content
+  # SPEC line 408: Block prose -> **Literal** (not comment)
+  # SPEC lines 429-448: Block prose sets indent-column, preserves literal semicolons
+  udon: "|pre\n  code; more code\n"
+  events:
+    - ElementStart
+    - [Name, "pre"]
+    - [Text, "code; more code"]
+    - ElementEnd
+
+- id: block_prose_multiple_semicolons
+  desc: Block prose with multiple semicolons
+  # SPEC line 408: All semicolons in block prose are literal
+  udon: "|code\n  a; b; c;\n"
+  events:
+    - ElementStart
+    - [Name, "code"]
+    - [Text, "a; b; c;"]
+    - ElementEnd
+
+- id: block_prose_semicolon_at_start
+  desc: Block prose line starting with semicolon is literal
+  # SPEC line 408: Block prose semicolons are literal, not comments
+  udon: "|pre\n  ; this is NOT a comment\n"
+  events:
+    - ElementStart
+    - [Name, "pre"]
+    - [Text, "; this is NOT a comment"]
+    - ElementEnd
+
+# ===========================================================================
+# Brace Comments (Inline Comments)
+# SPEC lines 449-458, 489-498: `;{...}` inline comments with brace-counting
+# SPEC line 412: Inline/embedded -> `;{...}` only
+# ===========================================================================
+
+- id: brace_comment_in_sameline
+  desc: Brace comment in sameline prose
+  # SPEC lines 449-458, 489-498: `;{...}` inline comment
+  udon: "|p Text ;{TODO: fix} more text\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Text "]
+    - [Comment, "TODO: fix"]
+    - [Text, " more text"]
+    - ElementEnd
+
+- id: brace_comment_empty
+  desc: Empty brace comment
+  udon: "|p Before ;{} after\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Before "]
+    - [Comment, ""]
+    - [Text, " after"]
+    - ElementEnd
+
+- id: brace_comment_nested_braces
+  desc: Brace comment with nested balanced braces
+  # SPEC lines 455-457: Nested `{}` pairs allowed if balanced
+  udon: "|p Text ;{comment with {nested} braces} more\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Text "]
+    - [Comment, "comment with {nested} braces"]
+    - [Text, " more"]
+    - ElementEnd
+
+- id: brace_comment_deeply_nested
+  desc: Brace comment with deeply nested braces
+  # SPEC lines 455-457: Brace-counting for nested pairs
+  udon: "|p Text ;{outer {middle {inner}} end} rest\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Text "]
+    - [Comment, "outer {middle {inner}} end"]
+    - [Text, " rest"]
+    - ElementEnd
+
+- id: brace_comment_in_embedded
+  desc: Brace comment inside embedded element
+  # SPEC line 412: Inline/embedded -> `;{...}` only
+  udon: "|p Click |{a here ;{note} link}\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Click "]
+    - EmbeddedStart
+    - [Name, "a"]
+    - [Text, "here "]
+    - [Comment, "note"]
+    - [Text, " link"]
+    - EmbeddedEnd
+    - ElementEnd
+
+- id: brace_comment_at_document_root
+  desc: Brace comment at document root (after text)
+  udon: "Text ;{comment} more\n"
+  events:
+    - [Text, "Text "]
+    - [Comment, "comment"]
+    - [Text, " more"]
+
+- id: brace_comment_at_line_start
+  desc: Brace comment at line start (document root)
+  # At line start, ;{ is brace comment, not line comment
+  udon: ";{brace comment}\n"
+  events:
+    - [Comment, "brace comment"]
+
+# ===========================================================================
+# Escaped Semicolons
+# SPEC lines 503-508: `';` at line start outputs literal `;`
+# SPEC lines 512-530: Backslash escapes in sameline/embedded contexts
+# ===========================================================================
+
+- id: escaped_semicolon_line_start
+  desc: Escaped semicolon at line start outputs literal
+  # SPEC lines 503-508: `';` -> `;` literal
+  # SPEC lines 104-124: Block-level escape
+  udon: "'; This starts with semicolon\n"
+  events:
+    - [Text, "; This starts with semicolon"]
+
+- id: escaped_semicolon_in_element
+  desc: Escaped semicolon at block line start in element
+  # SPEC lines 503-508: Escape applies at line start (after indent)
+  udon: "|div\n  '; semicolon line\n"
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Text, "; semicolon line"]
+    - ElementEnd
+
+- id: backslash_semicolon_sameline
+  desc: Backslash escapes semicolon in sameline context
+  # SPEC lines 512-530: Backslash escapes in sameline contexts
+  udon: "|el :key val\\;ue ; real comment\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "key"]
+    - [BareValue, "val\\;ue"]
+    - [Comment, " real comment"]
+    - ElementEnd
+
+# ===========================================================================
+# Comment Continuation with Indentation
+# SPEC lines 419-428: Line comment followed by indented continuation
+# ===========================================================================
+
+- id: comment_continuation
+  desc: Line comment with indented continuation
+  # SPEC lines 419-428: More-indented lines after comment are comment content
+  udon: "; This is a comment\n  this is still part of the comment\n"
+  events:
+    - [Comment, " This is a comment\n  this is still part of the comment"]
+
+- id: comment_continuation_multiple_lines
+  desc: Line comment with multiple continuation lines
+  # SPEC lines 419-428: Continuation until dedent
+  udon: "; Main comment\n  continuation 1\n  continuation 2\n"
+  events:
+    - [Comment, " Main comment\n  continuation 1\n  continuation 2"]
+
+- id: comment_continuation_ends_at_dedent
+  desc: Comment continuation ends when dedent occurs
+  # SPEC lines 419-428: Comment content until dedent
+  udon: "; Comment\n  continued\nNot comment\n"
+  events:
+    - [Comment, " Comment\n  continued"]
+    - [Text, "Not comment"]
+
+# ===========================================================================
+# Comments Affecting Hierarchy (Indent/Dedent)
+# SPEC lines 459-487: Block comments trigger indent/dedent behavior
+# ===========================================================================
+
+- id: comment_as_sibling
+  desc: Comment at same indent as element becomes sibling
+  # SPEC lines 465-477: Comment at same column as previous = sibling
+  udon: "|parent\n  |child\n  ; sibling comment\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd
+    - [Comment, " sibling comment"]
+    - ElementEnd
+
+- id: comment_inside_element
+  desc: Comment at greater indent is inside element
+  # SPEC lines 469-471: Comment further right is inside element
+  udon: "|parent\n  |child\n   ; inside child\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - [Comment, " inside child"]
+    - ElementEnd
+    - ElementEnd
+
+- id: comment_closes_elements
+  desc: Comment at column 0 closes nested elements
+  # SPEC lines 475-480: Column 0 comment causes ElementEnd events
+  udon: "|one\n  |two\n    |three\n; closes all\n"
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - [Comment, " closes all"]
+
+- id: comment_between_siblings
+  desc: Comment between sibling elements
+  udon: "|parent\n  |child1\n  ; between\n  |child2\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child1"]
+    - ElementEnd
+    - [Comment, " between"]
+    - ElementStart
+    - [Name, "child2"]
+    - ElementEnd
+    - ElementEnd
+
+# ===========================================================================
+# Edge Cases
+# ===========================================================================
+
+- id: semicolon_in_quoted_string
+  desc: Semicolon in quoted attribute value is literal
+  # Quoted strings handle their own escaping
+  udon: "|el :msg \"hello; world\"\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "msg"]
+    - [StringValue, "hello; world"]
+    - ElementEnd
+
+- id: multiple_brace_comments
+  desc: Multiple brace comments on same line
+  udon: "|p A ;{one} B ;{two} C\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "A "]
+    - [Comment, "one"]
+    - [Text, " B "]
+    - [Comment, "two"]
+    - [Text, " C"]
+    - ElementEnd
+
+- id: line_comment_after_brace_comment
+  desc: Line comment after brace comment on sameline
+  udon: "|p Text ;{inline} more ; line comment\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Text "]
+    - [Comment, "inline"]
+    - [Text, " more "]
+    - [Comment, " line comment"]
+    - ElementEnd

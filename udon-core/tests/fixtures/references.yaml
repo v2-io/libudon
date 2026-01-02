@@ -1,23 +1,76 @@
+# References and Mixins - FULL-SPEC.md lines 1412-1489
+#
+# Two reference forms per SPEC:
+#   @[id] - Insert entire element (structure + content) - lines 1473-1476
+#   :[id] - Merge attributes from element - lines 1479-1488
+#
+# NOTE: Block-level @[id] and attribute-position :[id] syntax may not be
+# fully implemented in the parser yet. These tests define expected behavior
+# per SPEC to drive implementation.
+
 ---
+# ID Reference: @[id] inserts the full element structure
+# SPEC lines 1473-1476:
+#   |page
+#     @[header]          ; Inserts the full |nav structure here
 - id: id_reference
-  desc: id reference
+  desc: "ID reference - insert element by id (SPEC lines 1473-1476)"
   udon: |-
     |page
       @[header]
-  events: []
+  events:
+    - ElementStart
+    - [Name, "page"]
+    # Per SPEC, @[header] should emit a Reference event with the id
+    # The runtime would resolve this to insert the referenced element
+    - [Reference, "header"]
+    - ElementEnd
+
+# Attribute Merge Reference: :[id] merges attributes
+# SPEC lines 1479-1488:
+#   |database :[base-db] :database myapp_prod :pool 20
+#   ; Equivalent to: |database :adapter postgres :host localhost :pool 5 ...
+# NOTE: The exact event structure for :[id] isn't specified in SPEC.
+# Using Reference event to represent the merge operation.
 - id: attribute_merge_reference
-  desc: attribute merge reference
-  udon: "|database :[base-db] :name mydb"
-  events: []
+  desc: "Attribute merge reference - :[id] merges attrs (SPEC lines 1479-1488)"
+  udon: "|database :[base-db] :name mydb\n"
+  events:
+    - ElementStart
+    - [Name, "database"]
+    # :[base-db] appears in attribute position - merges attrs from referenced element
+    - [Reference, "base-db"]
+    - [Attr, "name"]
+    - [BareValue, "mydb"]
+    - ElementEnd
+
+# Class as Mixin definition - SPEC lines 1418-1429
+# A class-only element (|.name) defines inheritable traits
 - id: class_as_mixin
-  desc: class as mixin
+  desc: "Class-only element defines mixin (SPEC lines 1418-1420)"
   udon: |-
     |.defaults
       :pool 5
-  events: []
+  events:
+    - ElementStart
+    - [Attr, "class"]
+    - [BareValue, "defaults"]
+    - [Attr, "pool"]
+    - [Integer, "5"]
+    - ElementEnd
+
+# Element using mixin - SPEC lines 1423-1427
+# Element with class inherits from class-only element
 - id: element_using_mixin
-  desc: element using mixin
+  desc: "Element with class uses mixin (SPEC lines 1423-1427)"
   udon: |-
     |database.defaults
       :name mydb
-  events: []
+  events:
+    - ElementStart
+    - [Name, "database"]
+    - [Attr, "class"]
+    - [BareValue, "defaults"]
+    - [Attr, "name"]
+    - [BareValue, "mydb"]
+    - ElementEnd

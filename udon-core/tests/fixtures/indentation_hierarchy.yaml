@@ -1,52 +1,136 @@
 ---
+# Indentation hierarchy tests based on FULL-SPEC.md lines 543-820
+# Core rule (line 553): "pop while new_column <= stack_top.base_column"
+# - Greater column = child (line 586)
+# - Same column = sibling (line 587)
+# - Lesser column = dedent (line 588)
+
 - id: greater_column_is_child
   desc: greater column is child
+  # SPEC line 586: "Greater column = child (push onto stack)"
   udon: |-
     |parent
       |child
-  events: []
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd
+    - ElementEnd
 - id: same_column_is_sibling
   desc: same column is sibling
+  # SPEC line 587: "Same column = sibling (pop current, push as child of parent)"
+  # SPEC lines 588-589: "Same column == sibling instead of child"
   udon: |-
     |parent
       |child
       |sibling
-  events: []
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd             # child closed: sibling at same column
+    - ElementStart
+    - [Name, "sibling"]
+    - ElementEnd             # sibling closed at EOF
+    - ElementEnd             # parent closed at EOF
 - id: same_column_is_sibling_not_child
   desc: same column is sibling not child
+  # Demonstrates: child closes when sibling appears, then inside is child of sibling
+  # SPEC line 553: "pop while new_column <= stack_top.base_column"
   udon: |-
     |parent
       |child
       |sibling
        |inside
-  events: []
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd             # child closed: sibling at same column (2 <= 2)
+    - ElementStart
+    - [Name, "sibling"]
+    - ElementStart
+    - [Name, "inside"]       # inside at column 3 > 2, child of sibling
+    - ElementEnd             # inside closed at EOF
+    - ElementEnd             # sibling closed at EOF
+    - ElementEnd             # parent closed at EOF
 - id: lesser_column_dedents
   desc: lesser column dedents
+  # SPEC line 588: "Lesser column = dedent (pop until column > top's base_column)"
+  # |d at column 0: 0 <= 4 (pop c), 0 <= 2 (pop b), 0 <= 0 (pop a), push d
   udon: |-
     |a
       |b
         |c
     |d
-  events: []
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementStart
+    - [Name, "c"]
+    - ElementEnd             # c closed: d at column 0 <= 4
+    - ElementEnd             # b closed: d at column 0 <= 2
+    - ElementEnd             # a closed: d at column 0 <= 0
+    - ElementStart
+    - [Name, "d"]
+    - ElementEnd             # d closed at EOF
 - id: partial_dedent
   desc: partial dedent
+  # |d at column 2: 2 <= 4 (pop c), 2 <= 2 (pop b as sibling), 2 > 0, push d as child of a
+  # SPEC line 553: "pop while new_column <= stack_top.base_column"
   udon: |-
     |a
       |b
         |c
       |d
-  events: []
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementStart
+    - [Name, "c"]
+    - ElementEnd             # c closed: d at column 2 <= 4
+    - ElementEnd             # b closed: d at column 2 <= 2 (sibling)
+    - ElementStart
+    - [Name, "d"]
+    - ElementEnd             # d closed at EOF
+    - ElementEnd             # a closed at EOF
 - id: closing_multiple_levels
   desc: closing multiple levels
+  # SPEC lines 775-786: prose at column 0 closes all nested elements
+  # "sibling prose" at column 0: 0 <= 6 (pop four), 0 <= 4 (pop three),
+  # 0 <= 2 (pop two), 0 <= 0 (pop one), then prose is at document level
   udon: |-
     |one
       |two
         |three
           |four
     sibling prose
-  events: []
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementStart
+    - [Name, "four"]
+    - ElementEnd             # four closed: prose at column 0 <= 6
+    - ElementEnd             # three closed: prose at column 0 <= 4
+    - ElementEnd             # two closed: prose at column 0 <= 2
+    - ElementEnd             # one closed: prose at column 0 <= 0
+    - [Text, "sibling prose"]
 - id: deep_nesting_then_full_close
   desc: deep nesting then full close
+  # Each element is 1 column deeper: a@0, b@1, c@2, d@3, e@4
+  # |f at column 0 closes all: 0 <= 4, 0 <= 3, 0 <= 2, 0 <= 1, 0 <= 0
   udon: |-
     |a
      |b
@@ -54,4 +138,22 @@
        |d
         |e
     |f
-  events: []
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementStart
+    - [Name, "c"]
+    - ElementStart
+    - [Name, "d"]
+    - ElementStart
+    - [Name, "e"]
+    - ElementEnd             # e closed: f at column 0 <= 4
+    - ElementEnd             # d closed: f at column 0 <= 3
+    - ElementEnd             # c closed: f at column 0 <= 2
+    - ElementEnd             # b closed: f at column 0 <= 1
+    - ElementEnd             # a closed: f at column 0 <= 0
+    - ElementStart
+    - [Name, "f"]
+    - ElementEnd             # f closed at EOF
