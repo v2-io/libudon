@@ -34,8 +34,9 @@
     - ElementEnd
 
 - id: unclosed_freeform_error
-  desc: Unclosed freeform produces error at EOF
+  desc: Unclosed freeform produces error at EOF (content preserved)
   udon: "```\nunclosed"
   events:
     - FreeformStart
+    - [Text, "unclosed"]
     - [Error, "UnclosedFreeform"]

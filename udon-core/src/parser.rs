@@ -173,7 +173,6 @@ pub enum ParseErrorCode {
     UnclosedStringValue,
     UnclosedArray,
     UnclosedFreeform,
-    UnclosedComment,
     UnclosedText,
     UnclosedInterpolation,
     NoTabs,
@@ -2400,20 +2399,12 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::Line => {
-                    match self.scan_to1(b'\n') {
-                        Some(b'\n') => {
+                    self.scan_to1(b'\n');
                     self.set_term(0);
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     state = State::LineStart;
                     continue;
-                        }
-                        None => {
-                            on_event(Event::Error { code: ParseErrorCode::UnclosedFreeform, span: self.span() });
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
-                    }
                 }
                 State::MaybeEnd1 => {
                     if self.eof() {
@@ -2926,23 +2917,10 @@ impl<'a> Parser<'a> {
         let start_span = self.span();
         on_event(Event::CommentStart { span: start_span.clone() });
                     self.mark();
-        loop {
-            match self.scan_to1(b'\n') {
-                Some(b'\n') => {
+                    self.scan_to1(b'\n');
                     self.set_term(0);
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::CommentEnd { span: self.span() });
-                    return;
-                }
-                None => {
-                    self.set_term(0);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::CommentEnd { span: self.span() });
-                    return;
-                }
-                _ => unreachable!("scan_to only returns target chars"),
-            }
-        }
+        on_event(Event::CommentEnd { span: self.span() });
     }
 
     /// Parse skip_brace_balanced

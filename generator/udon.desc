@@ -584,8 +584,7 @@
     |default                  | ->                               |>> :line
 
   |state[:line]
-    |c['\n']                  | TERM | Text(USE_MARK) | ->       |>> :line_start
-    |default                  | ->                               |>>
+    | ->['\n'] | TERM | Text(USE_MARK) | ->                      |>> :line_start
 
   ; Check for ``` sequence
   |state[:maybe_end1]
@@ -751,11 +750,7 @@
 
 ; Sameline comment - no continuation possible (content ends at newline/EOF)
 ; Called after `;` consumed in sameline context
-|function[line_comment_content:Comment]  | MARK
-  |state[:main]
-    |eof                      | TERM | Text(USE_MARK)            |return
-    |c['\n']                  | TERM | Text(USE_MARK)            |return
-    |default                  | ->                               |>>
+|function[line_comment_content:Comment]  | MARK | ->['\n'] | TERM | Text(USE_MARK)
 
 
 ; DRYed: skip_brace_balanced - void helper for {}-counting
