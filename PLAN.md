@@ -88,15 +88,34 @@ All core grammar features implemented:
 
 ## Fixture Status
 
-### Completed
+### CRITICAL WARNING
+
+**DO NOT fill fixture expectations by tracing parser output.**
+
+This anti-pattern has happened multiple times and cements bugs as expected behavior.
+Work will be reverted if fixtures are filled this way.
+
+**Correct workflow:**
+1. Read FULL-SPEC.md for the feature
+2. Write fixture expectations based on SPEC
+3. Run tests - they WILL fail
+4. Fix the PARSER to match SPEC
+5. Tests pass
+
+### Verified Against SPEC
 
 - [x] **value_types.yaml** (23 tests) - All value types per SPEC
-- [x] **embedded_elements.yaml** (20 tests) - Embedded `|{...}` elements
-- [x] **prose_dedentation.yaml** (13 tests) - Prose content and dedentation
-- [x] **inline_element_nesting.yaml** (11 tests) - Column-based inline nesting
-- [x] **inline_comments.yaml** (8 tests) - Line and brace comments
 
-### Remaining
+### Needs SPEC Audit
+
+These were filled by tracing parser output (WRONG). Need audit against FULL-SPEC.md:
+
+- [ ] **embedded_elements.yaml** (20 tests) - Audit against SPEC
+- [ ] **prose_dedentation.yaml** (13 tests) - Audit against SPEC
+- [ ] **inline_element_nesting.yaml** (11 tests) - Audit against SPEC
+- [ ] **inline_comments.yaml** (8 tests) - Audit against SPEC
+
+### Not Yet Filled
 
 | Fixture | Empty Tests | Priority |
 |---------|-------------|----------|
@@ -105,8 +124,6 @@ All core grammar features implemented:
 | indentation_edge_cases.yaml | 5 | Low |
 | literal_escape.yaml | 5 | Low |
 | references.yaml | 4 | Low |
-
-**Important:** Fill fixtures based on FULL-SPEC.md, NOT parser output.
 
 ## Known Parser Bugs
 

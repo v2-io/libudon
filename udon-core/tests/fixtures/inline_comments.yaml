@@ -66,6 +66,7 @@
 
 - id: inline_comment_in_text
   desc: inline comment in text
+  # Space after } is separator, not prose content
   udon: "|p ;{This is inline} text"
   events:
     - ElementStart

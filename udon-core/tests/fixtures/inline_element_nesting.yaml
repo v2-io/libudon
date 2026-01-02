@@ -54,7 +54,8 @@
 
 - id: sibling_after_inline_elements
   desc: sibling after inline elements
-  # |alpha at col 2 is child of |one (col 0), sibling to closed inline chain
+  # |alpha at col 2: pop three (2<=10), pop two (2<=5), push alpha as child of one
+  # Per SPEC 645-657: alpha is "sibling of |two -- child of |one"
   udon: |-
     |one |two |three
       |alpha
@@ -65,16 +66,17 @@
     - [Name, "two"]
     - ElementStart
     - [Name, "three"]
-    - ElementEnd
-    - ElementStart
+    - ElementEnd        # three closes
+    - ElementEnd        # two closes (BEFORE alpha opens)
+    - ElementStart      # alpha opens as child of one
     - [Name, "alpha"]
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
+    - ElementEnd        # alpha closes
+    - ElementEnd        # one closes
 
 - id: column_alignment_is_sibling
   desc: column alignment is sibling
-  # |alpha at col 5 aligns with |two, making it sibling after |three closes
+  # |alpha at col 5 (same as |two): pop three (5<=10), pop two (5<=5), push alpha
+  # Per SPEC 659-670: alpha is "sibling of |two, child of |one"
   udon: |-
     |one |two |three
          |alpha
@@ -85,16 +87,17 @@
     - [Name, "two"]
     - ElementStart
     - [Name, "three"]
-    - ElementEnd
-    - ElementStart
+    - ElementEnd        # three closes
+    - ElementEnd        # two closes (same column = sibling)
+    - ElementStart      # alpha opens as child of one
     - [Name, "alpha"]
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
+    - ElementEnd        # alpha closes
+    - ElementEnd        # one closes
 
 - id: child_of_inline_element_between_columns
   desc: child of inline element between columns
-  # |alpha at col 8 is between |two (5) and |three (10), child of |two
+  # |alpha at col 8: pop three (8<=10), 8>5 so stop, push alpha as child of two
+  # alpha is sibling of three, both children of two
   udon: |-
     |one |two |three
             |alpha
@@ -105,16 +108,17 @@
     - [Name, "two"]
     - ElementStart
     - [Name, "three"]
-    - ElementEnd
-    - ElementStart
+    - ElementEnd        # three closes
+    - ElementStart      # alpha opens as child of two (sibling of three)
     - [Name, "alpha"]
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
+    - ElementEnd        # alpha closes
+    - ElementEnd        # two closes
+    - ElementEnd        # one closes
 
 - id: child_of_inline_at_same_column_as_next
   desc: child of inline at same column as next
-  # |alpha at col 10 aligns with |three, becomes sibling after |three closes
+  # |alpha at col 10 (same as |three): pop three (10<=10), 10>5 so stop
+  # alpha is sibling of three, both children of two
   udon: |-
     |one |two |three
               |alpha
@@ -125,16 +129,18 @@
     - [Name, "two"]
     - ElementStart
     - [Name, "three"]
-    - ElementEnd
-    - ElementStart
+    - ElementEnd        # three closes (same column = sibling)
+    - ElementStart      # alpha opens as sibling of three
     - [Name, "alpha"]
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
+    - ElementEnd        # alpha closes
+    - ElementEnd        # two closes
+    - ElementEnd        # one closes
 
 - id: multi_line_progression
   desc: multi line progression
-  # |alpha and |beta are successive siblings of |two after |three closes
+  # Per SPEC 711-717: alpha is "child of |two", beta is "sibling of |two (child of |one)"
+  # alpha at col 7: pop three, push alpha as child of two
+  # beta at col 5: pop alpha, pop two, push beta as child of one
   udon: |-
     |one |two |three
            |alpha
@@ -146,19 +152,21 @@
     - [Name, "two"]
     - ElementStart
     - [Name, "three"]
-    - ElementEnd
-    - ElementStart
+    - ElementEnd        # three closes
+    - ElementStart      # alpha opens (child of two)
     - [Name, "alpha"]
-    - ElementEnd
-    - ElementStart
+    - ElementEnd        # alpha closes
+    - ElementEnd        # two closes (BEFORE beta opens)
+    - ElementStart      # beta opens (child of one, sibling of two)
     - [Name, "beta"]
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
+    - ElementEnd        # beta closes
+    - ElementEnd        # one closes
 
 - id: stack_state_after_dedent
   desc: stack state after dedent
-  # |alpha at col 2 is child of |one; |beta at col 5 is child of |alpha
+  # Per SPEC 719-737 "The Critical Insight":
+  # alpha at col 2: pop three, pop two, push alpha as child of one
+  # beta at col 5: 5 > 2, so beta is child of alpha (not related to two at all)
   udon: |-
     |one |two |three
       |alpha
@@ -170,19 +178,21 @@
     - [Name, "two"]
     - ElementStart
     - [Name, "three"]
-    - ElementEnd
-    - ElementStart
+    - ElementEnd        # three closes
+    - ElementEnd        # two closes (BEFORE alpha opens)
+    - ElementStart      # alpha opens (child of one)
     - [Name, "alpha"]
-    - ElementStart
+    - ElementStart      # beta opens (child of alpha)
     - [Name, "beta"]
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
+    - ElementEnd        # beta closes
+    - ElementEnd        # alpha closes
+    - ElementEnd        # one closes
 
 - id: many_inline_elements
   desc: many inline elements
-  # Tests deep inline nesting with children at various column positions
+  # Per SPEC 743-768: child-of-c at col 9, child-of-a at col 3
+  # child-of-c: pop g,f,e,d (all <= 9), push as child of c
+  # child-of-a: pop child-of-c,c,b (all <= 3), push as child of a
   udon: |-
     |a |b |c |d |e |f |g
              |child-of-c
@@ -202,19 +212,19 @@
     - [Name, "f"]
     - ElementStart
     - [Name, "g"]
-    - ElementEnd
-    - ElementStart
+    - ElementEnd        # g closes
+    - ElementEnd        # f closes
+    - ElementEnd        # e closes
+    - ElementEnd        # d closes (col 9, same as child-of-c)
+    - ElementStart      # child-of-c opens (child of c)
     - [Name, "child-of-c"]
-    - ElementEnd
-    - ElementStart
+    - ElementEnd        # child-of-c closes
+    - ElementEnd        # c closes
+    - ElementEnd        # b closes (col 3, same as child-of-a)
+    - ElementStart      # child-of-a opens (child of a)
     - [Name, "child-of-a"]
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
-    - ElementEnd
+    - ElementEnd        # child-of-a closes
+    - ElementEnd        # a closes
 
 - id: inline_with_text_content
   desc: inline with text content

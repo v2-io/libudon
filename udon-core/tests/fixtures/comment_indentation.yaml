@@ -43,31 +43,52 @@
     - [Name, "sibling"]
     - ElementEnd
 
-# NOTE: Inline brace comments ;{...} have parsing issues - see PLAN.md
-# Current parser doesn't properly close on }
+# Per SPEC 491-498: inline comments are emitted as events
 - id: inline_comment_stripped_from_output
   desc: Inline brace comment in text
   udon: "|p This is text ;{TODO} and more."
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "This is text "]
+    - [Comment, "TODO"]
+    - [Text, " and more."]
+    - ElementEnd
 
 - id: inline_comment_at_end_of_line
   desc: Inline brace comment at end of line
   udon: "|p Some text ;{comment at end}"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Some text "]
+    - [Comment, "comment at end"]
+    - ElementEnd
 
+# Per EBNF 205: braces inside comment body are balanced, ;{ is literal
 - id: nested_inline_comment
-  desc: Nested inline brace comments
-  udon: "|p Text ;{outer ;{inner} outer} more."
-  events: []
+  desc: Nested braces in inline comment (not nested comment)
+  udon: "|p Text ;{outer {inner} outer} more."
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Text "]
+    - [Comment, "outer {inner} outer"]
+    - [Text, " more."]
+    - ElementEnd
 
-# NOTE: Escape prefix currently doesn't prevent comment interpretation
-# within prose - only at line start. See PLAN.md for bug tracking.
+# Per SPEC 502-508: '; at line start outputs literal semicolon
 - id: escaped_semicolon_at_line_start
   desc: Escaped semicolon at line start
   udon: "'; This starts with semicolon"
-  events: []
+  events:
+    - [Text, "; This starts with semicolon"]
 
 - id: escaped_semicolon_in_element
   desc: Escaped semicolon in element prose
   udon: "|p\n  '; literal semicolon\n"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "; literal semicolon"]
+    - ElementEnd

@@ -179,15 +179,34 @@ edge case" becomes enshrined as part of the grammar.
 
 Better to pause and ask than to guess wrong.
 
+### CRITICAL: Fixtures Must Match SPEC, Not Parser Output
+
+**DO NOT fill fixture expectations by tracing parser output and copying it.**
+
+This is an anti-pattern that cements bugs as expected behavior. It has happened
+multiple times and results in work being reverted. The correct workflow:
+
+1. Read FULL-SPEC.md for the feature being tested
+2. Write fixture expectations based on what the SPEC says should happen
+3. Run tests - they WILL fail if parser doesn't match spec
+4. Fix the PARSER to match the spec
+5. Tests pass because parser now conforms to spec
+
+**WRONG:** "Parser outputs X, so fixture expects X" (cements bugs)
+**RIGHT:** "Spec says X, fixture expects X, fix parser until it outputs X"
+
+If you're uncertain what the spec requires, ASK JOSEPH. Do not guess.
+Do not "just see what the parser does." The spec is ground truth.
+
 ### Workflow for Implementing Features
 
 1. Find fixtures with empty events - these need implementation
-2. Read the relevant SPEC sections - understand intended behavior
-3. Edit `generator/*.desc` - implement the grammar
-4. Regenerate with tracing - `./regenerate-parser --trace`
-5. Test manually - see what events are produced
-6. Fill in fixture events - when behavior matches spec
-7. Run tests - `cargo test`
+2. **Read FULL-SPEC.md** - understand what SHOULD happen per spec
+3. **Write fixture expectations** - based on spec, not parser output
+4. Run tests - expect failures
+5. Edit `generator/*.desc` - fix the grammar to match spec
+6. Regenerate with tracing - `./regenerate-parser --trace`
+7. Iterate until tests pass - parser now conforms to spec
 
 ### Running Tests
 

@@ -81,17 +81,16 @@
     - [Comment, " just a comment"]
     - ElementEnd
 
-# NOTE: Block attributes currently don't parse inline comments
-# (the semicolon is included in the value). This may be a bug.
-# Spec shows: "|element :attr value  ; Inline comment after content"
+# Per SPEC 280-291: Block attr values terminate at ` ;` (space+semicolon)
 - id: comment_on_attr_line
-  desc: Comment on indented attribute line (current behavior)
+  desc: Comment on indented attribute line
   udon: "|el\n  :attr val ; comment\n"
   events:
     - ElementStart
     - [Name, "el"]
     - [Attr, "attr"]
-    - [BareValue, "val ; comment"]
+    - [BareValue, "val"]
+    - [Comment, " comment"]
     - ElementEnd
 
 # Edge cases
