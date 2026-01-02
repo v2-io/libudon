@@ -46,6 +46,13 @@ The tree builder (when implemented) will be just another event consumer.
 - [x] Directives (`!if`, `!elif`, `!else`, `!for`, `!let`, `!include`, `!unless`)
 - [x] Raw blocks (`!:lang:`) and inline raw (`!{:lang:content}`)
 - [x] Interpolation (`!{{expr}}`, `!{{expr | filter}}`)
+- [x] Inline element nesting (proper sibling detection on sameline)
+- [x] Freeform blocks (```) inside elements
+- [x] Prose content_base tracking:
+  - First prose line establishes content_base
+  - Extra spaces beyond content_base preserved in output
+  - Warning event on inconsistent (decreased) indentation
+  - content_base updated on inconsistent indent
 
 ### What Needs Work
 
@@ -102,28 +109,29 @@ Work will be reverted if fixtures are filled this way.
 4. Fix the PARSER to match SPEC
 5. Tests pass
 
-### Verified Against SPEC
-
+### Audited Against SPEC
 - [x] **value_types.yaml** (23 tests) - All value types per SPEC
+- [x] **prose_dedentation.yaml** (13 tests) - Audited, comments fixed
+- [x] **literal_escape.yaml** (5 tests) - Filled per SPEC 104-130, ALL PASS
+- [x] **indentation_hierarchy.yaml** (7 tests) - Filled per SPEC 543-820, ALL PASS
+- [x] **inline_comments.yaml** (8 tests) - Audited, 1 bug exposed (space after comment)
+- [x] **comments.yaml** (30+ tests) - Comprehensive audit, 6 bugs exposed
+- [x] **references.yaml** (4 tests) - Filled, exposes missing grammar
 
 ### Needs SPEC Audit
 
 These were filled by tracing parser output (WRONG). Need audit against FULL-SPEC.md:
 
 - [ ] **embedded_elements.yaml** (20 tests) - Audit against SPEC
-- [ ] **prose_dedentation.yaml** (13 tests) - Audit against SPEC
 - [ ] **inline_element_nesting.yaml** (11 tests) - Audit against SPEC
-- [ ] **inline_comments.yaml** (8 tests) - Audit against SPEC
 
 ### Not Yet Filled
 
 | Fixture | Empty Tests | Priority |
 |---------|-------------|----------|
-| indentation_hierarchy.yaml | 7 | Medium |
-| comment_indentation.yaml | 5 | Low |
 | indentation_edge_cases.yaml | 5 | Low |
-| literal_escape.yaml | 5 | Low |
-| references.yaml | 4 | Low |
+| comments_and_text.yaml | 2 | Low |
+| arrays.yaml | 1 | Low |
 
 ## Known Parser Bugs
 
@@ -141,6 +149,22 @@ Discovered while filling fixtures - need grammar fixes:
    - Not a bug per se, but could be optimized away
 
 4. **SPEC Update:** Removed `~` as Nil synonym (only `null`/`nil` now)
+
+5. **Block prose semicolons should be LITERAL** (SPEC line 408)
+   - Parser treats `;` in block prose as comment
+   - Should be literal text per SPEC
+
+6. **Comment continuation not implemented** (SPEC lines 419-428)
+   - Indented lines after `;` comment should merge into comment
+   - Parser treats them as separate Text events
+
+7. **Space after inline comment stripped** (SPEC line 495)
+   - `;{comment} text` should preserve space before "text"
+   - Parser strips it
+
+8. **Block-level references not implemented** (SPEC 1473-1488)
+   - `@[id]` at block level for element insertion
+   - `:[id]` in attribute position for merge
 
 ## Grammar DRY Refactoring
 
