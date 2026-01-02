@@ -19,6 +19,8 @@ serde_yaml = { workspace = true }
 rand = { workspace = true }
 proptest = "1.4"
 lexical-core = { version = "1.0", features = ["parse-integers", "radix"] }
+pulldown-cmark = { workspace = true }
+quick-xml = { workspace = true }
 
 [features]
 default = ["std"]
@@ -26,4 +28,8 @@ std = []
 
 [[bench]]
 name = "parse"
+harness = false
+
+[[bench]]
+name = "compare"
 harness = false
