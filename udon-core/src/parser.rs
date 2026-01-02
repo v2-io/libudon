@@ -170,7 +170,6 @@ pub enum ParseErrorCode {
     UnexpectedEof,
     UnexpectedChar,
     Unclosed,
-    UnclosedReference,
     UnclosedStringValue,
     UnclosedArray,
     UnclosedFreeform,
@@ -1962,19 +1961,18 @@ impl<'a> Parser<'a> {
         self.mark();
                     self.mark();
         loop {
-            match self.scan_to1(b']') {
-                Some(b']') => {
+            if self.eof() {
+                on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
+                return;
+            }
+            match self.peek() {
+                _ => {
+                    self.scan_to1(b']');
                     self.set_term(0);
                     self.advance();
                     on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
-                None => {
-                    on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedReference, span: self.span() });
-                    return;
-                }
-                _ => unreachable!("scan_to only returns target chars"),
             }
         }
     }
@@ -1987,19 +1985,18 @@ impl<'a> Parser<'a> {
         self.mark();
                     self.mark();
         loop {
-            match self.scan_to1(b']') {
-                Some(b']') => {
+            if self.eof() {
+                on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
+                return;
+            }
+            match self.peek() {
+                _ => {
+                    self.scan_to1(b']');
                     self.set_term(0);
                     self.advance();
                     on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
-                None => {
-                    on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
-                    on_event(Event::Error { code: ParseErrorCode::UnclosedReference, span: self.span() });
-                    return;
-                }
-                _ => unreachable!("scan_to only returns target chars"),
             }
         }
     }

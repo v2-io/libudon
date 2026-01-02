@@ -346,6 +346,7 @@
 
 ; DRYed: skip_single_quoted - void helper for '-quoted content with escapes
 ; Stops AT closing ' (doesn't consume). Caller does TERM | -> to consume.
+; NOTE: Can't use ->[<SQ>] because we need to handle \' escapes
 |function[skip_single_quoted]
   |state[:main]
     |c[<SQ>]                  |                                  |return  ; don't consume
@@ -446,16 +447,14 @@
 ; Called after @[ consumed
 |function[block_reference:Reference]  | MARK
   |state[:main]
-    |c[']']                   | TERM | ->                        |return
-    |default                  | ->                               |>>
+    | ->[']'] | TERM | ->                                        |return
 
 
 ; Attribute merge reference: :[id] merges attributes
 ; Called after :[ consumed
 |function[attr_reference:Reference]  | MARK
   |state[:main]
-    |c[']']                   | TERM | ->                        |return
-    |default                  | ->                               |>>
+    | ->[']'] | TERM | ->                                        |return
 
 
 ; ============================================================================
