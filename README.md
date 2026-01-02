@@ -33,24 +33,25 @@ UDON (Universal Document & Object Notation) is a unified notation for documents,
 
 Benchmarked on Apple Silicon (M-series):
 
-| Benchmark | Throughput |
-|-----------|------------|
-| Comments | **1.07 GiB/s** |
-| Minimal file | **847 MiB/s** |
-| Comprehensive (15KB) | **820 MiB/s** |
-| Text content | **779 MiB/s** |
-| Dynamic content | **672 MiB/s** |
-| Nested elements | **511 MiB/s** |
+| Benchmark | Time | Throughput |
+|-----------|------|------------|
+| Comprehensive (15KB) | 10.5 µs | **1.35 GiB/s** |
+| Comments | 47 ns | **726 MiB/s** |
+| Minimal file | 74 ns | **696 MiB/s** |
+| Text content | 58 ns | **672 MiB/s** |
+| Dynamic content | 86 ns | **455 MiB/s** |
+| Nested elements | 185 ns | **336 MiB/s** |
+| Empty (overhead) | 1.9 ns | — |
 
-#### Comparison with Previous Parser
+#### Comparison with Previous Parser (main branch)
 
-| Benchmark | Old (streaming) | New (descent) | Speedup |
-|-----------|-----------------|---------------|---------|
-| comprehensive.udon | 496 MiB/s | **820 MiB/s** | **1.65x** |
-| minimal.udon | 472 MiB/s | **847 MiB/s** | **1.79x** |
-| comments_only | 278 MiB/s | **1,070 MiB/s** | **3.85x** |
-| text_only | 317 MiB/s | **779 MiB/s** | **2.46x** |
-| empty (overhead) | 82 ns | **1.3 ns** | **63x less** |
+| Benchmark | Old (main) | New (phase-3) | Speedup |
+|-----------|------------|---------------|---------|
+| comprehensive.udon | 28 µs (516 MiB/s) | 10.5 µs (1.35 GiB/s) | **2.7x** |
+| minimal.udon | 106 ns (486 MiB/s) | 74 ns (696 MiB/s) | **1.4x** |
+| comments_only | 123 ns (278 MiB/s) | 47 ns (726 MiB/s) | **2.6x** |
+| text_only | 122 ns (318 MiB/s) | 58 ns (672 MiB/s) | **2.1x** |
+| empty (overhead) | 80 ns | 1.9 ns | **42x** |
 
 ## Structure
 
