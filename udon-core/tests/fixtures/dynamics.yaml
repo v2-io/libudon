@@ -500,6 +500,29 @@
     - [Interpolation, "unclosed"]
     - [Error, "UnclosedInterpolation"]
     - ElementEnd
+# Single } should error - interpolation requires }}
+- id: interpolation_single_brace_error
+  desc: interpolation with single closing brace should error
+  udon: '|p asdf !{{"not properly closed"}abcd'
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "asdf "]
+    - [Interpolation, '"not properly closed"']
+    - [Error, "UnclosedInterpolation"]
+    - [Text, "abcd"]
+    - ElementEnd
+# Proper }} should work
+- id: interpolation_double_brace_ok
+  desc: interpolation with double closing brace works
+  udon: '|p asdf !{{"this one is properly closed"}}abcd'
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "asdf "]
+    - [Interpolation, '"this one is properly closed"']
+    - [Text, "abcd"]
+    - ElementEnd
 # Empty interpolation is valid per FULL-SPEC.md line 890-891
 - id: empty_interpolation
   desc: empty interpolation

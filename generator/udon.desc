@@ -66,7 +66,7 @@
   |state[:line]
     |c['\n']                  | ->                               |>>
     |c[' ']                   | col = /count_indent              |>> :dispatch
-    |c['\t']                  | /error(no_tabs) | ->['\n']       |>> :line
+    |c['\t']                  | /error(NoTabs) | ->['\n']       |>> :line
     |default                  | col = COL - 1                    |>> :dispatch  ; use actual column
 
   |state[:dispatch]
@@ -251,7 +251,7 @@
   |state[:children]
     |c['\n']                  | ->                               |>>
     |c[' ']                   | -> | col = 1                     |>> :children_ws
-    |c['\t']                  | /error(no_tabs) | ->['\n']       |>>
+    |c['\t']                  | /error(NoTabs) | ->['\n']       |>>
     |default                  | col = COL - 1                    |>> :check_child
 
   ; Count spaces, but stop at content_base if set (to preserve extra for prose)
@@ -886,7 +886,7 @@
   |state[:children]
     |c['\n']                  | ->                               |>>
     |c[' ']                   | col = /count_indent              |>> :check_child
-    |c['\t']                  | /error(no_tabs) | ->['\n']       |>>
+    |c['\t']                  | /error(NoTabs) | ->['\n']       |>>
     |default                  | col = COL - 1                    |>> :check_child
 
   |state[:check_child]
@@ -917,11 +917,7 @@
 
 
 ; Directive arguments - capture until newline or EOF
-|function[directive_args:Text]
-  |state[:main]
-    |eof                      | TERM                             |return
-    |c['\n']                  | TERM                             |return
-    |default                  | ->                               |>>
+|function[directive_args:Text]  | ->['\n'] | TERM
 
 
 ; Inline dynamics - dispatch based on first char after {
@@ -933,11 +929,16 @@
     |default                  | /sameline_dir_body                 |return  ; !{name args}
 
 
-; Interpolation !{{expr}} - double-brace
+; Interpolation !{{expr}} - double-brace, must close with }}
 |function[interpolation:Interpolation]  | MARK
   |state[:main]
-    |c['}']                  | TERM | -> | ->                   |return  ; consume }}
-    |default                  | ->                               |>>
+    |eof                      | TERM | Interpolation(USE_MARK) | /error(UnclosedInterpolation)   |return
+    |c['}']                   | TERM | ->                              |>> :closing
+    |default                  | ->                                     |>>
+
+  |state[:closing]
+    |c['}']                   | ->                                     |return  ; found }}
+    |default                  | Interpolation(USE_MARK) | /error(UnclosedInterpolation) |return  ; only single }
 
 
 ; Inline raw !{:kind: content}

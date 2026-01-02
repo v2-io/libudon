@@ -3574,21 +3574,9 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-        loop {
-            match self.scan_to1(b'\n') {
-                Some(b'\n') => {
+                    self.scan_to1(b'\n');
                     self.set_term(0);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    return;
-                }
-                None => {
-                    self.set_term(0);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    return;
-                }
-                _ => unreachable!("scan_to only returns target chars"),
-            }
-        }
+        on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
     }
 
     /// Parse sameline_directive
@@ -3626,21 +3614,48 @@ impl<'a> Parser<'a> {
     {
         self.mark();
                     self.mark();
+        #[derive(Clone, Copy)]
+        enum State { Main, Closing,  }
+        let mut state = State::Main;
         loop {
-            match self.scan_to1(b'}') {
-                Some(b'}') => {
+            match state {
+                State::Main => {
+                    match self.scan_to1(b'}') {
+                        Some(b'}') => {
                     self.set_term(0);
                     self.advance();
-                    self.advance();
-                    on_event(Event::Interpolation { content: self.term(), span: self.span_from_mark() });
-                    return;
-                }
-                None => {
+                    state = State::Closing;
+                    continue;
+                        }
+                        None => {
+                    self.set_term(0);
                     on_event(Event::Interpolation { content: self.term(), span: self.span_from_mark() });
                     on_event(Event::Error { code: ParseErrorCode::UnclosedInterpolation, span: self.span() });
                     return;
+                    return;
+                        }
+                        _ => unreachable!("scan_to only returns target chars"),
+                    }
                 }
-                _ => unreachable!("scan_to only returns target chars"),
+                State::Closing => {
+                    if self.eof() {
+                        on_event(Event::Interpolation { content: self.term(), span: self.span_from_mark() });
+                        on_event(Event::Error { code: ParseErrorCode::UnclosedInterpolation, span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'}') => {
+                    self.advance();
+                    on_event(Event::Interpolation { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    on_event(Event::Interpolation { content: self.term(), span: self.span_from_mark() });
+                    on_event(Event::Error { code: ParseErrorCode::UnclosedInterpolation, span: self.span() });
+                    return;
+                        }
+                    }
+                }
             }
         }
     }
