@@ -521,7 +521,7 @@
 
 ; text_backticks - text that starts with `` (for non-freeform case)
 ; Manual emit control, no :Text auto-emit
-; Per SPEC 408: In block prose (parent_col >= 0), semicolons are LITERAL
+; Semicolons in prose are LITERAL - only `;{...}` triggers inline comment
 |function[text_backticks]  :line_col :parent_col
   |state[:entry]
     | MARK | PREPEND('`') | PREPEND('`')                         |>> :main
@@ -539,14 +539,11 @@
     |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded |>> :after_inline
     |default                  |                                  |>> :main
 
-  ; Per SPEC 408: `;` in block prose (inside element) is LITERAL
+  ; Semicolons in prose are LITERAL - only `;{...}` triggers inline comment
   |state[:check_semi]
     |eof                      | TERM | Text(USE_MARK)            |return  ; include ; in text
     |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment |>> :after_inline
-    ; If inside element (parent_col >= 0), semicolon is literal
-    |if[:parent_col >= 0]                                        |>> :main
-    ; At document root, semicolon starts line comment
-    |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
+    |default                  |                                  |>> :main  ; semicolon is literal
 
   |state[:check_bang]
     |eof                      | TERM | Text(USE_MARK)            |return  ; include ! in text
@@ -605,8 +602,8 @@
 ; text - block-level prose content (manual emit control, no :Text auto-emit)
 ; Same pattern as sameline_text: advance past special chars, check what follows.
 ; :prepend = <> (none), '|' (pipe prefix), '`' (backtick prefix)
-; Per SPEC 408: In block prose (parent_col >= 0), semicolons are LITERAL (not comments)
-; At document root (parent_col < 0), semicolons start line comments
+; Semicolons in prose are LITERAL - only `;{...}` triggers inline comment
+; (`;` at line start is handled by document/element children loop, not here)
 |function[text]  :line_col :parent_col :prepend
   |state[:entry]
     | MARK | PREPEND(:prepend)                                   |>> :main
@@ -624,15 +621,11 @@
     |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded |>> :after_inline
     |default                  |                                  |>> :main
 
-  ; Per SPEC 408: `;` in block prose (inside element) is LITERAL, not comment
-  ; At document root, `;` starts a line comment
+  ; Semicolons in prose are LITERAL - only `;{...}` triggers inline comment
   |state[:check_semi]
     |eof                      | TERM | Text(USE_MARK)            |return  ; include ; in text
     |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment |>> :after_inline
-    ; If inside element (parent_col >= 0), semicolon is literal
-    |if[:parent_col >= 0]                                        |>> :main
-    ; At document root, semicolon starts line comment
-    |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
+    |default                  |                                  |>> :main  ; semicolon is literal
 
   |state[:check_bang]
     |eof                      | TERM | Text(USE_MARK)            |return  ; include ! in text
@@ -703,35 +696,54 @@
 
 ; Block-level line comment - can have continuation (SPEC 419-428)
 ; Called after `;` consumed at block level
-|function[line_comment:Comment]  | comment_col = COL - 1
+; Uses content_base like prose: first continuation line sets the base column,
+; subsequent lines are normalized relative to that base.
+|function[line_comment:Comment]  | comment_col = COL - 1 | content_base = -1
   |state[:check]
     |c['{']                   | -> | /comment_text_braced        |return
     |default                  | MARK                             |>> :first_line
 
-  ; First line of comment content
+  ; First line of comment content (the part after `;`)
   |state[:first_line]
     |eof                      | TERM | Text(USE_MARK)            |return
     |c['\n']                  | TERM | Text(USE_MARK) | ->       |>> :children
     |default                  | ->                               |>>
 
-  ; Children loop - same pattern as Element, checks for continuation lines
+  ; Children loop - check for continuation lines
   ; Per SPEC 419-428: more-indented lines without prefix are continuation
-  ; MARK at line start to capture indentation in continuation content
   |state[:children]
     |eof                      |                                  |return
     |c['\n']                  | ->                               |>>  ; blank line
-    |c[' ']                   | MARK | -> | col = 1              |>> :children_ws
+    |c[' ']                   | -> | col = 1                     |>> :children_ws
     |c['\t']                  |                                  |return  ; tab = end
     |default                  |                                  |return  ; non-indented = end
 
+  ; Count spaces, but stop at content_base if set (like prose does)
   |state[:children_ws]
+    ; If content_base is set and we've reached it, stop counting here
+    |if[content_base >= 0 && col >= content_base]               |>> :at_content_base
     |c[' ']                   | -> | col += 1                    |>>
-    |default                  |                                  |>> :check_col
+    |default                  |                                  |>> :check_continuation
 
-  |state[:check_col]
-    |if[col <= comment_col]                                      |return  ; dedent (MARK unused)
-    |c['|:!;']                |                                  |return  ; prefix (MARK unused)
-    |default                  |                                  |>> :cont_line  ; MARK already set
+  ; Finished counting (hit non-space) - check if valid continuation
+  |state[:check_continuation]
+    |if[col <= comment_col]                                      |return  ; dedent or same col
+    |c['|:!;']                |                                  |return  ; prefix ends comment
+    ; col > comment_col: this is a continuation line
+    ; If content_base not set, first continuation sets it
+    |if[content_base < 0]     | content_base = col | MARK        |>> :cont_line
+    ; col < content_base: inconsistent indent, warn and reset
+    |default                  | Warning(Inconsistent indentation) | content_base = col | MARK |>> :cont_line
+
+  ; Reached content_base while counting - MARK here, extra spaces are content
+  |state[:at_content_base]
+    |c['|:!;']                |                                  |return  ; prefix ends comment
+    |default                  | MARK                             |>> :cont_content
+
+  ; Consume extra spaces (beyond content_base) as content
+  |state[:cont_content]
+    |c[' ']                   | ->                               |>>
+    |default                  |                                  |>> :cont_line
 
   |state[:cont_line]
     |eof                      | TERM | Text(USE_MARK)            |return

@@ -85,15 +85,13 @@
   events:
     - [Text, "Hello world"]
 
-- id: text_with_inline_comment
-  desc: Text at document root followed by line comment
-  # SPEC line 407: At document root, `;` starts line comment
-  udon: "Some text ; with comment\n"
+- id: text_with_semicolon_literal
+  desc: Prose text with semicolon is literal (not comment)
+  # `;` mid-line in prose is LITERAL - only `;` at line start or in sameline context triggers comment
+  # `;{...}` inline form works anywhere for comments within prose
+  udon: "Some text ; not a comment\n"
   events:
-    - [Text, "Some text "]
-    - CommentStart
-    - [Text, " with comment"]
-    - CommentEnd
+    - [Text, "Some text ; not a comment"]
 
 - id: mixed_content
   desc: Comments and text interspersed at document root
@@ -389,34 +387,69 @@
   desc: Line comment with indented continuation
   # SPEC lines 419-428: More-indented lines after comment are comment content
   # With BRACKET model: each line is a separate Text event inside CommentStart/End
+  # First continuation line sets content_base; lines at content_base have no indent
   udon: "; This is a comment\n  this is still part of the comment\n"
   events:
     - CommentStart
     - [Text, " This is a comment"]
-    - [Text, "  this is still part of the comment"]
+    - [Text, "this is still part of the comment"]
     - CommentEnd
 
 - id: comment_continuation_multiple_lines
   desc: Line comment with multiple continuation lines
   # SPEC lines 419-428: Continuation until dedent
+  # All continuations at content_base (col 2), so no indent in output
   udon: "; Main comment\n  continuation 1\n  continuation 2\n"
   events:
     - CommentStart
     - [Text, " Main comment"]
-    - [Text, "  continuation 1"]
-    - [Text, "  continuation 2"]
+    - [Text, "continuation 1"]
+    - [Text, "continuation 2"]
     - CommentEnd
 
 - id: comment_continuation_ends_at_dedent
   desc: Comment continuation ends when dedent occurs
   # SPEC lines 419-428: Comment content until dedent
+  # Continuation at content_base, so no indent in output
   udon: "; Comment\n  continued\nNot comment\n"
   events:
     - CommentStart
     - [Text, " Comment"]
-    - [Text, "  continued"]
+    - [Text, "continued"]
     - CommentEnd
     - [Text, "Not comment"]
+
+- id: comment_continuation_extra_indent
+  desc: Comment continuation preserves extra indent beyond content_base
+  # First continuation (col 2) sets content_base=2
+  # Second continuation (col 4) has 2 extra spaces of indent
+  # Third continuation (col 6) has 4 extra spaces of indent
+  # Fourth continuation (col 2) back at content_base
+  udon: "; line one\n  line two\n    line three\n      line four\n  line five\n"
+  events:
+    - CommentStart
+    - [Text, " line one"]
+    - [Text, "line two"]
+    - [Text, "  line three"]
+    - [Text, "    line four"]
+    - [Text, "line five"]
+    - CommentEnd
+
+- id: comment_continuation_inconsistent_indent
+  desc: Comment continuation with inconsistent (decreased) indent warns
+  # Like prose, inconsistent indent triggers warning and resets content_base
+  # First cont (col 4) sets content_base=4
+  # Second cont (col 2) < content_base, triggers warning, resets to 2
+  # Third cont (col 2) at new content_base, no warning
+  udon: "; comment\n    first cont\n  less indent\n  at new base\n"
+  events:
+    - CommentStart
+    - [Text, " comment"]
+    - [Text, "first cont"]
+    - [Warning, "Inconsistent indentation"]
+    - [Text, "less indent"]
+    - [Text, "at new base"]
+    - CommentEnd
 
 # ===========================================================================
 # Comments Affecting Hierarchy (Indent/Dedent)

@@ -14,6 +14,9 @@ pub struct TestCase {
     pub desc: String,
     pub udon: String,
     pub events: Vec<ExpectedEvent>,
+    /// If true, skip element-wrapping mutations (test requires document root semantics)
+    #[serde(default)]
+    pub root_only: bool,
 }
 
 /// Expected event - either a bare name or [name, content]

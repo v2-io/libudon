@@ -38,14 +38,12 @@
   events:
     - [Text, "Hello world"]
 
-- id: text_with_comment
-  desc: Text followed by inline comment (space+semicolon)
-  udon: "Some text ; with comment\n"
+- id: text_with_semicolon
+  desc: Prose text with semicolon is literal (not comment)
+  # `;` mid-line in prose is LITERAL - only `;` at line start or in sameline context triggers comment
+  udon: "Some text ; not a comment\n"
   events:
-    - [Text, "Some text "]
-    - CommentStart
-    - [Text, " with comment"]
-    - CommentEnd
+    - [Text, "Some text ; not a comment"]
 
 - id: blank_lines
   desc: Blank lines produce no events

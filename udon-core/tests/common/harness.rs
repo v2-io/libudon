@@ -157,30 +157,45 @@ pub fn run_with_variations(case: &TestCase, gen: &mut Gen) -> TestResult {
 
     let mut input = Vec::new();
 
-    // 40% chance: add UDON above
-    if gen.chance(0.4) {
-        input.extend(gen.udon_fragment(0));
-    }
-
-    // Determine indent level (geometric, α=0.9)
-    let indent_level = gen.indent_level();
-    let indent: Vec<u8> = vec![b' '; indent_level];
-
-    // Add canonical test with indent and possible blank lines
-    for line in case.udon.as_bytes().split(|&b| b == b'\n') {
-        // Maybe inject blank line before
-        input.extend(gen.blank_lines());
-
-        if !line.is_empty() {
-            input.extend(&indent);
-            input.extend(line);
+    // For root_only tests, skip element-wrapping mutations but allow blank lines
+    // These tests require document root semantics (e.g., `; ` as line comment)
+    if case.root_only {
+        // Add canonical test with possible blank lines (no indent, no wrapping elements)
+        for line in case.udon.as_bytes().split(|&b| b == b'\n') {
+            input.extend(gen.blank_lines());
+            if !line.is_empty() {
+                input.extend(line);
+            }
+            input.push(b'\n');
         }
-        input.push(b'\n');
-    }
+    } else {
+        // Normal variation: add context elements and indent
 
-    // 40% chance: add UDON below
-    if gen.chance(0.4) {
-        input.extend(gen.udon_fragment(indent_level));
+        // 40% chance: add UDON above
+        if gen.chance(0.4) {
+            input.extend(gen.udon_fragment(0));
+        }
+
+        // Determine indent level (geometric, α=0.9)
+        let indent_level = gen.indent_level();
+        let indent: Vec<u8> = vec![b' '; indent_level];
+
+        // Add canonical test with indent and possible blank lines
+        for line in case.udon.as_bytes().split(|&b| b == b'\n') {
+            // Maybe inject blank line before
+            input.extend(gen.blank_lines());
+
+            if !line.is_empty() {
+                input.extend(&indent);
+                input.extend(line);
+            }
+            input.push(b'\n');
+        }
+
+        // 40% chance: add UDON below
+        if gen.chance(0.4) {
+            input.extend(gen.udon_fragment(indent_level));
+        }
     }
 
     // Parse and collect events

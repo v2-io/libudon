@@ -2275,15 +2275,9 @@ impl<'a> Parser<'a> {
                     state = State::AfterInline;
                     continue;
                         }
-                        _ if parent_col >= 0 => {
+                        _ => {
                     state = State::Main;
                     continue;
-                        }
-                        _ => {
-                    self.set_term(-1);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    self.parse_line_comment_content(on_event);
-                    return;
                         }
                     }
                 }
@@ -2550,15 +2544,9 @@ impl<'a> Parser<'a> {
                     state = State::AfterInline;
                     continue;
                         }
-                        _ if parent_col >= 0 => {
+                        _ => {
                     state = State::Main;
                     continue;
-                        }
-                        _ => {
-                    self.set_term(-1);
-                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
-                    self.parse_line_comment_content(on_event);
-                    return;
                         }
                     }
                 }
@@ -2763,10 +2751,11 @@ impl<'a> Parser<'a> {
         let start_span = self.span();
         on_event(Event::CommentStart { span: start_span.clone() });
         let mut comment_col: i32 = 0;
+        let mut content_base: i32 = -1;
         let mut col: i32 = 0;
                     comment_col = self.col() - 1;
         #[derive(Clone, Copy)]
-        enum State { Check, FirstLine, Children, ChildrenWs, CheckCol, ContLine,  }
+        enum State { Check, FirstLine, Children, ChildrenWs, CheckContinuation, AtContentBase, ContContent, ContLine,  }
         let mut state = State::Check;
         loop {
             match state {
@@ -2818,7 +2807,6 @@ impl<'a> Parser<'a> {
                     continue;
                         }
                         Some(b' ') => {
-                    self.mark();
                     self.advance();
                     col = 1;
                     state = State::ChildrenWs;
@@ -2840,18 +2828,22 @@ impl<'a> Parser<'a> {
                         return;
                     }
                     match self.peek() {
+                        _ if content_base >= 0 && col >= content_base => {
+                    state = State::AtContentBase;
+                    continue;
+                        }
                         Some(b' ') => {
                     self.advance();
                     col += 1;
                     continue;
                         }
                         _ => {
-                    state = State::CheckCol;
+                    state = State::CheckContinuation;
                     continue;
                         }
                     }
                 }
-                State::CheckCol => {
+                State::CheckContinuation => {
                     if self.eof() {
                         on_event(Event::CommentEnd { span: self.span() });
                         return;
@@ -2864,6 +2856,48 @@ impl<'a> Parser<'a> {
                         Some(b'|' | b':' | b'!' | b';') => {
                     on_event(Event::CommentEnd { span: self.span() });
                     return;
+                        }
+                        _ if content_base < 0 => {
+                    content_base = col;
+                    self.mark();
+                    state = State::ContLine;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Warning { content: std::borrow::Cow::Borrowed(b"Inconsistent indentation"), span: self.span() });
+                    content_base = col;
+                    self.mark();
+                    state = State::ContLine;
+                    continue;
+                        }
+                    }
+                }
+                State::AtContentBase => {
+                    if self.eof() {
+                        on_event(Event::CommentEnd { span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'|' | b':' | b'!' | b';') => {
+                    on_event(Event::CommentEnd { span: self.span() });
+                    return;
+                        }
+                        _ => {
+                    self.mark();
+                    state = State::ContContent;
+                    continue;
+                        }
+                    }
+                }
+                State::ContContent => {
+                    if self.eof() {
+                        on_event(Event::CommentEnd { span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b' ') => {
+                    self.advance();
+                    continue;
                         }
                         _ => {
                     state = State::ContLine;

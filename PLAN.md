@@ -125,6 +125,7 @@ Work will be reverted if fixtures are filled this way.
 - [x] **embedded_elements.yaml** (24 tests) - Audited per SPEC 1026-1076, ALL PASS
 - [x] **inline_element_nesting.yaml** (11 tests) - Audited per SPEC 543-768, ALL PASS
 - [x] **comments_and_text.yaml** (7 tests) - Already complete, ALL PASS
+- [x] **comments.yaml** (31+ tests) - Comprehensive, continuation normalization working
 
 ## Known Parser Bugs
 
@@ -151,6 +152,10 @@ Discovered while filling fixtures - need grammar fixes:
    - Comment refactored to BRACKET type (like Element)
    - Uses same "children loop" pattern for continuation lines
    - Each continuation line is a separate Text event inside CommentStart/End
+   - **Normalization**: First continuation line sets content_base (like prose)
+     - Lines at content_base have no indent in output
+     - Extra indent beyond content_base is preserved
+     - Lines with less indent trigger warning and reset content_base
 
 7. ~~**Space after inline comment stripped**~~ - FIXED (SPEC line 495)
    - After inline comment, now goes to `:post_sameline_inline` instead of `:pre_content`
