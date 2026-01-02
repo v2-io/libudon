@@ -35,7 +35,7 @@
 
 |type[Name]          CONTENT    ; emits Name event on return
 |type[Text]          CONTENT    ; emits Text event
-|type[Comment]       CONTENT    ; emits Comment event
+|type[Comment]       BRACKET    ; CommentStart/End - block structure like Element
 |type[Attr]          CONTENT    ; emits Attr event
 |type[StringValue]   CONTENT    ; emits StringValue event
 |type[BareValue]     CONTENT    ; emits BareValue event
@@ -207,7 +207,7 @@
     |                       | /element(COL - 1, :elem_col)        |>> :post_child
 
   |state[:check_sameline_semi]
-    |c['{']                   | -> | /brace_comment              |>> :pre_content
+    |c['{']                   | -> | /brace_comment              |>> :post_sameline_inline
     |default                  | /line_comment_content            |>> :children
 
   |state[:check_sameline_bang]
@@ -481,6 +481,7 @@
 
 ; text_backticks - text that starts with `` (for non-freeform case)
 ; Manual emit control, no :Text auto-emit
+; Per SPEC 408: In block prose (parent_col >= 0), semicolons are LITERAL
 |function[text_backticks]  :line_col :parent_col
   |state[:entry]
     | MARK | PREPEND('`') | PREPEND('`')                         |>> :main
@@ -498,9 +499,13 @@
     |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded |>> :after_inline
     |default                  |                                  |>> :main
 
+  ; Per SPEC 408: `;` in block prose (inside element) is LITERAL
   |state[:check_semi]
     |eof                      | TERM | Text(USE_MARK)            |return  ; include ; in text
     |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment |>> :after_inline
+    ; If inside element (parent_col >= 0), semicolon is literal
+    |if[:parent_col >= 0]                                        |>> :main
+    ; At document root, semicolon starts line comment
     |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
@@ -560,6 +565,8 @@
 ; text - block-level prose content (manual emit control, no :Text auto-emit)
 ; Same pattern as sameline_text: advance past special chars, check what follows.
 ; :prepend = <> (none), '|' (pipe prefix), '`' (backtick prefix)
+; Per SPEC 408: In block prose (parent_col >= 0), semicolons are LITERAL (not comments)
+; At document root (parent_col < 0), semicolons start line comments
 |function[text]  :line_col :parent_col :prepend
   |state[:entry]
     | MARK | PREPEND(:prepend)                                   |>> :main
@@ -577,9 +584,14 @@
     |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded |>> :after_inline
     |default                  |                                  |>> :main
 
+  ; Per SPEC 408: `;` in block prose (inside element) is LITERAL, not comment
+  ; At document root, `;` starts a line comment
   |state[:check_semi]
     |eof                      | TERM | Text(USE_MARK)            |return  ; include ; in text
     |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /brace_comment |>> :after_inline
+    ; If inside element (parent_col >= 0), semicolon is literal
+    |if[:parent_col >= 0]                                        |>> :main
+    ; At document root, semicolon starts line comment
     |default                  | TERM(-1) | Text(USE_MARK) | /line_comment_content |return
 
   |state[:check_bang]
@@ -642,19 +654,57 @@
 ; ============================================================================
 ; Comments
 ; ============================================================================
+;
+; Comment is a BRACKET type (like Element, Directive) - emits CommentStart/End.
+; Content inside is emitted as Text events.
+;
+; This allows comment continuation (SPEC 419-428) to use the same "children loop"
+; pattern as Element and Directive, DRYing the indentation-based block handling.
 
-|function[line_comment]
+; Block-level line comment - can have continuation (SPEC 419-428)
+; Called after `;` consumed at block level
+|function[line_comment:Comment]  | comment_col = COL - 1
   |state[:check]
-    |c['{']                   | -> | /brace_comment              |return
-    |default                  | /line_comment_content            |return
+    |c['{']                   | -> | /comment_text_braced        |return
+    |default                  | MARK                             |>> :first_line
+
+  ; First line of comment content
+  |state[:first_line]
+    |eof                      | TERM | Text(USE_MARK)            |return
+    |c['\n']                  | TERM | Text(USE_MARK) | ->       |>> :children
+    |default                  | ->                               |>>
+
+  ; Children loop - same pattern as Element, checks for continuation lines
+  ; Per SPEC 419-428: more-indented lines without prefix are continuation
+  ; MARK at line start to capture indentation in continuation content
+  |state[:children]
+    |eof                      |                                  |return
+    |c['\n']                  | ->                               |>>  ; blank line
+    |c[' ']                   | MARK | -> | col = 1              |>> :children_ws
+    |c['\t']                  |                                  |return  ; tab = end
+    |default                  |                                  |return  ; non-indented = end
+
+  |state[:children_ws]
+    |c[' ']                   | -> | col += 1                    |>>
+    |default                  |                                  |>> :check_col
+
+  |state[:check_col]
+    |if[col <= comment_col]                                      |return  ; dedent (MARK unused)
+    |c['|:!;']                |                                  |return  ; prefix (MARK unused)
+    |default                  |                                  |>> :cont_line  ; MARK already set
+
+  |state[:cont_line]
+    |eof                      | TERM | Text(USE_MARK)            |return
+    |c['\n']                  | TERM | Text(USE_MARK) | ->       |>> :children
+    |default                  | ->                               |>>
 
 
-; DRYed: line_comment_content - captures content to newline or EOF, emits Comment
-; Used by all line comment variants (they were 100% identical)
+; Sameline comment - no continuation possible (content ends at newline/EOF)
+; Called after `;` consumed in sameline context
 |function[line_comment_content:Comment]  | MARK
   |state[:main]
-    |eof                      | TERM                             |return  ; EOF is valid end
-    |c['\n']                  | TERM                             |return
+    |eof                      | TERM | Text(USE_MARK)            |return
+    |c['\n']                  | TERM | Text(USE_MARK)            |return
     |default                  | ->                               |>>
 
 
@@ -672,9 +722,17 @@
     | ->                                                         |>> :main  ; consume } and continue
 
 
-|function[brace_comment:Comment]  | MARK
+; Brace comment ;{...} - BRACKET type like line_comment
+; Called after ;{ consumed
+|function[brace_comment:Comment]
   |state[:main]
-    | /skip_brace_balanced | TERM | ->                           |return  ; consume the }
+    | /comment_text_braced                                       |return
+
+
+; Helper: capture brace-balanced content as Text
+|function[comment_text_braced]  | MARK
+  |state[:main]
+    | /skip_brace_balanced | TERM | Text(USE_MARK) | ->          |return
 
 
 ; ============================================================================

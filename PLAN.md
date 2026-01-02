@@ -42,6 +42,9 @@ The tree builder (when implemented) will be just another event consumer.
 - [x] Embedded elements (`|{name attrs content}`)
 - [x] Arrays (`[a b c]`)
 - [x] Comments (`;` line comments and `;{brace comments}`)
+  - Comment is now BRACKET type (CommentStart/Text/CommentEnd)
+  - Uses same "children loop" pattern as Element for continuation
+  - Continuation lines preserve their indentation in Text content
 - [x] Block-level escape prefix (`'` before `|;:!'` at line start)
 - [x] Directives (`!if`, `!elif`, `!else`, `!for`, `!let`, `!include`, `!unless`)
 - [x] Raw blocks (`!:lang:`) and inline raw (`!{:lang:content}`)
@@ -150,17 +153,18 @@ Discovered while filling fixtures - need grammar fixes:
 
 4. **SPEC Update:** Removed `~` as Nil synonym (only `null`/`nil` now)
 
-5. **Block prose semicolons should be LITERAL** (SPEC line 408)
-   - Parser treats `;` in block prose as comment
-   - Should be literal text per SPEC
+5. ~~**Block prose semicolons should be LITERAL**~~ - FIXED (SPEC line 408)
+   - Parser now treats `;` in block prose as literal text
+   - `;` at line start is still a block comment per SPEC 459-466
 
-6. **Comment continuation not implemented** (SPEC lines 419-428)
-   - Indented lines after `;` comment should merge into comment
-   - Parser treats them as separate Text events
+6. ~~**Comment continuation not implemented**~~ - FIXED (SPEC lines 419-428)
+   - Comment refactored to BRACKET type (like Element)
+   - Uses same "children loop" pattern for continuation lines
+   - Each continuation line is a separate Text event inside CommentStart/End
 
-7. **Space after inline comment stripped** (SPEC line 495)
-   - `;{comment} text` should preserve space before "text"
-   - Parser strips it
+7. ~~**Space after inline comment stripped**~~ - FIXED (SPEC line 495)
+   - After inline comment, now goes to `:post_sameline_inline` instead of `:pre_content`
+   - Spaces after `}` are preserved in text content
 
 8. **Block-level references not implemented** (SPEC 1473-1488)
    - `@[id]` at block level for element insertion

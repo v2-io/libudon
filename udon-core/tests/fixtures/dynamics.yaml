@@ -99,7 +99,9 @@
   events:
     - ElementStart
     - [Name, "parent"]
-    - [Comment, "and this, as an edge case"]
+    - CommentStart
+    - [Text, "and this, as an edge case"]
+    - CommentEnd
     - ElementEnd
 - id: interpolation_multiple_child_lines
   desc: interpolation multiple child lines

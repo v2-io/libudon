@@ -1,6 +1,11 @@
 # Comment and text tests
 # Tests from old parsing.rs comments_and_text module
 # Audited against FULL-SPEC.md
+#
+# NOTE: Comment is now a BRACKET type (like Element), so comments emit:
+#   CommentStart -> Text (content) -> CommentEnd
+# This allows comment continuation to use the same "children loop" pattern
+# as Element and Directive, DRYing the indentation-based block handling.
 
 # ===========================================================================
 # Empty/Blank Input (baseline)
@@ -26,34 +31,48 @@
   # SPEC line 407: Document root -> Line comment
   udon: "; this is a comment\n"
   events:
-    - [Comment, " this is a comment"]
+    - CommentStart
+    - [Text, " this is a comment"]
+    - CommentEnd
 
 - id: multiple_comments
   desc: Multiple consecutive comments
   udon: "; first\n; second\n; third\n"
   events:
-    - [Comment, " first"]
-    - [Comment, " second"]
-    - [Comment, " third"]
+    - CommentStart
+    - [Text, " first"]
+    - CommentEnd
+    - CommentStart
+    - [Text, " second"]
+    - CommentEnd
+    - CommentStart
+    - [Text, " third"]
+    - CommentEnd
 
 - id: comment_no_space
   desc: Comment without space after semicolon
   udon: ";no space\n"
   events:
-    - [Comment, "no space"]
+    - CommentStart
+    - [Text, "no space"]
+    - CommentEnd
 
 - id: comment_empty
   desc: Empty comment (just semicolon)
   udon: ";\n"
   events:
-    - [Comment, ""]
+    - CommentStart
+    - [Text, ""]
+    - CommentEnd
 
 - id: comment_no_trailing_newline
   desc: Comment at EOF without trailing newline
   # EOF is a valid terminator for comments - no error expected
   udon: "; comment"
   events:
-    - [Comment, " comment"]
+    - CommentStart
+    - [Text, " comment"]
+    - CommentEnd
 
 # ===========================================================================
 # Text (Prose) at Document Root
@@ -72,15 +91,21 @@
   udon: "Some text ; with comment\n"
   events:
     - [Text, "Some text "]
-    - [Comment, " with comment"]
+    - CommentStart
+    - [Text, " with comment"]
+    - CommentEnd
 
 - id: mixed_content
   desc: Comments and text interspersed at document root
   udon: "; Comment\nText line\n; Another comment\n"
   events:
-    - [Comment, " Comment"]
+    - CommentStart
+    - [Text, " Comment"]
+    - CommentEnd
     - [Text, "Text line"]
-    - [Comment, " Another comment"]
+    - CommentStart
+    - [Text, " Another comment"]
+    - CommentEnd
 
 - id: text_no_trailing_newline
   desc: Text at EOF without trailing newline
@@ -101,7 +126,9 @@
     - ElementStart
     - [Name, "p"]
     - [Text, "Hello "]
-    - [Comment, " comment"]
+    - CommentStart
+    - [Text, " comment"]
+    - CommentEnd
     - ElementEnd
 
 - id: element_only_comment
@@ -111,7 +138,9 @@
   events:
     - ElementStart
     - [Name, "div"]
-    - [Comment, " just a comment"]
+    - CommentStart
+    - [Text, " just a comment"]
+    - CommentEnd
     - ElementEnd
 
 - id: element_attrs_then_comment
@@ -123,7 +152,9 @@
     - [Name, "el"]
     - [Attr, "key"]
     - [BareValue, "value"]
-    - [Comment, " trailing comment"]
+    - CommentStart
+    - [Text, " trailing comment"]
+    - CommentEnd
     - ElementEnd
 
 # ===========================================================================
@@ -141,7 +172,9 @@
     - [Name, "el"]
     - [Attr, "attr"]
     - [BareValue, "val"]
-    - [Comment, " comment"]
+    - CommentStart
+    - [Text, " comment"]
+    - CommentEnd
     - ElementEnd
 
 - id: attr_value_with_embedded_semicolon
@@ -164,7 +197,9 @@
     - [Name, "el"]
     - [Attr, "data"]
     - [BareValue, "foo;bar"]
-    - [Comment, " this is comment"]
+    - CommentStart
+    - [Text, " this is comment"]
+    - CommentEnd
     - ElementEnd
 
 # ===========================================================================
@@ -195,13 +230,17 @@
     - ElementEnd
 
 - id: block_prose_semicolon_at_start
-  desc: Block prose line starting with semicolon is literal
-  # SPEC line 408: Block prose semicolons are literal, not comments
-  udon: "|pre\n  ; this is NOT a comment\n"
+  desc: Line starting with semicolon inside element is a comment
+  # SPEC lines 459-466: "A line starting with `;` is a block comment"
+  # NOTE: SPEC 408 "block prose semicolons literal" means ; WITHIN text, not at line start
+  # A line starting with ; (after indent) is ALWAYS a block comment
+  udon: "|pre\n  ; this IS a comment inside the element\n"
   events:
     - ElementStart
     - [Name, "pre"]
-    - [Text, "; this is NOT a comment"]
+    - CommentStart
+    - [Text, " this IS a comment inside the element"]
+    - CommentEnd
     - ElementEnd
 
 # ===========================================================================
@@ -218,7 +257,9 @@
     - ElementStart
     - [Name, "p"]
     - [Text, "Text "]
-    - [Comment, "TODO: fix"]
+    - CommentStart
+    - [Text, "TODO: fix"]
+    - CommentEnd
     - [Text, " more text"]
     - ElementEnd
 
@@ -229,7 +270,9 @@
     - ElementStart
     - [Name, "p"]
     - [Text, "Before "]
-    - [Comment, ""]
+    - CommentStart
+    - [Text, ""]
+    - CommentEnd
     - [Text, " after"]
     - ElementEnd
 
@@ -241,7 +284,9 @@
     - ElementStart
     - [Name, "p"]
     - [Text, "Text "]
-    - [Comment, "comment with {nested} braces"]
+    - CommentStart
+    - [Text, "comment with {nested} braces"]
+    - CommentEnd
     - [Text, " more"]
     - ElementEnd
 
@@ -253,7 +298,9 @@
     - ElementStart
     - [Name, "p"]
     - [Text, "Text "]
-    - [Comment, "outer {middle {inner}} end"]
+    - CommentStart
+    - [Text, "outer {middle {inner}} end"]
+    - CommentEnd
     - [Text, " rest"]
     - ElementEnd
 
@@ -268,7 +315,9 @@
     - EmbeddedStart
     - [Name, "a"]
     - [Text, "here "]
-    - [Comment, "note"]
+    - CommentStart
+    - [Text, "note"]
+    - CommentEnd
     - [Text, " link"]
     - EmbeddedEnd
     - ElementEnd
@@ -278,7 +327,9 @@
   udon: "Text ;{comment} more\n"
   events:
     - [Text, "Text "]
-    - [Comment, "comment"]
+    - CommentStart
+    - [Text, "comment"]
+    - CommentEnd
     - [Text, " more"]
 
 - id: brace_comment_at_line_start
@@ -286,7 +337,9 @@
   # At line start, ;{ is brace comment, not line comment
   udon: ";{brace comment}\n"
   events:
-    - [Comment, "brace comment"]
+    - CommentStart
+    - [Text, "brace comment"]
+    - CommentEnd
 
 # ===========================================================================
 # Escaped Semicolons
@@ -321,34 +374,48 @@
     - [Name, "el"]
     - [Attr, "key"]
     - [BareValue, "val\\;ue"]
-    - [Comment, " real comment"]
+    - CommentStart
+    - [Text, " real comment"]
+    - CommentEnd
     - ElementEnd
 
 # ===========================================================================
 # Comment Continuation with Indentation
 # SPEC lines 419-428: Line comment followed by indented continuation
+# With BRACKET model, continuation lines are separate Text events
 # ===========================================================================
 
 - id: comment_continuation
   desc: Line comment with indented continuation
   # SPEC lines 419-428: More-indented lines after comment are comment content
+  # With BRACKET model: each line is a separate Text event inside CommentStart/End
   udon: "; This is a comment\n  this is still part of the comment\n"
   events:
-    - [Comment, " This is a comment\n  this is still part of the comment"]
+    - CommentStart
+    - [Text, " This is a comment"]
+    - [Text, "  this is still part of the comment"]
+    - CommentEnd
 
 - id: comment_continuation_multiple_lines
   desc: Line comment with multiple continuation lines
   # SPEC lines 419-428: Continuation until dedent
   udon: "; Main comment\n  continuation 1\n  continuation 2\n"
   events:
-    - [Comment, " Main comment\n  continuation 1\n  continuation 2"]
+    - CommentStart
+    - [Text, " Main comment"]
+    - [Text, "  continuation 1"]
+    - [Text, "  continuation 2"]
+    - CommentEnd
 
 - id: comment_continuation_ends_at_dedent
   desc: Comment continuation ends when dedent occurs
   # SPEC lines 419-428: Comment content until dedent
   udon: "; Comment\n  continued\nNot comment\n"
   events:
-    - [Comment, " Comment\n  continued"]
+    - CommentStart
+    - [Text, " Comment"]
+    - [Text, "  continued"]
+    - CommentEnd
     - [Text, "Not comment"]
 
 # ===========================================================================
@@ -366,7 +433,9 @@
     - ElementStart
     - [Name, "child"]
     - ElementEnd
-    - [Comment, " sibling comment"]
+    - CommentStart
+    - [Text, " sibling comment"]
+    - CommentEnd
     - ElementEnd
 
 - id: comment_inside_element
@@ -378,7 +447,9 @@
     - [Name, "parent"]
     - ElementStart
     - [Name, "child"]
-    - [Comment, " inside child"]
+    - CommentStart
+    - [Text, " inside child"]
+    - CommentEnd
     - ElementEnd
     - ElementEnd
 
@@ -396,7 +467,9 @@
     - ElementEnd
     - ElementEnd
     - ElementEnd
-    - [Comment, " closes all"]
+    - CommentStart
+    - [Text, " closes all"]
+    - CommentEnd
 
 - id: comment_between_siblings
   desc: Comment between sibling elements
@@ -407,7 +480,9 @@
     - ElementStart
     - [Name, "child1"]
     - ElementEnd
-    - [Comment, " between"]
+    - CommentStart
+    - [Text, " between"]
+    - CommentEnd
     - ElementStart
     - [Name, "child2"]
     - ElementEnd
@@ -435,9 +510,13 @@
     - ElementStart
     - [Name, "p"]
     - [Text, "A "]
-    - [Comment, "one"]
+    - CommentStart
+    - [Text, "one"]
+    - CommentEnd
     - [Text, " B "]
-    - [Comment, "two"]
+    - CommentStart
+    - [Text, "two"]
+    - CommentEnd
     - [Text, " C"]
     - ElementEnd
 
@@ -448,7 +527,11 @@
     - ElementStart
     - [Name, "p"]
     - [Text, "Text "]
-    - [Comment, "inline"]
+    - CommentStart
+    - [Text, "inline"]
+    - CommentEnd
     - [Text, " more "]
-    - [Comment, " line comment"]
+    - CommentStart
+    - [Text, " line comment"]
+    - CommentEnd
     - ElementEnd

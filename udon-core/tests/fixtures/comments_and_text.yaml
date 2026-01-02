@@ -1,5 +1,6 @@
 ---
 # Comments and text at document root
+# NOTE: Comment is now BRACKET type - emits CommentStart/Text/CommentEnd
 
 - id: empty_input
   desc: Empty input produces no events
@@ -10,7 +11,9 @@
   desc: Single line comment
   udon: "; this is a comment\n"
   events:
-    - [Comment, " this is a comment"]
+    - CommentStart
+    - [Text, " this is a comment"]
+    - CommentEnd
 
 - id: multiple_comments
   desc: Multiple consecutive comments
@@ -19,9 +22,15 @@
     ; second
     ; third
   events:
-    - [Comment, " first"]
-    - [Comment, " second"]
-    - [Comment, " third"]
+    - CommentStart
+    - [Text, " first"]
+    - CommentEnd
+    - CommentStart
+    - [Text, " second"]
+    - CommentEnd
+    - CommentStart
+    - [Text, " third"]
+    - CommentEnd
 
 - id: simple_text
   desc: Simple text line (prose at root)
@@ -34,7 +43,9 @@
   udon: "Some text ; with comment\n"
   events:
     - [Text, "Some text "]
-    - [Comment, " with comment"]
+    - CommentStart
+    - [Text, " with comment"]
+    - CommentEnd
 
 - id: blank_lines
   desc: Blank lines produce no events
@@ -48,6 +59,10 @@
     Text line
     ; Another comment
   events:
-    - [Comment, " Comment"]
+    - CommentStart
+    - [Text, " Comment"]
+    - CommentEnd
     - [Text, "Text line"]
-    - [Comment, " Another comment"]
+    - CommentStart
+    - [Text, " Another comment"]
+    - CommentEnd

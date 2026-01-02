@@ -1,5 +1,6 @@
 ---
 # Comment indentation tests - block comments respect element hierarchy
+# NOTE: Comment is now BRACKET type - emits CommentStart/Text/CommentEnd
 
 - id: block_comment_inside_element
   desc: Block comment indented under child becomes child content
@@ -9,7 +10,9 @@
     - [Name, "parent"]
     - ElementStart
     - [Name, "child"]
-    - [Comment, " inside child"]
+    - CommentStart
+    - [Text, " inside child"]
+    - CommentEnd
     - ElementEnd
     - ElementEnd
 
@@ -22,7 +25,9 @@
     - ElementStart
     - [Name, "child"]
     - ElementEnd
-    - [Comment, " sibling comment"]
+    - CommentStart
+    - [Text, " sibling comment"]
+    - CommentEnd
     - ElementEnd
 
 - id: block_comment_closes_multiple_levels
@@ -38,7 +43,9 @@
     - ElementEnd
     - ElementEnd
     - ElementEnd
-    - [Comment, " closes all"]
+    - CommentStart
+    - [Text, " closes all"]
+    - CommentEnd
     - ElementStart
     - [Name, "sibling"]
     - ElementEnd
@@ -51,7 +58,9 @@
     - ElementStart
     - [Name, "p"]
     - [Text, "This is text "]
-    - [Comment, "TODO"]
+    - CommentStart
+    - [Text, "TODO"]
+    - CommentEnd
     - [Text, " and more."]
     - ElementEnd
 
@@ -62,7 +71,9 @@
     - ElementStart
     - [Name, "p"]
     - [Text, "Some text "]
-    - [Comment, "comment at end"]
+    - CommentStart
+    - [Text, "comment at end"]
+    - CommentEnd
     - ElementEnd
 
 # Per EBNF 205: braces inside comment body are balanced, ;{ is literal
@@ -73,7 +84,9 @@
     - ElementStart
     - [Name, "p"]
     - [Text, "Text "]
-    - [Comment, "outer {inner} outer"]
+    - CommentStart
+    - [Text, "outer {inner} outer"]
+    - CommentEnd
     - [Text, " more."]
     - ElementEnd
 
