@@ -84,9 +84,9 @@
 - id: warning_on_lesser_indent
   desc: warning on lesser indent
   # Per SPEC 834-837: lines at < content_base emit warning, update content_base
-  # first line at col 10 establishes content_base=10
-  # less indent at col 7: WARNING, content_base=7
-  # now at base at col 7: no warning (at new base)
+  # first line at col 6 establishes content_base=6
+  # less indent at col 3: WARNING, content_base=3
+  # now at base at col 3: no warning (at new base)
   udon: |-
     |element
           first line
@@ -104,9 +104,9 @@
 - id: multiple_warnings_decreasing_indent
   desc: multiple warnings decreasing indent
   # Per SPEC 932-942: each decrease emits warning
-  # first at col 10: content_base=10
-  # second at col 7: WARNING, content_base=7
-  # third at col 6: WARNING, content_base=6
+  # first at col 6: content_base=6
+  # second at col 3: WARNING, content_base=3
+  # third at col 2: WARNING, content_base=2
   udon: |-
     |element
           first
