@@ -345,17 +345,17 @@
 
 
 ; DRYed: skip_single_quoted - void helper for '-quoted content with escapes
-; Consumes up to and including closing '. Caller handles MARK/TERM/emit.
+; Stops AT closing ' (doesn't consume). Caller does TERM | -> to consume.
 |function[skip_single_quoted]
   |state[:main]
-    |c[<SQ>]                  | ->                               |return
+    |c[<SQ>]                  |                                  |return  ; don't consume
     |c[<BS>]                  | -> | ->                          |>>
     |default                  | ->                               |>>
 
 
 |function[quoted_name:Name]  | MARK
   |state[:main]
-    | /skip_single_quoted | TERM(-1)                             |return
+    | /skip_single_quoted | TERM | ->                            |return
 
 
 |function[class_name:BareValue]  | MARK
@@ -366,7 +366,7 @@
 
 |function[quoted_class:BareValue]  | MARK
   |state[:main]
-    | /skip_single_quoted | TERM(-1)                             |return
+    | /skip_single_quoted | TERM | ->                            |return
 
 
 ; ============================================================================
@@ -431,7 +431,7 @@
 
 |function[attr_key_quoted:Attr]  | MARK
   |state[:main]
-    | /skip_single_quoted | TERM(-1)                             |return
+    | /skip_single_quoted | TERM | ->                            |return
 
 
 ; ============================================================================

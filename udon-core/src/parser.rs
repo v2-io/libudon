@@ -1580,7 +1580,6 @@ impl<'a> Parser<'a> {
         loop {
             match self.scan_to2(b'\'', b'\\') {
                 Some(b'\'') => {
-                    self.advance();
                     return;
                 }
                 Some(b'\\') => {
@@ -1612,7 +1611,8 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 _ => {
                     self.parse_skip_single_quoted(on_event);
-                    self.set_term(-1);
+                    self.set_term(0);
+                    self.advance();
                     on_event(Event::Name { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
@@ -1661,7 +1661,8 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 _ => {
                     self.parse_skip_single_quoted(on_event);
-                    self.set_term(-1);
+                    self.set_term(0);
+                    self.advance();
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
@@ -1944,7 +1945,8 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 _ => {
                     self.parse_skip_single_quoted(on_event);
-                    self.set_term(-1);
+                    self.set_term(0);
+                    self.advance();
                     on_event(Event::Attr { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
