@@ -784,7 +784,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         #[derive(Clone, Copy)]
-        enum State { Identity, QuotedName, PostName, Bracket, BracketClose, PostBracket, Class, PostClass,  }
+        enum State { Identity, QuotedName, PostName, PostSuffix, Bracket, BracketClose, PostBracket, Class, PostClass,  }
         let mut state = State::Identity;
         loop {
             match state {
@@ -817,7 +817,8 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'?' | b'!' | b'*' | b'+') => {
                     self.parse_suffix(on_event);
-                    return;
+                    state = State::PostSuffix;
+                    continue;
                         }
                         _ => {
                     return;
@@ -860,7 +861,30 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'?' | b'!' | b'*' | b'+') => {
                     self.parse_suffix(on_event);
+                    state = State::PostSuffix;
+                    continue;
+                        }
+                        _ => {
                     return;
+                        }
+                    }
+                }
+                State::PostSuffix => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b) if b == close => {
+                    return;
+                        }
+                        Some(b'[') => {
+                    self.advance();
+                    state = State::Bracket;
+                    continue;
+                        }
+                        Some(b'.') => {
+                    state = State::Class;
+                    continue;
                         }
                         _ => {
                     return;
@@ -914,7 +938,8 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'?' | b'!' | b'*' | b'+') => {
                     self.parse_suffix(on_event);
-                    return;
+                    state = State::PostSuffix;
+                    continue;
                         }
                         _ => {
                     return;
@@ -962,7 +987,8 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'?' | b'!' | b'*' | b'+') => {
                     self.parse_suffix(on_event);
-                    return;
+                    state = State::PostSuffix;
+                    continue;
                         }
                         _ => {
                     return;

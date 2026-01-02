@@ -197,3 +197,377 @@
     - [Text, "Content here"]
     - ElementEnd
     - ElementEnd
+
+# ===========================================================================
+# Block vs Sameline Attributes (SPEC lines 43-65, 220-238)
+# ===========================================================================
+
+- id: block_attribute_single
+  desc: Single block attribute on indented line
+  # SPEC 57-60: Block context - attributes on their own indented lines
+  udon: "|article\n  :author Alice\n"
+  events:
+    - ElementStart
+    - [Name, "article"]
+    - [Attr, "author"]
+    - [BareValue, "Alice"]
+    - ElementEnd
+
+- id: block_attributes_multiple
+  desc: Multiple block attributes on separate lines
+  # SPEC 47-48: Block attributes on indented lines
+  udon: "|article\n  :author Alice\n  :date 2024-12-31\n"
+  events:
+    - ElementStart
+    - [Name, "article"]
+    - [Attr, "author"]
+    - [BareValue, "Alice"]
+    - [Attr, "date"]
+    - [BareValue, "2024-12-31"]
+    - ElementEnd
+
+- id: sameline_attributes_multiple
+  desc: Multiple sameline attributes
+  # SPEC 50: Sameline attributes on element definition line
+  udon: "|section :id intro :class lead\n"
+  events:
+    - ElementStart
+    - [Name, "section"]
+    - [Attr, "id"]
+    - [BareValue, "intro"]
+    - [Attr, "class"]
+    - [BareValue, "lead"]
+    - ElementEnd
+
+- id: block_attr_value_with_spaces
+  desc: Block attr value can contain spaces without quotes
+  # SPEC 60: Block values can contain spaces without quoting
+  udon: "|el\n  :desc This is a long description with spaces\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "desc"]
+    - [BareValue, "This is a long description with spaces"]
+    - ElementEnd
+
+- id: sameline_attr_needs_quotes_for_spaces
+  desc: Sameline attr value needs quotes for spaces
+  # SPEC 65: Sameline values are space-delimited (quote for spaces)
+  udon: "|el :msg \"hello world\"\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "msg"]
+    - [StringValue, "hello world"]
+    - ElementEnd
+
+- id: mixed_sameline_and_block_attrs
+  desc: Sameline attrs followed by block attrs
+  udon: "|el :inline val\n  :block value with spaces\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "inline"]
+    - [BareValue, "val"]
+    - [Attr, "block"]
+    - [BareValue, "value with spaces"]
+    - ElementEnd
+
+# ===========================================================================
+# Block vs Sameline Prose (SPEC lines 51-65)
+# ===========================================================================
+
+- id: block_prose_multiline
+  desc: Block prose spanning multiple lines
+  # SPEC 51-52: Block prose can span multiple lines with consistent indentation
+  udon: "|section\n  This is block prose that can span\n  multiple lines with consistent indentation.\n"
+  events:
+    - ElementStart
+    - [Name, "section"]
+    - [Text, "This is block prose that can span"]
+    - [Text, "multiple lines with consistent indentation."]
+    - ElementEnd
+
+- id: sameline_prose_then_block_prose
+  desc: Sameline prose followed by block prose
+  udon: "|p First line\n  Second line\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "First line"]
+    - [Text, "Second line"]
+    - ElementEnd
+
+- id: sameline_prose_with_embedded
+  desc: Sameline prose with embedded element
+  # SPEC 54: Sameline prose with inline element
+  udon: "|p Sameline prose here |{em with inline element} and more\n"
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Sameline prose here "]
+    - EmbeddedStart
+    - [Name, "em"]
+    - [Text, "with inline element"]
+    - EmbeddedEnd
+    - [Text, " and more"]
+    - ElementEnd
+
+# ===========================================================================
+# Suffix Positions (SPEC lines 200-216)
+# ===========================================================================
+
+- id: suffix_after_name
+  desc: Suffix after element name
+  # SPEC 203: |name?
+  udon: "|name?\n"
+  events:
+    - ElementStart
+    - [Name, "name"]
+    - [Attr, "?"]
+    - BoolTrue
+    - ElementEnd
+
+- id: suffix_after_name_before_id
+  desc: Suffix after name, before id
+  # SPEC 204: |name?[id]
+  udon: "|name?[id]\n"
+  events:
+    - ElementStart
+    - [Name, "name"]
+    - [Attr, "?"]
+    - BoolTrue
+    - [Attr, "id"]
+    - [BareValue, "id"]
+    - ElementEnd
+
+- id: suffix_after_name_before_id_and_class
+  desc: Suffix after name, before id and classes
+  # SPEC 205: |name?[id].class
+  udon: "|name?[id].class\n"
+  events:
+    - ElementStart
+    - [Name, "name"]
+    - [Attr, "?"]
+    - BoolTrue
+    - [Attr, "id"]
+    - [BareValue, "id"]
+    - [Attr, "class"]
+    - [BareValue, "class"]
+    - ElementEnd
+
+- id: suffix_after_id
+  desc: Suffix after id
+  # SPEC 206: |name[id]?
+  udon: "|name[id]?\n"
+  events:
+    - ElementStart
+    - [Name, "name"]
+    - [Attr, "id"]
+    - [BareValue, "id"]
+    - [Attr, "?"]
+    - BoolTrue
+    - ElementEnd
+
+- id: suffix_after_id_space_before_class
+  desc: Suffix after id, space before classes
+  # SPEC 207: |name[id]? .class - suffix ends identity, .class becomes text
+  udon: "|name[id]? .class\n"
+  events:
+    - ElementStart
+    - [Name, "name"]
+    - [Attr, "id"]
+    - [BareValue, "id"]
+    - [Attr, "?"]
+    - BoolTrue
+    - [Text, ".class"]
+    - ElementEnd
+
+- id: suffix_space_separated_at_end
+  desc: Space-separated suffix at end
+  # SPEC 208: |name[id].class ? - space means ? is prose content
+  udon: "|name[id].class ?\n"
+  events:
+    - ElementStart
+    - [Name, "name"]
+    - [Attr, "id"]
+    - [BareValue, "id"]
+    - [Attr, "class"]
+    - [BareValue, "class"]
+    - [Text, "?"]
+    - ElementEnd
+
+# ===========================================================================
+# Hierarchy and Nesting (SPEC lines 543-619)
+# ===========================================================================
+
+- id: vertical_nesting_basic
+  desc: Basic vertical nesting with indentation
+  # SPEC 582-589: Column rules for nesting
+  udon: "|parent\n  |child\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd
+    - ElementEnd
+
+- id: vertical_nesting_siblings
+  desc: Siblings at same indentation level
+  # SPEC 585: Same column = sibling
+  udon: "|parent\n  |child1\n  |child2\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child1"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "child2"]
+    - ElementEnd
+    - ElementEnd
+
+- id: vertical_nesting_grandchild
+  desc: Three levels of nesting
+  # SPEC 584: Greater column = child
+  udon: "|grandparent\n  |parent\n    |child\n"
+  events:
+    - ElementStart
+    - [Name, "grandparent"]
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
+- id: dedent_closes_multiple
+  desc: Dedent closes multiple levels
+  # SPEC 586: Lesser column = dedent (pop until column > top's base_column)
+  udon: "|a\n  |b\n    |c\n|d\n"
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementStart
+    - [Name, "c"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementStart
+    - [Name, "d"]
+    - ElementEnd
+
+- id: inline_nesting_same_as_vertical
+  desc: Inline nesting equivalent to vertical
+  # SPEC 546-547: Inline elements nested as if on separate lines at their column positions
+  udon: "|one |two |three\n"
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
+- id: sibling_after_inline_chain
+  desc: Sibling element after inline chain
+  # SPEC 609-613: Same column = sibling of child, not inside it
+  udon: "|parent\n  |child1\n  |child2\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child1"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "child2"]
+    - ElementEnd
+    - ElementEnd
+
+- id: inside_requires_greater_column
+  desc: Being inside requires column > parent column
+  # SPEC 588-589: To be INSIDE, must be at column > element's column
+  udon: "|parent\n  |child\n   |inside-child\n"
+  events:
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementStart
+    - [Name, "inside-child"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
+# ===========================================================================
+# Quoted Element Names (SPEC mentions ' quoted names)
+# ===========================================================================
+
+- id: quoted_element_name
+  desc: Single-quoted element name with special chars
+  udon: "|'my element'\n"
+  events:
+    - ElementStart
+    - [Name, "my element"]
+    - ElementEnd
+
+- id: quoted_element_name_with_id
+  desc: Quoted element name followed by id
+  udon: "|'special-name'[id]\n"
+  events:
+    - ElementStart
+    - [Name, "special-name"]
+    - [Attr, "id"]
+    - [BareValue, "id"]
+    - ElementEnd
+
+# ===========================================================================
+# Element with Attributes and Content
+# ===========================================================================
+
+- id: element_attrs_then_prose
+  desc: Element with sameline attrs then prose
+  udon: "|el :key val Hello world\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "key"]
+    - [BareValue, "val"]
+    - [Text, "Hello world"]
+    - ElementEnd
+
+- id: element_identity_attrs_prose
+  desc: Full identity, sameline attrs, then prose
+  udon: "|el[id].class :key val Content here\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "id"]
+    - [BareValue, "id"]
+    - [Attr, "class"]
+    - [BareValue, "class"]
+    - [Attr, "key"]
+    - [BareValue, "val"]
+    - [Text, "Content here"]
+    - ElementEnd
+
+- id: element_attrs_child_element_prose
+  desc: Element with attr then child element then prose
+  udon: "|outer :key val |inner Nested content\n"
+  events:
+    - ElementStart
+    - [Name, "outer"]
+    - [Attr, "key"]
+    - [BareValue, "val"]
+    - ElementStart
+    - [Name, "inner"]
+    - [Text, "Nested content"]
+    - ElementEnd
+    - ElementEnd

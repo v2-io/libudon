@@ -1,7 +1,7 @@
 ---
 # Element suffix tests - suffixes ?!*+ become Attr+BoolTrue
-# Per SPEC: identity = [name] [bracket] {.class} [suffix]
-# Suffix ENDS identity - anything after is content
+# Per SPEC 200-215: suffix can appear before [id] and .class
+# Identity continues after suffix (no space) - see suffix_positions.yaml
 
 - id: element_with_question
   desc: Question mark suffix

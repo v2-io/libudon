@@ -1,10 +1,10 @@
 ---
-# Suffix position tests - suffixes can appear in various places
-# Per SPEC: suffix ends identity, anything after becomes content
+# Suffix position tests - per SPEC lines 200-215
+# Suffix can appear before [id] and .class - identity continues
 
 - id: suffix_after_name
   desc: Suffix immediately after name
-  udon: "|field?"
+  udon: "|field?\n"
   events:
     - ElementStart
     - [Name, "field"]
@@ -12,21 +12,22 @@
     - BoolTrue
     - ElementEnd
 
-# Suffix ends identity - [myid] becomes text content, not id bracket!
+# Per SPEC 204: |name?[id] - suffix before id is valid, identity continues
 - id: suffix_after_name_before_id
-  desc: Suffix after name ends identity, bracket becomes text
-  udon: "|field?[myid]"
+  desc: Suffix after name, then id bracket
+  udon: "|field?[myid]\n"
   events:
     - ElementStart
     - [Name, "field"]
     - [Attr, "?"]
     - BoolTrue
-    - [Text, "[myid]"]
+    - [Attr, "id"]
+    - [BareValue, "myid"]
     - ElementEnd
 
 - id: suffix_after_id
   desc: Suffix after id bracket
-  udon: "|field[myid]?"
+  udon: "|field[myid]?\n"
   events:
     - ElementStart
     - [Name, "field"]
@@ -36,10 +37,10 @@
     - BoolTrue
     - ElementEnd
 
-# Suffix ends identity - .cls becomes text content!
+# Per SPEC 207: |name[id]? .class - space before class makes it text
 - id: suffix_after_id_space_before_class
-  desc: Suffix after id ends identity, dot-class becomes text
-  udon: "|field[myid]? .cls"
+  desc: Suffix after id, space makes dot-class text
+  udon: "|field[myid]? .cls\n"
   events:
     - ElementStart
     - [Name, "field"]
@@ -50,10 +51,10 @@
     - [Text, ".cls"]
     - ElementEnd
 
-# Space before suffix makes it text content, not a suffix
+# Per SPEC 208: |name[id].class ? - space before suffix makes it text
 - id: suffix_space_separated_at_end
   desc: Space before suffix makes it text content
-  udon: "|field[myid].cls ?"
+  udon: "|field[myid].cls ?\n"
   events:
     - ElementStart
     - [Name, "field"]
@@ -64,10 +65,10 @@
     - [Text, "?"]
     - ElementEnd
 
-# Suffix DOES work after class (no error - original test description was wrong)
+# Suffix after class (per SPEC 214-215 this is reserved but currently accepted)
 - id: suffix_after_class
-  desc: Suffix after class (valid, not an error)
-  udon: "|field.cls?"
+  desc: Suffix after class (works, though SPEC reserves for future)
+  udon: "|field.cls?\n"
   events:
     - ElementStart
     - [Name, "field"]
@@ -80,7 +81,7 @@
 # Only ONE suffix is parsed; subsequent suffix chars become text
 - id: multiple_suffixes
   desc: Only first suffix parsed, second becomes text
-  udon: "|field?!"
+  udon: "|field?!\n"
   events:
     - ElementStart
     - [Name, "field"]

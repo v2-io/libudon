@@ -127,17 +127,17 @@
 ; ============================================================================
 
 ; DRYed: parse_element_identity(:close) - void helper for element identity
-; Parses: name[id].class.class?!*+
+; Parses: name?[id].class (suffix can appear before [id] and .class per SPEC 200-215)
 ; :close = closer byte (} for embedded, 0 for block element)
 ; Returns when identity complete or closer hit. Caller handles content.
 |function[parse_element_identity]  :close
   |state[:identity]
     |c[:close]                |                                  |return  ; closer hit (empty)
-    |c[XLBL_START]                | /name                            |>> :post_name
+    |c[XLBL_START]            | /name                            |>> :post_name
     |c[<SQ>]                  | ->                               |>> :quoted_name
     |c['[']                   | ->                               |>> :bracket
     |c['.']                   |                                  |>> :class
-    |c['?!*+']                | /suffix                          |return  ; identity done
+    |c['?!*+']                | /suffix                          |>> :post_suffix
     |default                  |                                  |return  ; anonymous, identity done
 
   |state[:quoted_name]
@@ -148,7 +148,14 @@
     |c[:close]                |                                  |return
     |c['[']                   | ->                               |>> :bracket
     |c['.']                   |                                  |>> :class
-    |c['?!*+']                | /suffix                          |return
+    |c['?!*+']                | /suffix                          |>> :post_suffix
+    |default                  |                                  |return
+
+  ; After suffix, can still have [id] and .class (SPEC 204-205: |name?[id].class)
+  |state[:post_suffix]
+    |c[:close]                |                                  |return
+    |c['[']                   | ->                               |>> :bracket
+    |c['.']                   |                                  |>> :class
     |default                  |                                  |return
 
   |state[:bracket]
@@ -162,19 +169,19 @@
   |state[:post_bracket]
     |c[:close]                |                                  |return
     |c['.']                   |                                  |>> :class
-    |c['?!*+']                | /suffix                          |return
+    |c['?!*+']                | /suffix                          |>> :post_suffix
     |default                  |                                  |return
 
   |state[:class]
     |c['.']                   | ->                               |>>
-    |c[XLBL_START]                | Attr($class) | /class_name       |>> :post_class
+    |c[XLBL_START]            | Attr($class) | /class_name       |>> :post_class
     |c[<SQ>]                  | Attr($class) | -> | /quoted_class |>> :post_class
     |default                  |                                  |return  ; no more classes
 
   |state[:post_class]
     |c[:close]                |                                  |return
     |c['.']                   |                                  |>> :class
-    |c['?!*+']                | /suffix                          |return
+    |c['?!*+']                | /suffix                          |>> :post_suffix
     |default                  |                                  |return
 
 

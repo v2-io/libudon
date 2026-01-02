@@ -1,5 +1,6 @@
 ---
 # Combined element identity tests
+# Per SPEC lines 200-215: suffix can appear before [id] and .class
 
 # Space before ? means the ? is TEXT content, not part of identity
 - id: full_identity
@@ -17,14 +18,15 @@
     - [Text, "?"]
     - ElementEnd
 
-# Suffix ends identity - [id] becomes text content, not an id bracket!
+# Per SPEC 204: |name?[id] - suffix before id is valid
 - id: suffix_before_id
-  desc: Suffix before bracket ends identity early
-  udon: "|foo?[id]"
+  desc: Suffix before bracket, identity continues
+  udon: "|foo?[id]\n"
   events:
     - ElementStart
     - [Name, "foo"]
     - [Attr, "?"]
     - BoolTrue
-    - [Text, "[id]"]
+    - [Attr, "id"]
+    - [BareValue, "id"]
     - ElementEnd
