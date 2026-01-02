@@ -1,12 +1,14 @@
 ---
 # Freeform block tests - triple backticks create raw/literal blocks
+# Freeform preserves exact whitespace, no dedentation
+# Content is emitted as Text events, line by line
 
 - id: basic_freeform_block
   desc: Basic freeform block at document root
   udon: "```\nfreeform content\n```"
   events:
     - FreeformStart
-    - [RawContent, "freeform content"]
+    - [Text, "freeform content"]
     - FreeformEnd
 
 # Freeform preserves special characters - not interpreted
@@ -15,25 +17,24 @@
   udon: "```\n|not-an-element\n|another\n```"
   events:
     - FreeformStart
-    - [RawContent, "|not-an-element"]
-    - [RawContent, "|another"]
+    - [Text, "|not-an-element"]
+    - [Text, "|another"]
     - FreeformEnd
 
-# NOTE: Freeform blocks are only recognized at document level!
-# Inside elements, backticks become prose text. This might be a limitation.
+# Freeform blocks work inside elements too
 - id: freeform_inside_element
-  desc: Backticks inside element become prose (not freeform)
+  desc: Freeform inside element preserves content
   udon: "|code\n  ```\n  raw content\n  ```\n"
   events:
     - ElementStart
     - [Name, "code"]
-    - [Text, "```"]
-    - [Text, "raw content"]
-    - [Text, "```"]
+    - FreeformStart
+    - [Text, "  raw content"]
+    - FreeformEnd
     - ElementEnd
 
 - id: unclosed_freeform_error
-  desc: Unclosed freeform produces error
+  desc: Unclosed freeform produces error at EOF
   udon: "```\nunclosed"
   events:
     - FreeformStart

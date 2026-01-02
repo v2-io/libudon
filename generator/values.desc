@@ -72,12 +72,12 @@
     |default                  | ->                               |>>
 
   |state[:check_space]
-    |if[space_term == 0]                                         |>> :block_space
+    |if[space_term == 0]     | ->                               |>> :block_space
     |default                  | BareValue(USE_MARK)              |return
 
   |state[:block_space]
     |c[';']                | TERM(-1) | BareValue(USE_MARK)   |return  ; comment (;)
-    |default                  | ->                               |>> :main
+    |default                  |                                  |>> :main
 
   ; === Accumulate identifier for keyword lookup ===
   ; If we see non-label chars (like .), it's not a keyword - continue as string
@@ -89,11 +89,11 @@
     |LABEL_CONT               | ->                               |>>
     |default                  | ->                               |>> :string
   |state[:accum_space]
-    |if[space_term == 0]                                         |>> :accum_block
+    |if[space_term == 0]     | ->                               |>> :accum_block
     |default                  | TERM | KEYWORDS(bare_kw)         |return
   |state[:accum_block]
     |c[';']                | TERM(-1) | KEYWORDS(bare_kw)     |return
-    |default                  | ->                               |>> :accumulate
+    |default                  |                                  |>> :accumulate
 
   ; === Numbers: after sign ===
   |state[:num_sign]
@@ -115,11 +115,11 @@
     |c[:bracket]              | Integer(USE_MARK)                |return
     |default                  |                                  |>> :string
   |state[:num_zero_space]
-    |if[space_term == 0]                                         |>> :num_zero_block
+    |if[space_term == 0]     | ->                               |>> :num_zero_block
     |default                  | Integer(USE_MARK)                |return
   |state[:num_zero_block]
     |c[';']                | Integer(USE_MARK)                |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === Numbers: decimal digits ===
   |state[:num_dec]
@@ -135,11 +135,11 @@
     |c[:bracket]              | Integer(USE_MARK)                |return
     |default                  |                                  |>> :string
   |state[:num_dec_space]
-    |if[space_term == 0]                                         |>> :num_dec_block
+    |if[space_term == 0]     | ->                               |>> :num_dec_block
     |default                  | Integer(USE_MARK)                |return
   |state[:num_dec_block]
     |c[';']                | Integer(USE_MARK)                |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === Numbers: hex (0xFF) ===
   |state[:num_hex]
@@ -150,11 +150,11 @@
     |c[:bracket]              | Integer(USE_MARK)                |return
     |default                  |                                  |>> :string
   |state[:num_hex_space]
-    |if[space_term == 0]                                         |>> :num_hex_block
+    |if[space_term == 0]     | ->                               |>> :num_hex_block
     |default                  | Integer(USE_MARK)                |return
   |state[:num_hex_block]
     |c[';']                | Integer(USE_MARK)                |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === Numbers: octal (0o755) ===
   |state[:num_oct]
@@ -165,11 +165,11 @@
     |c[:bracket]              | Integer(USE_MARK)                |return
     |default                  |                                  |>> :string
   |state[:num_oct_space]
-    |if[space_term == 0]                                         |>> :num_oct_block
+    |if[space_term == 0]     | ->                               |>> :num_oct_block
     |default                  | Integer(USE_MARK)                |return
   |state[:num_oct_block]
     |c[';']                | Integer(USE_MARK)                |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === Numbers: binary (0b1010) ===
   |state[:num_bin]
@@ -180,11 +180,11 @@
     |c[:bracket]              | Integer(USE_MARK)                |return
     |default                  |                                  |>> :string
   |state[:num_bin_space]
-    |if[space_term == 0]                                         |>> :num_bin_block
+    |if[space_term == 0]     | ->                               |>> :num_bin_block
     |default                  | Integer(USE_MARK)                |return
   |state[:num_bin_block]
     |c[';']                | Integer(USE_MARK)                |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === Numbers: float fractional part ===
   |state[:num_float_frac]
@@ -198,11 +198,11 @@
     |c[:bracket]              | Float(USE_MARK)                  |return
     |default                  |                                  |>> :string
   |state[:num_float_frac_space]
-    |if[space_term == 0]                                         |>> :num_float_frac_block
+    |if[space_term == 0]     | ->                               |>> :num_float_frac_block
     |default                  | Float(USE_MARK)                  |return
   |state[:num_float_frac_block]
     |c[';']                | Float(USE_MARK)                  |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === Numbers: float exponent ===
   |state[:num_float_exp]
@@ -214,11 +214,11 @@
     |c[:bracket]              | Float(USE_MARK)                  |return
     |default                  |                                  |>> :string
   |state[:num_float_exp_space]
-    |if[space_term == 0]                                         |>> :num_float_exp_block
+    |if[space_term == 0]     | ->                               |>> :num_float_exp_block
     |default                  | Float(USE_MARK)                  |return
   |state[:num_float_exp_block]
     |c[';']                | Float(USE_MARK)                  |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   |state[:num_float_exp_digits]
     |eof                      | Float(USE_MARK)                  |return
@@ -230,11 +230,11 @@
     |c[:bracket]              | Float(USE_MARK)                  |return
     |default                  |                                  |>> :string
   |state[:num_float_exp_d_space]
-    |if[space_term == 0]                                         |>> :num_float_exp_d_block
+    |if[space_term == 0]     | ->                               |>> :num_float_exp_d_block
     |default                  | Float(USE_MARK)                  |return
   |state[:num_float_exp_d_block]
     |c[';']                | Float(USE_MARK)                  |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === Rational: integer/integer + r (e.g., 1/3r, 22/7r) ===
   ; After seeing '/' following an integer, accumulate denominator digits
@@ -248,11 +248,11 @@
     |c[:bracket]              | BareValue(USE_MARK)              |return  ; no 'r', not rational
     |default                  |                                  |>> :string
   |state[:num_rational_space]
-    |if[space_term == 0]                                         |>> :num_rational_block
+    |if[space_term == 0]     | ->                               |>> :num_rational_block
     |default                  | BareValue(USE_MARK)              |return
   |state[:num_rational_block]
     |c[';']                   | BareValue(USE_MARK)              |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === Complex: number +/- number + i (e.g., 3+4i, 3.5-2i) ===
   ; After seeing '+' or '-' following a number, accumulate imaginary part
@@ -271,11 +271,11 @@
     |c[:bracket]              | BareValue(USE_MARK)              |return  ; no 'i', not complex
     |default                  |                                  |>> :string
   |state[:num_complex_imag_space]
-    |if[space_term == 0]                                         |>> :num_complex_imag_block
+    |if[space_term == 0]     | ->                               |>> :num_complex_imag_block
     |default                  | BareValue(USE_MARK)              |return
   |state[:num_complex_imag_block]
     |c[';']                   | BareValue(USE_MARK)              |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === Complex imaginary part: fractional (3+4.5i) ===
   |state[:num_complex_imag_frac]
@@ -288,11 +288,11 @@
     |c[:bracket]              | BareValue(USE_MARK)              |return
     |default                  |                                  |>> :string
   |state[:num_complex_imag_frac_space]
-    |if[space_term == 0]                                         |>> :num_complex_imag_frac_block
+    |if[space_term == 0]     | ->                               |>> :num_complex_imag_frac_block
     |default                  | BareValue(USE_MARK)              |return
   |state[:num_complex_imag_frac_block]
     |c[';']                   | BareValue(USE_MARK)              |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === Complex imaginary part: exponent (3+4e2i) ===
   |state[:num_complex_imag_exp]
@@ -304,11 +304,11 @@
     |c[:bracket]              | BareValue(USE_MARK)              |return
     |default                  |                                  |>> :string
   |state[:num_complex_imag_exp_space]
-    |if[space_term == 0]                                         |>> :num_complex_imag_exp_block
+    |if[space_term == 0]     | ->                               |>> :num_complex_imag_exp_block
     |default                  | BareValue(USE_MARK)              |return
   |state[:num_complex_imag_exp_block]
     |c[';']                   | BareValue(USE_MARK)              |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
   |state[:num_complex_imag_exp_d]
     |eof                      | BareValue(USE_MARK)              |return
     |c[<0-9 '_'>]             | ->                               |>>
@@ -318,11 +318,11 @@
     |c[:bracket]              | BareValue(USE_MARK)              |return
     |default                  |                                  |>> :string
   |state[:num_complex_imag_exp_d_space]
-    |if[space_term == 0]                                         |>> :num_complex_imag_exp_d_block
+    |if[space_term == 0]     | ->                               |>> :num_complex_imag_exp_d_block
     |default                  | BareValue(USE_MARK)              |return
   |state[:num_complex_imag_exp_d_block]
     |c[';']                   | BareValue(USE_MARK)              |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string
 
   ; === String fallback (anything not keyword/number) ===
   |state[:string]
@@ -332,8 +332,8 @@
     |c[:bracket]              | BareValue(USE_MARK)              |return
     |default                  | ->                               |>>
   |state[:string_space]
-    |if[space_term == 0]                                         |>> :string_block
+    |if[space_term == 0]     | ->                               |>> :string_block
     |default                  | BareValue(USE_MARK)              |return
   |state[:string_block]
     |c[';']                | TERM(-1) | BareValue(USE_MARK)   |return
-    |default                  | ->                               |>> :string
+    |default                  |                                  |>> :string

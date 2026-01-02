@@ -185,8 +185,8 @@
 
 - id: freeform_block_no_dedentation
   desc: freeform block no dedentation
-  # Per SPEC 966-979: freeform blocks preserve exact whitespace
-  # ``` at col 6 opens freeform, content preserved verbatim until closing ```
+  # Per SPEC: freeform blocks preserve exact whitespace, no dedentation
+  # ``` closes when found at start of line after any whitespace
   udon: |-
     |code
       ```
@@ -197,7 +197,7 @@
     - ElementStart
     - [Name, "code"]
     - FreeformStart
-    - [Text, "def foo():"]
-    - [Text, "    return 1"]
+    - [Text, "  def foo():"]
+    - [Text, "      return 1"]
     - FreeformEnd
     - ElementEnd

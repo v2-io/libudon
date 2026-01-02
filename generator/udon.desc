@@ -196,8 +196,14 @@
 
   |state[:check_sameline_pipe]
     |c['{']                   | -> | /embedded                   |>> :post_child
-    |c[<XLBL_START SQ '[' '.?!*+'>]  | /element(COL - 1, :elem_col)    |>> :post_child
+    |c[<XLBL_START SQ '[' '.?!*+'>]  |                               |>> :check_sameline_elem_col
     |default                  | /sameline_text(:elem_col, '|')   |>> :children
+
+  ; Check if new element's column requires closing current element first (sibling detection)
+  ; Per SPEC: "pop while new_column <= stack_top.base_column"
+  |state[:check_sameline_elem_col]
+    |if[COL - 1 <= :elem_col]                                     |return
+    |                       | /element(COL - 1, :elem_col)        |>> :post_child
 
   |state[:check_sameline_semi]
     |c['{']                   | -> | /brace_comment              |>> :pre_content
@@ -216,8 +222,14 @@
   |state[:post_child]
     |c['\n']                  | ->                               |>> :children
     |c[' \t']                 | ->                               |>>
-    |c['|']                   | ->                               |>> :check_sameline_pipe
+    |c['|']                   |                                  |>> :check_post_pipe_col
     |default                  | /sameline_text(:elem_col, <>)     |>> :children
+
+  ; Check if '|' is at a sibling/dedent column - if so, let :children handle it
+  ; This avoids consuming the '|' before knowing if it belongs to a sibling
+  |state[:check_post_pipe_col]
+    |if[COL <= :elem_col]                                        |>> :children
+    |default             | ->                                    |>> :check_sameline_pipe
 
   ; === Children Loop ===
   ; NOTE: count_indent returns 0-based column, but COL is 1-based
@@ -236,8 +248,17 @@
     |c[':']                   | -> | /block_attr                 |>> :children
     |c['!']                   | -> | /block_directive(col)       |>> :children
     |c[';']                   | -> | /line_comment               |>> :children
+    |c['`']                   | ->                               |>> :child_check_freeform
     |c[<SQ>]                  | ->                               |>> :child_apos
     |default                  | /prose(col, :elem_col, <>)       |>> :children
+
+  |state[:child_check_freeform]
+    |c['`']                   | ->                               |>> :child_check_freeform2
+    |default                  | /prose(col, :elem_col, '`')      |>> :children
+
+  |state[:child_check_freeform2]
+    |c['`']                   | -> | /freeform                   |>> :children
+    |default                  | /prose_backticks(col, :elem_col) |>> :children
 
   ; Block-level escape inside element children (same as document-level)
   |state[:child_apos]
@@ -314,7 +335,12 @@
   |state[:value_start]
     |c[' \t']                 | ->                               |>>
     |c['\n']                  | BoolTrue                         |return
-    |default                  | /value(0, '\0')                  |return
+    |default                  | /value(0, '\0')                  |>> :post_value
+
+  ; After value, check for trailing comment (per SPEC: ` ;` terminates values)
+  |state[:post_value]
+    |c[';']                   | -> | /line_comment_content        |return
+    |default                  |                                  |return
 
 
 |function[sameline_attr]
@@ -458,33 +484,42 @@
 ; Freeform Blocks (```)
 ; ============================================================================
 
-; Freeform block - captures content until closing ```
+; Freeform block - captures content until closing ``` at start of any line
+; Preserves exact whitespace - no dedentation
+; Closing ``` detected when line starts with optional whitespace then ```
 |function[freeform:Freeform]
   |state[:lang]
-    |c['\n']                  | ->                               |>> :content
-    |c[XLBL_START]                | /name                            |>> :eol
-    |default                  |                                  |>> :content
+    |c['\n']                  | ->                               |>> :line_start
+    |c[XLBL_START]            | /name                            |>> :eol
+    |default                  |                                  |>> :line_start
 
   |state[:eol]
-    |c['\n']                  | ->                               |>> :content
+    |c['\n']                  | ->                               |>> :line_start
     |default                  | ->                               |>>  ; consume rest of line
 
+  ; Start of each content line - MARK immediately, then check content
+  |state[:line_start]
+    |c['\n']                  | ->                               |>>  ; blank line
+    |default                  | MARK                             |>> :content
+
+  ; Check if line is closing ``` (starts with optional ws then ```)
   |state[:content]
-    |c['\n']                  | ->                               |>>
-    |c['`']                   |                                  |>> :maybe_end
-    |default                  | MARK                             |>> :line
+    |c[' \t']                 | ->                               |>>
+    |c['`']                   | ->                               |>> :maybe_end1
+    |default                  | ->                               |>> :line
 
   |state[:line]
-    |c['\n']                  | TERM | RawContent(USE_MARK) | -> |>> :content
+    |c['\n']                  | TERM | Text(USE_MARK) | ->       |>> :line_start
     |default                  | ->                               |>>
 
-  |state[:maybe_end]
+  ; Check for ``` sequence
+  |state[:maybe_end1]
     |c['`']                   | ->                               |>> :maybe_end2
-    |default                  | MARK | PREPEND('`')              |>> :line
+    |default                  |                                  |>> :line  ; only one `, continue
 
   |state[:maybe_end2]
-    |c['`']                   | -> | ->                          |return  ; consume final `
-    |default                  | MARK | PREPEND('``')             |>> :line
+    |c['`']                   | ->                               |return  ; found ```, done
+    |default                  |                                  |>> :line  ; only ``, continue
 
 
 ; text - block-level prose content (manual emit control, no :Text auto-emit)
@@ -544,8 +579,13 @@
   |state[:check_pipe]
     |eof                      | TERM | Text(USE_MARK)            |return  ; include | in text
     |c['{']                   | TERM(-1) | Text(USE_MARK) | -> | /embedded |>> :after_inline
-    |c[<XLBL_START SQ '[' '.?!*+'>] | TERM(-1) | Text(USE_MARK) | /element(COL - 1, :elem_col) |>> :after_inline
+    |c[<XLBL_START SQ '[' '.?!*+'>] |                               |>> :check_pipe_elem_col
     |default                  |                                  |>> :main
+
+  ; Check if inline element's column requires closing current element first
+  |state[:check_pipe_elem_col]
+    |if[COL - 1 <= :elem_col] | TERM(-1) | Text(USE_MARK)         |return
+    |                        | TERM(-1) | Text(USE_MARK) | /element(COL - 1, :elem_col) |>> :after_inline
 
   |state[:check_semi]
     |eof                      | TERM | Text(USE_MARK)            |return  ; include ; in text
