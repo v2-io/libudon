@@ -34,6 +34,7 @@ fn format_event(event: &udon_core::Event) -> String {
         Float { content, .. } => format!("[Float, {:?}]", String::from_utf8_lossy(content)),
         Rational { content, .. } => format!("[Rational, {:?}]", String::from_utf8_lossy(content)),
         Complex { content, .. } => format!("[Complex, {:?}]", String::from_utf8_lossy(content)),
+        Warning { content, .. } => format!("[Warning, {:?}]", String::from_utf8_lossy(content)),
         Error { code, .. } => format!("[Error, \"{:?}\"]", code),
     }
 }

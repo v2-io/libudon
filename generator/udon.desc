@@ -50,6 +50,7 @@
 |type[Float]         CONTENT    ; emits Float event (from values.desc)
 |type[Rational]      CONTENT    ; emits Rational event (1/3r)
 |type[Complex]       CONTENT    ; emits Complex event (3+4i, 5i)
+|type[Warning]       CONTENT    ; emits Warning event (parser warnings)
 
 |type[INT]           INTERNAL   ; no emit - internal integer
 |type[BOOL]          INTERNAL   ; no emit - internal boolean
@@ -175,7 +176,7 @@
 ; Element (block form - indent-based children)
 ; ============================================================================
 
-|function[element:Element]  :elem_col :parent_col
+|function[element:Element]  :elem_col :parent_col  | content_base = -1
 
   |state[:identity]
     | /parse_element_identity(<>)                                |>> :post_identity
@@ -232,17 +233,39 @@
     |default             | ->                                    |>> :check_sameline_pipe
 
   ; === Children Loop ===
-  ; NOTE: count_indent returns 0-based column, but COL is 1-based
+  ; content_base tracks first prose line's column for dedentation/warnings
+  ; For prose lines beyond content_base, extra spaces are preserved in output
   |state[:children]
     |c['\n']                  | ->                               |>>
-    |c[' ']                   | col = /count_indent              |>> :check_child
+    |c[' ']                   | -> | col = 1                     |>> :children_ws
     |c['\t']                  | /error(no_tabs) | ->['\n']       |>>
     |default                  | col = COL - 1                    |>> :check_child
+
+  ; Count spaces, but stop at content_base if set (to preserve extra for prose)
+  |state[:children_ws]
+    ; If content_base is set and we've reached it, stop counting
+    |if[content_base >= 0 && col >= content_base]               |>> :at_content_base
+    |c[' ']                   | -> | col += 1                    |>>
+    |default                  |                                  |>> :check_child
+
+  ; At content_base - check what follows. Extra spaces may remain!
+  |state[:at_content_base]
+    |if[col <= :elem_col]                                        |return  ; dedent
+    ; For structural chars, consume remaining spaces first
+    |c['|']                   | ->[' '] | ->                     |>> :child_pipe
+    |c[':']                   | ->[' '] | -> | /block_attr       |>> :children
+    |c['!']                   | ->[' '] | -> | /block_directive(col) |>> :children
+    |c[';']                   | ->[' '] | -> | /line_comment     |>> :children
+    |c['`']                   | ->[' '] | ->                     |>> :child_check_freeform
+    |c[<SQ>]                  | ->[' '] | ->                     |>> :child_apos
+    ; For prose (default includes space), DON'T consume - extra spaces are content
+    |default                  | /prose(col, :elem_col, <>)       |>> :children
 
   |state[:check_child]
     |if[col <= :elem_col]                                        |return  ; dedent
     |                                                            |>> :child_dispatch
 
+  ; First prose line (content_base not yet set) or lines with less indent
   |state[:child_dispatch]
     |c['|']                   | ->                               |>> :child_pipe
     |c[':']                   | -> | /block_attr                 |>> :children
@@ -250,7 +273,19 @@
     |c[';']                   | -> | /line_comment               |>> :children
     |c['`']                   | ->                               |>> :child_check_freeform
     |c[<SQ>]                  | ->                               |>> :child_apos
-    |default                  | /prose(col, :elem_col, <>)       |>> :children
+    |default                  |                                  |>> :prose_check_base
+
+  ; Check content_base for prose lines
+  ; - If not set: this is first prose line, set it
+  ; - If col < content_base: inconsistent indent warning, update content_base
+  ; - If col >= content_base: handled in :at_content_base (shouldn't reach here)
+  |state[:prose_check_base]
+    |if[content_base < 0]     | content_base = col               |>> :do_prose
+    ; col < content_base (since >= would have gone to :at_content_base)
+    |default                  | Warning(Inconsistent indentation) | content_base = col |>> :do_prose
+
+  |state[:do_prose]
+    | /prose(col, :elem_col, <>)                                 |>> :children
 
   |state[:child_check_freeform]
     |c['`']                   | ->                               |>> :child_check_freeform2
