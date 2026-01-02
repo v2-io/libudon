@@ -74,9 +74,15 @@
     |c[':']                   | -> | /block_attr                 |>> :line
     |c['!']                   | -> | /block_directive(col)       |>> :line
     |c[';']                   | -> | /line_comment               |>> :line
+    |c['@']                   | ->                               |>> :check_at
     |c['`']                   | ->                               |>> :check_freeform
     |c[<SQ>]                  | ->                               |>> :check_apos
     |default                  | /prose(col, -1, <>)              |>> :line
+
+  ; Block-level reference: @[id] inserts element by id (SPEC 1473-1476)
+  |state[:check_at]
+    |c['[']                   | -> | /block_reference            |>> :line
+    |default                  | /prose(col, -1, '@')             |>> :line
 
   ; Block-level escape: ' followed by marker char outputs that char literally
   ; Per FULL-SPEC.md lines 104-124: '+ |;:!' = escape, else preserve '
@@ -271,9 +277,15 @@
     |c[':']                   | -> | /block_attr                 |>> :children
     |c['!']                   | -> | /block_directive(col)       |>> :children
     |c[';']                   | -> | /line_comment               |>> :children
+    |c['@']                   | ->                               |>> :child_check_at
     |c['`']                   | ->                               |>> :child_check_freeform
     |c[<SQ>]                  | ->                               |>> :child_apos
     |default                  |                                  |>> :prose_check_base
+
+  ; Block-level reference in element: @[id]
+  |state[:child_check_at]
+    |c['[']                   | -> | /block_reference            |>> :children
+    |default                  | /prose(col, :elem_col, '@')      |>> :children
 
   ; Check content_base for prose lines
   ; - If not set: this is first prose line, set it
@@ -364,7 +376,8 @@
 
 |function[block_attr]
   |state[:key]
-    |c[XLBL_START]                | /attr_key                        |>> :value_start
+    |c['[']                   | -> | /attr_reference              |return  ; :[id] reference
+    |c[XLBL_START]            | /attr_key                        |>> :value_start
     |c[<SQ>]                  | -> | /attr_key_quoted            |>> :value_start
 
   |state[:value_start]
@@ -380,7 +393,8 @@
 
 |function[sameline_attr]
   |state[:key]
-    |c[XLBL_START]                | /attr_key                        |>> :value_start
+    |c['[']                   | -> | /attr_reference              |return  ; :[id] reference
+    |c[XLBL_START]            | /attr_key                        |>> :value_start
     |c[<SQ>]                  | -> | /attr_key_quoted            |>> :value_start
 
   |state[:value_start]
@@ -391,7 +405,8 @@
 
 |function[sameline_attr_embedded]
   |state[:key]
-    |c[XLBL_START]                | /attr_key                        |>> :value_start
+    |c['[']                   | -> | /attr_reference              |return  ; :[id] reference
+    |c[XLBL_START]            | /attr_key                        |>> :value_start
     |c[<SQ>]                  | -> | /attr_key_quoted            |>> :value_start
 
   |state[:value_start]
@@ -409,6 +424,30 @@
 |function[attr_key_quoted:Attr]  | MARK
   |state[:main]
     | /skip_single_quoted | TERM(-1)                             |return
+
+
+; ============================================================================
+; References
+; ============================================================================
+;
+; Two reference forms (SPEC 1450-1488):
+;   @[id] - Block-level: insert entire element structure
+;   :[id] - Attribute position: merge attributes from referenced element
+
+; Block-level reference: @[id] inserts element by id
+; Called after @[ consumed
+|function[block_reference:Reference]  | MARK
+  |state[:main]
+    |c[']']                   | TERM | ->                        |return
+    |default                  | ->                               |>>
+
+
+; Attribute merge reference: :[id] merges attributes
+; Called after :[ consumed
+|function[attr_reference:Reference]  | MARK
+  |state[:main]
+    |c[']']                   | TERM | ->                        |return
+    |default                  | ->                               |>>
 
 
 ; ============================================================================

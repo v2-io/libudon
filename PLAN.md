@@ -119,7 +119,7 @@ Work will be reverted if fixtures are filled this way.
 - [x] **indentation_hierarchy.yaml** (7 tests) - Filled per SPEC 543-820, ALL PASS
 - [x] **inline_comments.yaml** (8 tests) - Audited, 1 bug exposed (space after comment)
 - [x] **comments.yaml** (30+ tests) - Comprehensive audit, 6 bugs exposed
-- [x] **references.yaml** (4 tests) - Filled, exposes missing grammar
+- [x] **references.yaml** (4 tests) - Filled per SPEC 1412-1489, ALL PASS
 
 ### Needs SPEC Audit
 
@@ -166,9 +166,9 @@ Discovered while filling fixtures - need grammar fixes:
    - After inline comment, now goes to `:post_sameline_inline` instead of `:pre_content`
    - Spaces after `}` are preserved in text content
 
-8. **Block-level references not implemented** (SPEC 1473-1488)
-   - `@[id]` at block level for element insertion
-   - `:[id]` in attribute position for merge
+8. ~~**Block-level references not implemented**~~ - FIXED (SPEC 1473-1488)
+   - `@[id]` at block level emits Reference event
+   - `:[id]` in attribute position emits Reference event
 
 ## Grammar DRY Refactoring
 

@@ -170,6 +170,7 @@ pub enum ParseErrorCode {
     UnexpectedEof,
     UnexpectedChar,
     Unclosed,
+    UnclosedReference,
     UnclosedStringValue,
     UnclosedArray,
     UnclosedFreeform,
@@ -553,7 +554,7 @@ impl<'a> Parser<'a> {
     {
         let mut col: i32 = 0;
         #[derive(Clone, Copy)]
-        enum State { Line, Dispatch, CheckApos, CheckFreeform, CheckFreeform2, CheckPipe,  }
+        enum State { Line, Dispatch, CheckAt, CheckApos, CheckFreeform, CheckFreeform2, CheckPipe,  }
         let mut state = State::Line;
         loop {
             match state {
@@ -610,6 +611,11 @@ impl<'a> Parser<'a> {
                     state = State::Line;
                     continue;
                         }
+                        Some(b'@') => {
+                    self.advance();
+                    state = State::CheckAt;
+                    continue;
+                        }
                         Some(b'`') => {
                     self.advance();
                     state = State::CheckFreeform;
@@ -622,6 +628,24 @@ impl<'a> Parser<'a> {
                         }
                         _ => {
                     self.parse_prose(col, -1, b"", on_event);
+                    state = State::Line;
+                    continue;
+                        }
+                    }
+                }
+                State::CheckAt => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'[') => {
+                    self.advance();
+                    self.parse_block_reference(on_event);
+                    state = State::Line;
+                    continue;
+                        }
+                        _ => {
+                    self.parse_prose(col, -1, b"@", on_event);
                     state = State::Line;
                     continue;
                         }
@@ -959,7 +983,7 @@ impl<'a> Parser<'a> {
         let mut content_base: i32 = -1;
         let mut col: i32 = 0;
         #[derive(Clone, Copy)]
-        enum State { Identity, PostIdentity, PreContent, CheckSamelinePipe, CheckSamelineElemCol, CheckSamelineSemi, CheckSamelineBang, PostSamelineInline, PostChild, CheckPostPipeCol, Children, ChildrenWs, AtContentBase, CheckChild, ChildDispatch, ProseCheckBase, DoProse, ChildCheckFreeform, ChildCheckFreeform2, ChildApos, ChildPipe, AfterChild,  }
+        enum State { Identity, PostIdentity, PreContent, CheckSamelinePipe, CheckSamelineElemCol, CheckSamelineSemi, CheckSamelineBang, PostSamelineInline, PostChild, CheckPostPipeCol, Children, ChildrenWs, AtContentBase, CheckChild, ChildDispatch, ChildCheckAt, ProseCheckBase, DoProse, ChildCheckFreeform, ChildCheckFreeform2, ChildApos, ChildPipe, AfterChild,  }
         let mut state = State::Identity;
         loop {
             match state {
@@ -1321,6 +1345,11 @@ impl<'a> Parser<'a> {
                     state = State::Children;
                     continue;
                         }
+                        Some(b'@') => {
+                    self.advance();
+                    state = State::ChildCheckAt;
+                    continue;
+                        }
                         Some(b'`') => {
                     self.advance();
                     state = State::ChildCheckFreeform;
@@ -1333,6 +1362,25 @@ impl<'a> Parser<'a> {
                         }
                         _ => {
                     state = State::ProseCheckBase;
+                    continue;
+                        }
+                    }
+                }
+                State::ChildCheckAt => {
+                    if self.eof() {
+                        on_event(Event::ElementEnd { span: self.span() });
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'[') => {
+                    self.advance();
+                    self.parse_block_reference(on_event);
+                    state = State::Children;
+                    continue;
+                        }
+                        _ => {
+                    self.parse_prose(col, elem_col, b"@", on_event);
+                    state = State::Children;
                     continue;
                         }
                     }
@@ -1652,6 +1700,11 @@ impl<'a> Parser<'a> {
                         return;
                     }
                     match self.peek() {
+                        Some(b'[') => {
+                    self.advance();
+                    self.parse_attr_reference(on_event);
+                    return;
+                        }
                         Some(b) if Self::is_xlbl_start(b) => {
                     self.parse_attr_key(on_event);
                     state = State::ValueStart;
@@ -1722,6 +1775,11 @@ impl<'a> Parser<'a> {
                         return;
                     }
                     match self.peek() {
+                        Some(b'[') => {
+                    self.advance();
+                    self.parse_attr_reference(on_event);
+                    return;
+                        }
                         Some(b) if Self::is_xlbl_start(b) => {
                     self.parse_attr_key(on_event);
                     state = State::ValueStart;
@@ -1776,6 +1834,11 @@ impl<'a> Parser<'a> {
                         return;
                     }
                     match self.peek() {
+                        Some(b'[') => {
+                    self.advance();
+                    self.parse_attr_reference(on_event);
+                    return;
+                        }
                         Some(b) if Self::is_xlbl_start(b) => {
                     self.parse_attr_key(on_event);
                     state = State::ValueStart;
@@ -1860,6 +1923,56 @@ impl<'a> Parser<'a> {
                     on_event(Event::Attr { content: self.term(), span: self.span_from_mark() });
                     return;
                 }
+            }
+        }
+    }
+
+    /// Parse block_reference -> Reference
+    fn parse_block_reference<F>(&mut self, on_event: &mut F)
+    where
+        F: FnMut(Event<'a>),
+    {
+        self.mark();
+                    self.mark();
+        loop {
+            match self.scan_to1(b']') {
+                Some(b']') => {
+                    self.set_term(0);
+                    self.advance();
+                    on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
+                    return;
+                }
+                None => {
+                    on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
+                    on_event(Event::Error { code: ParseErrorCode::UnclosedReference, span: self.span() });
+                    return;
+                }
+                _ => unreachable!("scan_to only returns target chars"),
+            }
+        }
+    }
+
+    /// Parse attr_reference -> Reference
+    fn parse_attr_reference<F>(&mut self, on_event: &mut F)
+    where
+        F: FnMut(Event<'a>),
+    {
+        self.mark();
+                    self.mark();
+        loop {
+            match self.scan_to1(b']') {
+                Some(b']') => {
+                    self.set_term(0);
+                    self.advance();
+                    on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
+                    return;
+                }
+                None => {
+                    on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
+                    on_event(Event::Error { code: ParseErrorCode::UnclosedReference, span: self.span() });
+                    return;
+                }
+                _ => unreachable!("scan_to only returns target chars"),
             }
         }
     }
