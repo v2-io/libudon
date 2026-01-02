@@ -638,16 +638,18 @@
     |default                  | ->                               |>>
 
   |state[:check_pipe]
-    ; Inside embedded, only |{...} allowed
-    |c['{']                   | -> | /embedded | MARK            |>> :main
+    ; Inside embedded, only |{...} allowed - emit accumulated text first
+    |c['{']                   | Text(USE_MARK) | -> | /embedded | MARK |>> :main
     |default                  | MARK | PREPEND('|')              |>> :main
 
   |state[:check_semi]
-    |c['{']                   | -> | /brace_comment | MARK       |>> :main
+    ; Brace comment - emit accumulated text first
+    |c['{']                   | Text(USE_MARK) | -> | /brace_comment | MARK |>> :main
     |default                  | MARK | PREPEND(';')              |>> :main
 
   |state[:check_bang]
-    |c['{']                   | -> | /sameline_directive | MARK    |>> :main
+    ; Inline directive - emit accumulated text first
+    |c['{']                   | Text(USE_MARK) | -> | /sameline_directive | MARK |>> :main
     |default                  | MARK | PREPEND('!')              |>> :main
 
 

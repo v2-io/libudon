@@ -1,68 +1,232 @@
+# Inline element nesting tests
+# Tests rightward nesting behavior where column position determines parent/child relationships
+
 ---
 - id: inline_nesting_basic
   desc: inline nesting basic
+  # Elements on same line nest rightward: one > two > three
   udon: "|one |two |three"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
 - id: inline_equivalence_to_vertical
   desc: inline equivalence to vertical
+  # Vertical nesting with increasing indent is equivalent to inline nesting
   udon: |-
     |one
          |two
               |three
-  events: []
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
 - id: inline_equivalence_minimal_indent
   desc: inline equivalence minimal indent
   udon: |-
     |one
       |two
         |three
-  events: []
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
 - id: sibling_after_inline_elements
   desc: sibling after inline elements
+  # |alpha at col 2 is child of |one (col 0), sibling to closed inline chain
   udon: |-
     |one |two |three
       |alpha
-  events: []
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "alpha"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
 - id: column_alignment_is_sibling
   desc: column alignment is sibling
+  # |alpha at col 5 aligns with |two, making it sibling after |three closes
   udon: |-
     |one |two |three
          |alpha
-  events: []
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "alpha"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
 - id: child_of_inline_element_between_columns
   desc: child of inline element between columns
+  # |alpha at col 8 is between |two (5) and |three (10), child of |two
   udon: |-
     |one |two |three
             |alpha
-  events: []
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "alpha"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
 - id: child_of_inline_at_same_column_as_next
   desc: child of inline at same column as next
+  # |alpha at col 10 aligns with |three, becomes sibling after |three closes
   udon: |-
     |one |two |three
               |alpha
-  events: []
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "alpha"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
 - id: multi_line_progression
   desc: multi line progression
+  # |alpha and |beta are successive siblings of |two after |three closes
   udon: |-
     |one |two |three
            |alpha
          |beta
-  events: []
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "alpha"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "beta"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
 - id: stack_state_after_dedent
   desc: stack state after dedent
+  # |alpha at col 2 is child of |one; |beta at col 5 is child of |alpha
   udon: |-
     |one |two |three
       |alpha
          |beta
-  events: []
+  events:
+    - ElementStart
+    - [Name, "one"]
+    - ElementStart
+    - [Name, "two"]
+    - ElementStart
+    - [Name, "three"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "alpha"]
+    - ElementStart
+    - [Name, "beta"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
 - id: many_inline_elements
   desc: many inline elements
+  # Tests deep inline nesting with children at various column positions
   udon: |-
     |a |b |c |d |e |f |g
              |child-of-c
        |child-of-a
-  events: []
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementStart
+    - [Name, "c"]
+    - ElementStart
+    - [Name, "d"]
+    - ElementStart
+    - [Name, "e"]
+    - ElementStart
+    - [Name, "f"]
+    - ElementStart
+    - [Name, "g"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "child-of-c"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "child-of-a"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+
 - id: inline_with_text_content
   desc: inline with text content
   udon: "|a |b |c text for c"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementStart
+    - [Name, "c"]
+    - [Text, "text for c"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd

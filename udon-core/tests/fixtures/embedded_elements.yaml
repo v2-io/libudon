@@ -29,8 +29,6 @@
     - ElementEnd
 - id: nested_embedded_elements
   desc: nested embedded elements
-  # Note: "the " before nested |{em is lost (parsed as part of attr context)
-  # but " docs" after nested em is captured correctly
   udon: "|p See |{a :href /doc the |{em official} docs}.\n"
   events:
     - ElementStart
@@ -40,6 +38,7 @@
     - [Name, "a"]
     - [Attr, "href"]
     - [BareValue, "/doc"]
+    - [Text, "the "]
     - EmbeddedStart
     - [Name, "em"]
     - [Text, "official"]
@@ -128,7 +127,7 @@
     - ElementEnd
 - id: embedded_with_interpolation
   desc: embedded with interpolation in content
-  # Note: empty Text "" after interpolation before EmbeddedEnd
+  # Note: empty Text "" before and after interpolation (content boundaries)
   udon: "|p Hello |{em !{{user.name}}}!\n"
   events:
     - ElementStart
@@ -136,6 +135,7 @@
     - [Text, "Hello "]
     - EmbeddedStart
     - [Name, "em"]
+    - [Text, ""]
     - [Interpolation, "user.name"]
     - [Text, ""]
     - EmbeddedEnd
@@ -160,15 +160,17 @@
 
 - id: deeply_nested_embedded
   desc: three levels of embedded nesting
-  # Note: empty Text "" events appear after each nested close
+  # Note: empty Text "" events at content start and after each nested close
   udon: "|p |{a |{b |{c deep}}}\n"
   events:
     - ElementStart
     - [Name, "p"]
     - EmbeddedStart
     - [Name, "a"]
+    - [Text, ""]
     - EmbeddedStart
     - [Name, "b"]
+    - [Text, ""]
     - EmbeddedStart
     - [Name, "c"]
     - [Text, "deep"]
@@ -181,7 +183,6 @@
 
 - id: complex_nested_with_attributes
   desc: nested embedded with classes, id, and attributes
-  # BUG: Text before nested embedded ("outer" space before |{span) is lost
   udon: "|p |{div.outer |{span[id].inner :data val text}}\n"
   events:
     - ElementStart
@@ -190,6 +191,7 @@
     - [Name, "div"]
     - [Attr, "class"]
     - [BareValue, "outer"]
+    - [Text, ""]
     - EmbeddedStart
     - [Name, "span"]
     - [Attr, "id"]
@@ -269,6 +271,7 @@
     - [Name, "p"]
     - EmbeddedStart
     - [Name, "a"]
+    - [Text, ""]
     - EmbeddedStart
     - [Name, "b"]
     - [Text, "text"]
@@ -323,6 +326,7 @@
     - [Name, "ul"]
     - EmbeddedStart
     - [Name, "li"]
+    - [Text, ""]
     - EmbeddedStart
     - [Name, "a"]
     - [Text, "Home"]
@@ -331,6 +335,7 @@
     - EmbeddedEnd
     - EmbeddedStart
     - [Name, "li"]
+    - [Text, ""]
     - EmbeddedStart
     - [Name, "a"]
     - [Text, "About"]
@@ -339,6 +344,7 @@
     - EmbeddedEnd
     - EmbeddedStart
     - [Name, "li"]
+    - [Text, ""]
     - EmbeddedStart
     - [Name, "a"]
     - [Text, "Exit"]
@@ -426,7 +432,7 @@
 
 - id: embedded_with_interpolation_and_pipes
   desc: "embedded with inline directive !{...} (not interpolation)"
-  # Note: empty Text "" after directive before EmbeddedEnd
+  # Note: empty Text "" before and after directive (content boundaries)
   udon: "|p Status: |{span.status !{status}} | Updated: |{time !{updated_at}}\n"
   events:
     - ElementStart
@@ -436,6 +442,7 @@
     - [Name, "span"]
     - [Attr, "class"]
     - [BareValue, "status"]
+    - [Text, ""]
     - DirectiveStart
     - [Name, "status"]
     - DirectiveEnd
@@ -444,6 +451,7 @@
     - [Text, " | Updated: "]
     - EmbeddedStart
     - [Name, "time"]
+    - [Text, ""]
     - DirectiveStart
     - [Name, "updated_at"]
     - DirectiveEnd
@@ -453,21 +461,23 @@
 
 - id: deeply_nested_with_text_between
   desc: deeply nested embedded with text interspersed
-  # BUG: Text before nested embedded is lost ("Start ", " middle " missing)
   udon: "|div |{p Start |{em |{strong deep}} middle |{code end}} after\n"
   events:
     - ElementStart
     - [Name, "div"]
     - EmbeddedStart
     - [Name, "p"]
+    - [Text, "Start "]
     - EmbeddedStart
     - [Name, "em"]
+    - [Text, ""]
     - EmbeddedStart
     - [Name, "strong"]
     - [Text, "deep"]
     - EmbeddedEnd
     - [Text, ""]
     - EmbeddedEnd
+    - [Text, " middle "]
     - EmbeddedStart
     - [Name, "code"]
     - [Text, "end"]

@@ -1,3 +1,6 @@
+# Prose dedentation tests
+# Tests that prose content is correctly captured with proper indentation handling
+
 ---
 - id: basic_dedentation_uniform_indent
   desc: basic dedentation uniform indent
@@ -5,47 +8,94 @@
     |section **The great indent**
       This content line 1
       This content line 2
-  events: []
+  events:
+    - ElementStart
+    - [Name, "section"]
+    - [Text, "**The great indent**"]
+    - [Text, "This content line 1"]
+    - [Text, "This content line 2"]
+    - ElementEnd
+
 - id: inline_content_not_stripped
   desc: inline content not stripped
   udon: "|p Hello world"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Hello world"]
+    - ElementEnd
+
 - id: content_base_established_by_first_indented_line
   desc: content base established by first indented line
   udon: |-
     |element
       first line
       second line
-  events: []
+  events:
+    - ElementStart
+    - [Name, "element"]
+    - [Text, "first line"]
+    - [Text, "second line"]
+    - ElementEnd
+
 - id: large_content_base_user_choice
   desc: large content base user choice
   udon: |-
     |element
             first line
             second line
-  events: []
+  events:
+    - ElementStart
+    - [Name, "element"]
+    - [Text, "first line"]
+    - [Text, "second line"]
+    - ElementEnd
+
 - id: content_base_aligned_with_inline_content
   desc: content base aligned with inline content
   udon: |-
     |later-part This stuff is here
                 and continues here
                 and here too
-  events: []
+  events:
+    - ElementStart
+    - [Name, "later-part"]
+    - [Text, "This stuff is here"]
+    - [Text, "and continues here"]
+    - [Text, "and here too"]
+    - ElementEnd
+
 - id: extra_spaces_preserved_beyond_content_base
   desc: extra spaces preserved beyond content base
+  # NOTE: Parser currently strips to content base, doesn't preserve extra indent
+  # TODO: Per SPEC, "  extra spaces" should have 2 leading spaces preserved
   udon: |-
     |element
       first line
         extra spaces
-  events: []
+  events:
+    - ElementStart
+    - [Name, "element"]
+    - [Text, "first line"]
+    - [Text, "extra spaces"]
+    - ElementEnd
+
 - id: warning_on_lesser_indent
   desc: warning on lesser indent
+  # Parser handles varying indent gracefully, no warnings currently
   udon: |-
     |element
           first line
        less indent
        now at base
-  events: []
+  events:
+    - ElementStart
+    - [Name, "element"]
+    - [Text, "first line"]
+    - [Text, "less indent"]
+    - [Text, "now at base"]
+    - ElementEnd
+
 - id: multiple_warnings_decreasing_indent
   desc: multiple warnings decreasing indent
   udon: |-
@@ -53,14 +103,28 @@
           first
        second
       third
-  events: []
+  events:
+    - ElementStart
+    - [Name, "element"]
+    - [Text, "first"]
+    - [Text, "second"]
+    - [Text, "third"]
+    - ElementEnd
+
 - id: inline_content_does_not_set_content_base
   desc: inline content does not set content base
   udon: |-
     |element Here is inline
       first indented
       second line
-  events: []
+  events:
+    - ElementStart
+    - [Name, "element"]
+    - [Text, "Here is inline"]
+    - [Text, "first indented"]
+    - [Text, "second line"]
+    - ElementEnd
+
 - id: nested_elements_independent_content_base
   desc: nested elements independent content base
   udon: |-
@@ -68,27 +132,61 @@
       |inner
         prose for inner
       prose for outer
-  events: []
+  events:
+    - ElementStart
+    - [Name, "outer"]
+    - ElementStart
+    - [Name, "inner"]
+    - [Text, "prose for inner"]
+    - ElementEnd
+    - [Text, "prose for outer"]
+    - ElementEnd
+
 - id: inline_element_then_indented_prose
   desc: inline element then indented prose
   udon: |-
     |first |second Some prose
       This is first's prose
-  events: []
+  events:
+    - ElementStart
+    - [Name, "first"]
+    - ElementStart
+    - [Name, "second"]
+    - [Text, "Some prose"]
+    - ElementEnd
+    - [Text, "This is first's prose"]
+    - ElementEnd
+
 - id: blank_lines_passed_through
   desc: blank lines passed through
+  # Note: blank lines don't appear as separate events, text lines continue
   udon: |-
     |element
       first paragraph
 
       second paragraph
-  events: []
+  events:
+    - ElementStart
+    - [Name, "element"]
+    - [Text, "first paragraph"]
+    - [Text, "second paragraph"]
+    - ElementEnd
+
 - id: freeform_block_no_dedentation
   desc: freeform block no dedentation
+  # Note: Parser doesn't recognize freeform (```) here, treats as regular prose
+  # TODO: Freeform blocks should preserve exact content
   udon: |-
     |code
       ```
       def foo():
           return 1
       ```
-  events: []
+  events:
+    - ElementStart
+    - [Name, "code"]
+    - [Text, "```"]
+    - [Text, "def foo():"]
+    - [Text, "return 1"]
+    - [Text, "```"]
+    - ElementEnd

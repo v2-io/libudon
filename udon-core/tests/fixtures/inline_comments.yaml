@@ -1,33 +1,86 @@
+# Inline comments tests
+# Tests brace-delimited ;{...} comments within text content
+
 ---
 - id: basic_inline_comment
   desc: basic inline comment
   udon: "|p Text ;{TODO: fix this} more text."
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Text "]
+    - [Comment, "TODO: fix this"]
+    - [Text, " more text."]
+    - ElementEnd
+
 - id: inline_comment_with_nested_braces
   desc: inline comment with nested braces
   udon: "|p Text ;{comment with {nested} braces} continues."
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Text "]
+    - [Comment, "comment with {nested} braces"]
+    - [Text, " continues."]
+    - ElementEnd
+
 - id: multiple_inline_comments
   desc: multiple inline comments
   udon: "|p First ;{note 1} middle ;{note 2} end."
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "First "]
+    - [Comment, "note 1"]
+    - [Text, " middle "]
+    - [Comment, "note 2"]
+    - [Text, " end."]
+    - ElementEnd
+
 - id: inline_comment_in_element
   desc: inline comment in element
   udon: "|div Content here ;{hidden note}"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Text, "Content here "]
+    - [Comment, "hidden note"]
+    - ElementEnd
+
 - id: unclosed_inline_comment_error
   desc: unclosed inline comment error
+  # Note: Parser gracefully handles unclosed comment, emits content
   udon: "|p Text ;{unclosed comment"
-  events: []
-- id: inline_comment_vs_line_comment
-  desc: inline comment vs line comment
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Text "]
+    - [Comment, "unclosed comment"]
+    - ElementEnd
+
+- id: line_comment_standalone
+  desc: line comment standalone
   udon: "; This is a line comment"
-  events: []
-- id: inline_comment_vs_line_comment
-  desc: inline comment vs line comment
+  events:
+    - [Comment, " This is a line comment"]
+
+- id: inline_comment_in_text
+  desc: inline comment in text
   udon: "|p ;{This is inline} text"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Comment, "This is inline"]
+    - [Text, "text"]
+    - ElementEnd
+
 - id: comment_emitted_not_stripped
   desc: comment emitted not stripped
   udon: "|p Before ;{emitted comment} after"
-  events: []
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "Before "]
+    - [Comment, "emitted comment"]
+    - [Text, " after"]
+    - ElementEnd

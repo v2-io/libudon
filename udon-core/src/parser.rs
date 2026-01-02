@@ -2668,6 +2668,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_embedded(on_event);
                     self.mark();
@@ -2690,6 +2691,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_brace_comment(on_event);
                     self.mark();
@@ -2712,6 +2714,7 @@ impl<'a> Parser<'a> {
                     }
                     match self.peek() {
                         Some(b'{') => {
+                    on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     self.parse_sameline_directive(on_event);
                     self.mark();

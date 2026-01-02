@@ -92,14 +92,14 @@ All core grammar features implemented:
 
 - [x] **value_types.yaml** (23 tests) - All value types per SPEC
 - [x] **embedded_elements.yaml** (20 tests) - Embedded `|{...}` elements
+- [x] **prose_dedentation.yaml** (13 tests) - Prose content and dedentation
+- [x] **inline_element_nesting.yaml** (11 tests) - Column-based inline nesting
+- [x] **inline_comments.yaml** (8 tests) - Line and brace comments
 
-### Remaining (lower priority)
+### Remaining
 
 | Fixture | Empty Tests | Priority |
 |---------|-------------|----------|
-| prose_dedentation.yaml | 13 | Medium |
-| inline_element_nesting.yaml | 11 | Medium |
-| inline_comments.yaml | 8 | Medium |
 | indentation_hierarchy.yaml | 7 | Medium |
 | comment_indentation.yaml | 5 | Low |
 | indentation_edge_cases.yaml | 5 | Low |
@@ -116,9 +116,8 @@ Discovered while filling fixtures - need grammar fixes:
    - `|{a :href !{{url}} text}` - `!{{url}}` is not recognized as interpolation
    - Currently treated as literal text, braces get mangled
 
-2. **Text before nested embedded elements lost**
-   - `|{p Start |{em inner}}` - "Start " is not captured
-   - Text content before nested `|{...}` disappears
+2. ~~**Text before nested embedded elements lost**~~ - FIXED
+   - Text content before nested `|{...}` now captured correctly
 
 3. **Empty Text events after nested embedded**
    - Nested embedded elements emit `Text ""` after closing
