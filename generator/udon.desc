@@ -445,16 +445,12 @@
 
 ; Block-level reference: @[id] inserts element by id
 ; Called after @[ consumed
-|function[block_reference:Reference]  | MARK
-  |state[:main]
-    | ->[']'] | TERM | ->                                        |return
+|function[block_reference:Reference]  | MARK | ->[']'] | TERM | ->
 
 
 ; Attribute merge reference: :[id] merges attributes
 ; Called after :[ consumed
-|function[attr_reference:Reference]  | MARK
-  |state[:main]
-    | ->[']'] | TERM | ->                                        |return
+|function[attr_reference:Reference]  | MARK | ->[']'] | TERM | ->
 
 
 ; ============================================================================
@@ -573,12 +569,8 @@
 |function[freeform:Freeform]
   |state[:lang]
     |c['\n']                  | ->                               |>> :line_start
-    |c[XLBL_START]            | /name                            |>> :eol
+    |c[XLBL_START]            | /name | ->['\n'] | ->            |>> :line_start
     |default                  |                                  |>> :line_start
-
-  |state[:eol]
-    |c['\n']                  | ->                               |>> :line_start
-    |default                  | ->                               |>>  ; consume rest of line
 
   ; Start of each content line - MARK immediately, then check content
   |state[:line_start]

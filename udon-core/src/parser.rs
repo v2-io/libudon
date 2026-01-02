@@ -1960,21 +1960,10 @@ impl<'a> Parser<'a> {
     {
         self.mark();
                     self.mark();
-        loop {
-            if self.eof() {
-                on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
-                return;
-            }
-            match self.peek() {
-                _ => {
                     self.scan_to1(b']');
                     self.set_term(0);
                     self.advance();
-                    on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
-                    return;
-                }
-            }
-        }
+        on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
     }
 
     /// Parse attr_reference -> Reference
@@ -1984,21 +1973,10 @@ impl<'a> Parser<'a> {
     {
         self.mark();
                     self.mark();
-        loop {
-            if self.eof() {
-                on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
-                return;
-            }
-            match self.peek() {
-                _ => {
                     self.scan_to1(b']');
                     self.set_term(0);
                     self.advance();
-                    on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
-                    return;
-                }
-            }
-        }
+        on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
     }
 
     /// Parse value
@@ -2354,7 +2332,7 @@ impl<'a> Parser<'a> {
         let start_span = self.span();
         on_event(Event::FreeformStart { span: start_span.clone() });
         #[derive(Clone, Copy)]
-        enum State { Lang, Eol, LineStart, Content, Line, MaybeEnd1, MaybeEnd2,  }
+        enum State { Lang, LineStart, Content, Line, MaybeEnd1, MaybeEnd2,  }
         let mut state = State::Lang;
         loop {
             match state {
@@ -2371,27 +2349,15 @@ impl<'a> Parser<'a> {
                         }
                         Some(b) if Self::is_xlbl_start(b) => {
                     self.parse_name(on_event);
-                    state = State::Eol;
+                    self.scan_to1(b'\n');
+                    self.advance();
+                    state = State::LineStart;
                     continue;
                         }
                         _ => {
                     state = State::LineStart;
                     continue;
                         }
-                    }
-                }
-                State::Eol => {
-                    match self.scan_to1(b'\n') {
-                        Some(b'\n') => {
-                    self.advance();
-                    state = State::LineStart;
-                    continue;
-                        }
-                        None => {
-                            on_event(Event::Error { code: ParseErrorCode::UnclosedFreeform, span: self.span() });
-                            return;
-                        }
-                        _ => unreachable!("scan_to only returns target chars"),
                     }
                 }
                 State::LineStart => {
