@@ -1255,40 +1255,39 @@ impl<'a> Parser<'a> {
                     return;
                         }
                         Some(b'|') => {
-                    self.scan_to1(b' ');
                     self.advance();
                     state = State::ChildPipe;
                     continue;
                         }
                         Some(b':') => {
-                    self.scan_to1(b' ');
                     self.advance();
                     self.parse_block_attr(on_event);
                     state = State::Children;
                     continue;
                         }
                         Some(b'!') => {
-                    self.scan_to1(b' ');
                     self.advance();
                     self.parse_block_directive(col, on_event);
                     state = State::Children;
                     continue;
                         }
                         Some(b';') => {
-                    self.scan_to1(b' ');
                     self.advance();
                     self.parse_line_comment(on_event);
                     state = State::Children;
                     continue;
                         }
+                        Some(b'@') => {
+                    self.advance();
+                    state = State::ChildCheckAt;
+                    continue;
+                        }
                         Some(b'`') => {
-                    self.scan_to1(b' ');
                     self.advance();
                     state = State::ChildCheckFreeform;
                     continue;
                         }
                         Some(b'\'') => {
-                    self.scan_to1(b' ');
                     self.advance();
                     state = State::ChildApos;
                     continue;

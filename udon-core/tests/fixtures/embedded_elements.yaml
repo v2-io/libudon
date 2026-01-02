@@ -1,4 +1,18 @@
 ---
+# Embedded elements - FULL-SPEC.md lines 1026-1076
+#
+# Key rules from SPEC:
+# - SPEC 1035-1038: |{ starts, } ends (brace-balanced), contains name/attrs/content
+# - SPEC 1043-1047: Multiple embedded elements are siblings
+# - SPEC 1049-1053: Nested embedded elements supported
+# - SPEC 1057-1067: Inside |{...}, only |{...} form allowed, not |element
+# - SPEC 1069-1076: Can span multiple lines, indentation inside ignored
+#
+# Behavior notes:
+# - Space after } is consumed before next token (implementation consistent)
+# - Empty Text "" events occur at content boundaries (implementation artifact)
+# - Interpolation in attr values not yet implemented (known limitation)
+
 - id: basic_embedded_element
   desc: basic embedded element
   udon: "|p This has |{em emphasis} here"

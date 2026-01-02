@@ -254,17 +254,18 @@
     |c[' ']                   | -> | col += 1                    |>>
     |default                  |                                  |>> :check_child
 
-  ; At content_base - check what follows. Extra spaces may remain!
+  ; At content_base - check what follows
+  ; We've reached content_base column, now dispatch on character type
   |state[:at_content_base]
     |if[col <= :elem_col]                                        |return  ; dedent
-    ; For structural chars, consume remaining spaces first
-    |c['|']                   | ->[' '] | ->                     |>> :child_pipe
-    |c[':']                   | ->[' '] | -> | /block_attr       |>> :children
-    |c['!']                   | ->[' '] | -> | /block_directive(col) |>> :children
-    |c[';']                   | ->[' '] | -> | /line_comment     |>> :children
-    |c['`']                   | ->[' '] | ->                     |>> :child_check_freeform
-    |c[<SQ>]                  | ->[' '] | ->                     |>> :child_apos
-    ; For prose (default includes space), DON'T consume - extra spaces are content
+    |c['|']                   | ->                               |>> :child_pipe
+    |c[':']                   | -> | /block_attr                 |>> :children
+    |c['!']                   | -> | /block_directive(col)       |>> :children
+    |c[';']                   | -> | /line_comment               |>> :children
+    |c['@']                   | ->                               |>> :child_check_at
+    |c['`']                   | ->                               |>> :child_check_freeform
+    |c[<SQ>]                  | ->                               |>> :child_apos
+    ; For prose (default includes space), extra spaces beyond content_base are content
     |default                  | /prose(col, :elem_col, <>)       |>> :children
 
   |state[:check_child]

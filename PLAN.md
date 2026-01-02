@@ -120,21 +120,11 @@ Work will be reverted if fixtures are filled this way.
 - [x] **inline_comments.yaml** (8 tests) - Audited, 1 bug exposed (space after comment)
 - [x] **comments.yaml** (30+ tests) - Comprehensive audit, 6 bugs exposed
 - [x] **references.yaml** (4 tests) - Filled per SPEC 1412-1489, ALL PASS
-
-### Needs SPEC Audit
-
-These were filled by tracing parser output (WRONG). Need audit against FULL-SPEC.md:
-
-- [ ] **embedded_elements.yaml** (20 tests) - Audit against SPEC
-- [ ] **inline_element_nesting.yaml** (11 tests) - Audit against SPEC
-
-### Not Yet Filled
-
-| Fixture | Empty Tests | Priority |
-|---------|-------------|----------|
-| indentation_edge_cases.yaml | 5 | Low |
-| comments_and_text.yaml | 2 | Low |
-| arrays.yaml | 1 | Low |
+- [x] **indentation_edge_cases.yaml** (5 tests) - Filled per SPEC 543-639, ALL PASS
+- [x] **arrays.yaml** (15 tests) - Multiline array filled per SPEC 325-329, ALL PASS
+- [x] **embedded_elements.yaml** (24 tests) - Audited per SPEC 1026-1076, ALL PASS
+- [x] **inline_element_nesting.yaml** (11 tests) - Audited per SPEC 543-768, ALL PASS
+- [x] **comments_and_text.yaml** (7 tests) - Already complete, ALL PASS
 
 ## Known Parser Bugs
 
@@ -169,6 +159,11 @@ Discovered while filling fixtures - need grammar fixes:
 8. ~~**Block-level references not implemented**~~ - FIXED (SPEC 1473-1488)
    - `@[id]` at block level emits Reference event
    - `:[id]` in attribute position emits Reference event
+
+9. ~~**Elements after prose at content_base not recognized**~~ - FIXED
+   - `:at_content_base` state had `->[' ']` which skips TO next space
+   - This caused `|element` after prose to be swallowed entirely
+   - Fixed by removing erroneous `->[' ']` actions
 
 ## Grammar DRY Refactoring
 

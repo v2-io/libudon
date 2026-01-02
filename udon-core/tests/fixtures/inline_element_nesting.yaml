@@ -1,5 +1,15 @@
-# Inline element nesting tests
-# Tests rightward nesting behavior where column position determines parent/child relationships
+# Inline element nesting tests - FULL-SPEC.md lines 543-768
+#
+# Tests rightward nesting behavior where column position determines parent/child relationships.
+# Inline elements on a single line are treated as if on separate lines at their column positions.
+#
+# Key rules from SPEC:
+# - SPEC 553: "pop while new_column <= stack_top.base_column"
+# - SPEC 584-586: Greater column = child, Same column = sibling, Lesser = dedent
+# - SPEC 674: Inline elements are exactly as if they were on separate lines at those columns
+# - SPEC 719-737: "You only care about the previous line's stack state" - popped elements are gone
+#
+# Each test cites specific SPEC line numbers in comments.
 
 ---
 - id: inline_nesting_basic

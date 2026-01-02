@@ -1,33 +1,88 @@
 ---
+# Indentation edge cases - FULL-SPEC.md lines 543-639
+#
+# Key rules from SPEC:
+# - SPEC 553: "pop while new_column <= stack_top.base_column"
+# - SPEC 584-586: Greater column = child, Same column = sibling, Lesser = dedent
+# - SPEC 588-589: "To be INSIDE an element, you must be at column > element's column"
+#
+# Single space is valid - column 1 > column 0 makes it a child.
+# Mixed indent widths are valid as long as nesting follows column rules.
+
 - id: single_space_indent_is_valid
-  desc: single space indent is valid
+  desc: Single space indent is valid (column 1 > column 0)
   udon: |-
     |a
      |b
-  events: []
+  events:
+    # |a at column 0
+    # |b at column 1 - column 1 > 0 means |b is child of |a
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementEnd
+    - ElementEnd
+
 - id: mixed_indent_levels_valid
-  desc: mixed indent levels valid
+  desc: Mixed indent levels valid (variable width siblings)
   udon: |-
     |parent
       |child1
      |child2
-  events: []
+  events:
+    # |parent at column 0
+    # |child1 at column 2 - child of parent
+    # |child2 at column 1 - pop child1 (col 2 >= 1), parent col 0 < 1, so child of parent
+    # Both child1 and child2 are children of parent (siblings of each other)
+    - ElementStart
+    - [Name, "parent"]
+    - ElementStart
+    - [Name, "child1"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "child2"]
+    - ElementEnd
+    - ElementEnd
+
 - id: element_with_only_attributes_then_sibling
-  desc: element with only attributes then sibling
+  desc: Element with only attributes then sibling at column 0
   udon: |-
     |a
       :attr value
     |b
-  events: []
+  events:
+    # |a at column 0 with block attribute
+    # |b at column 0 - same as |a, so sibling
+    - ElementStart
+    - [Name, "a"]
+    - [Attr, "attr"]
+    - [BareValue, "value"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "b"]
+    - ElementEnd
+
 - id: prose_then_element_at_same_level
-  desc: prose then element at same level
+  desc: Prose then element at same column (both children of parent)
   udon: |-
     |parent
       some prose
       |child
-  events: []
+  events:
+    # |parent at column 0
+    # "some prose" at column 2 - child of parent (prose content)
+    # |child at column 2 - also child of parent (sibling of prose conceptually)
+    - ElementStart
+    - [Name, "parent"]
+    - [Text, "some prose"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd
+    - ElementEnd
+
 - id: element_at_column_zero_after_deep_nesting
-  desc: element at column zero after deep nesting
+  desc: Element at column 0 closes all deeply nested elements
   udon: |-
     |a
      |b
@@ -36,4 +91,27 @@
         |e
          |f
     |z
-  events: []
+  events:
+    # Each element nests one column deeper
+    # |z at column 0 closes all (a through f) and is sibling of |a
+    - ElementStart
+    - [Name, "a"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementStart
+    - [Name, "c"]
+    - ElementStart
+    - [Name, "d"]
+    - ElementStart
+    - [Name, "e"]
+    - ElementStart
+    - [Name, "f"]
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementEnd
+    - ElementStart
+    - [Name, "z"]
+    - ElementEnd

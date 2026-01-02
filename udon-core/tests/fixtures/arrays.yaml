@@ -235,12 +235,22 @@
     - ArrayEnd
     - ElementEnd
 
-# NOTE: Multiline arrays not yet tested - parser handles them but test
-# variation system may mutate the input incorrectly
+# Multiline arrays - newlines separate items just like spaces (SPEC 325-329)
 - id: array_multiline
   desc: array multiline
   udon: "|foo\n  :items [\n    a\n    b\n    c\n  ]\n"
-  events: []
+  events:
+    # Per SPEC 325: Terminators for array items are \n, SPACE, or ]
+    # Newlines act as item separators, leading spaces on each line are skipped
+    - ElementStart
+    - [Name, "foo"]
+    - [Attr, "items"]
+    - ArrayStart
+    - [BareValue, "a"]
+    - [BareValue, "b"]
+    - [BareValue, "c"]
+    - ArrayEnd
+    - ElementEnd
 
 - id: empty_arrays_at_various_depths
   desc: empty arrays at various depths
