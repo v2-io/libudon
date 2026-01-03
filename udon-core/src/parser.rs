@@ -343,33 +343,20 @@ impl<'a> Parser<'a> {
     }
 
     // ========== SCAN Methods (SIMD-accelerated via memchr) ==========
-    /// Scan forward to find first occurrence of b1, returns matched byte or None for EOF.
-    #[inline]
+    // '\n' is included in scan targets by the generator for line tracking.
+    // When '\n' is found, caller handles line/column update. No newlines
+    // exist between start and found position, so we just add offset to column.
+    /// Scan forward to find first occurrence of b1.
+    #[inline(always)]
     fn scan_to1(&mut self, b1: u8) -> Option<u8> {
         match memchr::memchr(b1, &self.input[self.pos..]) {
             Some(offset) => {
-                // Update line/column for skipped chars
-                for &b in &self.input[self.pos..self.pos + offset] {
-                    if b == b'\n' {
-                        self.line += 1;
-                        self.column = 1;
-                    } else {
-                        self.column += 1;
-                    }
-                }
+                self.column += offset as u32;
                 self.pos += offset;
                 Some(self.input[self.pos])
             }
             None => {
-                // Advance to end
-                for &b in &self.input[self.pos..] {
-                    if b == b'\n' {
-                        self.line += 1;
-                        self.column = 1;
-                    } else {
-                        self.column += 1;
-                    }
-                }
+                self.column += (self.input.len() - self.pos) as u32;
                 self.pos = self.input.len();
                 None
             }
@@ -377,30 +364,16 @@ impl<'a> Parser<'a> {
     }
 
     /// Scan forward to find first occurrence of b1 or b2.
-    #[inline]
+    #[inline(always)]
     fn scan_to2(&mut self, b1: u8, b2: u8) -> Option<u8> {
         match memchr::memchr2(b1, b2, &self.input[self.pos..]) {
             Some(offset) => {
-                for &b in &self.input[self.pos..self.pos + offset] {
-                    if b == b'\n' {
-                        self.line += 1;
-                        self.column = 1;
-                    } else {
-                        self.column += 1;
-                    }
-                }
+                self.column += offset as u32;
                 self.pos += offset;
                 Some(self.input[self.pos])
             }
             None => {
-                for &b in &self.input[self.pos..] {
-                    if b == b'\n' {
-                        self.line += 1;
-                        self.column = 1;
-                    } else {
-                        self.column += 1;
-                    }
-                }
+                self.column += (self.input.len() - self.pos) as u32;
                 self.pos = self.input.len();
                 None
             }
@@ -408,75 +381,45 @@ impl<'a> Parser<'a> {
     }
 
     /// Scan forward to find first occurrence of b1, b2, or b3.
-    #[inline]
+    #[inline(always)]
     fn scan_to3(&mut self, b1: u8, b2: u8, b3: u8) -> Option<u8> {
         match memchr::memchr3(b1, b2, b3, &self.input[self.pos..]) {
             Some(offset) => {
-                for &b in &self.input[self.pos..self.pos + offset] {
-                    if b == b'\n' {
-                        self.line += 1;
-                        self.column = 1;
-                    } else {
-                        self.column += 1;
-                    }
-                }
+                self.column += offset as u32;
                 self.pos += offset;
                 Some(self.input[self.pos])
             }
             None => {
-                for &b in &self.input[self.pos..] {
-                    if b == b'\n' {
-                        self.line += 1;
-                        self.column = 1;
-                    } else {
-                        self.column += 1;
-                    }
-                }
+                self.column += (self.input.len() - self.pos) as u32;
                 self.pos = self.input.len();
                 None
             }
         }
     }
 
-    /// Scan forward to find first occurrence of b1, b2, b3, or b4 (chained memchr).
-    #[inline]
+    /// Scan forward to find first occurrence of b1..b4 (chained memchr).
+    /// Limits second search to range of first hit to avoid O(n²) behavior.
+    #[inline(always)]
     fn scan_to4(&mut self, b1: u8, b2: u8, b3: u8, b4: u8) -> Option<u8> {
         let haystack = &self.input[self.pos..];
         let p1 = memchr::memchr3(b1, b2, b3, haystack);
-        let p2 = memchr::memchr(b4, haystack);
+        let p2 = match p1 {
+            Some(limit) => memchr::memchr(b4, &haystack[..limit]),
+            None => memchr::memchr(b4, haystack),
+        };
         let offset = match (p1, p2) {
             (Some(x), Some(y)) => Some(x.min(y)),
             (Some(x), None) | (None, Some(x)) => Some(x),
             (None, None) => None,
         };
-        self.apply_scan_offset(offset)
-    }
-
-    /// Apply scan offset result, updating position and line/column.
-    #[inline]
-    fn apply_scan_offset(&mut self, offset: Option<usize>) -> Option<u8> {
         match offset {
             Some(off) => {
-                for &b in &self.input[self.pos..self.pos + off] {
-                    if b == b'\n' {
-                        self.line += 1;
-                        self.column = 1;
-                    } else {
-                        self.column += 1;
-                    }
-                }
+                self.column += off as u32;
                 self.pos += off;
                 Some(self.input[self.pos])
             }
             None => {
-                for &b in &self.input[self.pos..] {
-                    if b == b'\n' {
-                        self.line += 1;
-                        self.column = 1;
-                    } else {
-                        self.column += 1;
-                    }
-                }
+                self.column += (self.input.len() - self.pos) as u32;
                 self.pos = self.input.len();
                 None
             }
@@ -484,31 +427,61 @@ impl<'a> Parser<'a> {
     }
 
     /// Scan forward to find first occurrence of b1..b5 (chained memchr).
-    #[inline]
+    /// Limits second search to range of first hit to avoid O(n²) behavior.
+    #[inline(always)]
     fn scan_to5(&mut self, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8) -> Option<u8> {
         let haystack = &self.input[self.pos..];
         let p1 = memchr::memchr3(b1, b2, b3, haystack);
-        let p2 = memchr::memchr2(b4, b5, haystack);
+        let p2 = match p1 {
+            Some(limit) => memchr::memchr2(b4, b5, &haystack[..limit]),
+            None => memchr::memchr2(b4, b5, haystack),
+        };
         let offset = match (p1, p2) {
             (Some(x), Some(y)) => Some(x.min(y)),
             (Some(x), None) | (None, Some(x)) => Some(x),
             (None, None) => None,
         };
-        self.apply_scan_offset(offset)
+        match offset {
+            Some(off) => {
+                self.column += off as u32;
+                self.pos += off;
+                Some(self.input[self.pos])
+            }
+            None => {
+                self.column += (self.input.len() - self.pos) as u32;
+                self.pos = self.input.len();
+                None
+            }
+        }
     }
 
     /// Scan forward to find first occurrence of b1..b6 (chained memchr).
-    #[inline]
+    /// Limits second search to range of first hit to avoid O(n²) behavior.
+    #[inline(always)]
     fn scan_to6(&mut self, b1: u8, b2: u8, b3: u8, b4: u8, b5: u8, b6: u8) -> Option<u8> {
         let haystack = &self.input[self.pos..];
         let p1 = memchr::memchr3(b1, b2, b3, haystack);
-        let p2 = memchr::memchr3(b4, b5, b6, haystack);
+        let p2 = match p1 {
+            Some(limit) => memchr::memchr3(b4, b5, b6, &haystack[..limit]),
+            None => memchr::memchr3(b4, b5, b6, haystack),
+        };
         let offset = match (p1, p2) {
             (Some(x), Some(y)) => Some(x.min(y)),
             (Some(x), None) | (None, Some(x)) => Some(x),
             (None, None) => None,
         };
-        self.apply_scan_offset(offset)
+        match offset {
+            Some(off) => {
+                self.column += off as u32;
+                self.pos += off;
+                Some(self.input[self.pos])
+            }
+            None => {
+                self.column += (self.input.len() - self.pos) as u32;
+                self.pos = self.input.len();
+                None
+            }
+        }
     }
 
     // ========== Keyword Lookup: bare_kw ==========
@@ -1550,7 +1523,6 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::Name { content: self.term(), span: self.span_from_mark() });
@@ -1576,7 +1548,7 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         loop {
-            match self.scan_to2(b'\'', b'\\') {
+            match self.scan_to3(b'\n', b'\'', b'\\') {
                 Some(b'\'') => {
                     return;
                 }
@@ -1584,6 +1556,9 @@ impl<'a> Parser<'a> {
                     self.advance();
                     self.advance();
                     continue;
+                }
+                Some(b'\n') => {
+                    self.advance();
                 }
                 None => {
                     on_event(Event::Error { code: ParseErrorCode::Unclosed, span: self.span() });
@@ -1600,21 +1575,16 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::Name { content: self.term(), span: self.span_from_mark() });
                 return;
             }
-            match self.peek() {
-                _ => {
                     self.parse_skip_single_quoted(on_event);
                     self.set_term(0);
                     self.advance();
                     on_event(Event::Name { content: self.term(), span: self.span_from_mark() });
                     return;
-                }
-            }
         }
     }
 
@@ -1624,7 +1594,6 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
@@ -1650,21 +1619,16 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                 return;
             }
-            match self.peek() {
-                _ => {
                     self.parse_skip_single_quoted(on_event);
                     self.set_term(0);
                     self.advance();
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
-                }
-            }
         }
     }
 
@@ -1908,7 +1872,6 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::Attr { content: self.term(), span: self.span_from_mark() });
@@ -1934,21 +1897,16 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         loop {
             if self.eof() {
                 on_event(Event::Attr { content: self.term(), span: self.span_from_mark() });
                 return;
             }
-            match self.peek() {
-                _ => {
                     self.parse_skip_single_quoted(on_event);
                     self.set_term(0);
                     self.advance();
                     on_event(Event::Attr { content: self.term(), span: self.span_from_mark() });
                     return;
-                }
-            }
         }
     }
 
@@ -1958,7 +1916,6 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
                     self.scan_to1(b']');
                     self.set_term(0);
                     self.advance();
@@ -1971,7 +1928,6 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
                     self.scan_to1(b']');
                     self.set_term(0);
                     self.advance();
@@ -2017,9 +1973,8 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         loop {
-            match self.scan_to2(b']', b' ') {
+            match self.scan_to3(b'\n', b']', b' ') {
                 Some(b']') => {
                     self.set_term(0);
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
@@ -2029,6 +1984,9 @@ impl<'a> Parser<'a> {
                     self.set_term(0);
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
+                }
+                Some(b'\n') => {
+                    self.advance();
                 }
                 None => {
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
@@ -2045,9 +2003,8 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         loop {
-            match self.scan_to2(b'"', b'\\') {
+            match self.scan_to3(b'\n', b'"', b'\\') {
                 Some(b'"') => {
                     self.set_term(0);
                     self.advance();
@@ -2058,6 +2015,9 @@ impl<'a> Parser<'a> {
                     self.advance();
                     self.advance();
                     continue;
+                }
+                Some(b'\n') => {
+                    self.advance();
                 }
                 None => {
                     on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
@@ -2075,9 +2035,8 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         loop {
-            match self.scan_to2(b'\'', b'\\') {
+            match self.scan_to3(b'\n', b'\'', b'\\') {
                 Some(b'\'') => {
                     self.set_term(0);
                     self.advance();
@@ -2088,6 +2047,9 @@ impl<'a> Parser<'a> {
                     self.advance();
                     self.advance();
                     continue;
+                }
+                Some(b'\n') => {
+                    self.advance();
                 }
                 None => {
                     on_event(Event::StringValue { content: self.term(), span: self.span_from_mark() });
@@ -2164,12 +2126,8 @@ impl<'a> Parser<'a> {
             if self.eof() {
                 return;
             }
-            match self.peek() {
-                _ => {
                     self.parse_text(line_col, parent_col, prepend, on_event);
                     return;
-                }
-            }
         }
     }
 
@@ -2185,12 +2143,8 @@ impl<'a> Parser<'a> {
             if self.eof() {
                 return;
             }
-            match self.peek() {
-                _ => {
                     self.parse_text_backticks(line_col, parent_col, on_event);
                     return;
-                }
-            }
         }
     }
 
@@ -2935,7 +2889,7 @@ impl<'a> Parser<'a> {
         loop {
             match state {
                 State::Main => {
-                    match self.scan_to2(b'{', b'}') {
+                    match self.scan_to3(b'\n', b'{', b'}') {
                         Some(b'{') => {
                     self.advance();
                     depth += 1;
@@ -2945,6 +2899,9 @@ impl<'a> Parser<'a> {
                     depth -= 1;
                     state = State::Check;
                     continue;
+                        }
+                        Some(b'\n') => {
+                            self.advance();
                         }
                         None => {
                             return;
@@ -2983,13 +2940,9 @@ impl<'a> Parser<'a> {
                 on_event(Event::CommentEnd { span: self.span() });
                 return;
             }
-            match self.peek() {
-                _ => {
                     self.parse_comment_text_braced(on_event);
                     on_event(Event::CommentEnd { span: self.span() });
                     return;
-                }
-            }
         }
     }
 
@@ -3003,15 +2956,11 @@ impl<'a> Parser<'a> {
             if self.eof() {
                 return;
             }
-            match self.peek() {
-                _ => {
                     self.parse_skip_brace_balanced(on_event);
                     self.set_term(0);
                     on_event(Event::Text { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     return;
-                }
-            }
         }
     }
 
@@ -3092,7 +3041,6 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         #[derive(Clone, Copy)]
         enum State { Main, CheckPipe, CheckSemi, CheckBang,  }
         let mut state = State::Main;
@@ -3613,19 +3561,21 @@ impl<'a> Parser<'a> {
         F: FnMut(Event<'a>),
     {
         self.mark();
-                    self.mark();
         #[derive(Clone, Copy)]
         enum State { Main, Closing,  }
         let mut state = State::Main;
         loop {
             match state {
                 State::Main => {
-                    match self.scan_to1(b'}') {
+                    match self.scan_to2(b'\n', b'}') {
                         Some(b'}') => {
                     self.set_term(0);
                     self.advance();
                     state = State::Closing;
                     continue;
+                        }
+                        Some(b'\n') => {
+                            self.advance();
                         }
                         None => {
                     self.set_term(0);
@@ -3696,7 +3646,7 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 State::Scan => {
-                    match self.scan_to2(b'{', b'}') {
+                    match self.scan_to3(b'\n', b'{', b'}') {
                         Some(b'{') => {
                     self.advance();
                     depth += 1;
@@ -3705,6 +3655,9 @@ impl<'a> Parser<'a> {
                         Some(b'}') => {
                     state = State::CheckClose;
                     continue;
+                        }
+                        Some(b'\n') => {
+                            self.advance();
                         }
                         None => {
                             on_event(Event::DirectiveEnd { span: self.span() });
@@ -3823,12 +3776,8 @@ impl<'a> Parser<'a> {
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
             }
-            match self.peek() {
-                _ => {
                     on_event(Event::BareValue { content: self.term(), span: self.span_from_mark() });
                     return;
-                }
-            }
         }
     }
 
@@ -3909,12 +3858,15 @@ impl<'a> Parser<'a> {
                     }
                 }
                 State::Reference => {
-                    match self.scan_to1(b']') {
+                    match self.scan_to2(b'\n', b']') {
                         Some(b']') => {
                     self.set_term(0);
                     on_event(Event::Reference { content: self.term(), span: self.span_from_mark() });
                     self.advance();
                     return;
+                        }
+                        Some(b'\n') => {
+                            self.advance();
                         }
                         None => {
                             return;
