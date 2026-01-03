@@ -6,13 +6,36 @@
 //! # Architecture
 //!
 //! - **parser.rs** - Generated recursive descent parser (callback-based)
+//! - **tree.rs** - Tree/AST representation built from parser events
 //! - **span.rs** - Span/Location types
-//! - **value.rs** - Scalar value type parsing (post-hoc classifier)
+//!
+//! # Two APIs
+//!
+//! ## Streaming (SAX-like)
+//!
+//! ```
+//! use udon_core::Parser;
+//!
+//! Parser::new(b"|div Hello\n").parse(|event| {
+//!     println!("{}", event.format_line());
+//! });
+//! ```
+//!
+//! ## Tree (DOM-like)
+//!
+//! ```
+//! use udon_core::tree::Document;
+//!
+//! let doc = Document::parse(b"|div Hello\n").unwrap();
+//! for node in doc.root().children() {
+//!     println!("{:?}", node.kind());
+//! }
+//! ```
 
 pub mod parser;
 pub mod span;
-pub mod value;
+pub mod tree;
 
 pub use parser::*;
 pub use span::{Location, Span};
-pub use value::Value;
+pub use tree::{Document, Node, NodeKind, Value, Attribute, ElementView};
