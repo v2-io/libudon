@@ -223,7 +223,7 @@
     - [Attr, "author"]
     - [BareValue, "Alice"]
     - [Attr, "date"]
-    - [BareValue, "2024-12-31"]
+    - [Date, "2024-12-31"]
     - ElementEnd
 
 - id: sameline_attributes_multiple

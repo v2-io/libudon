@@ -1,0 +1,566 @@
+# Temporal value parsing tests
+# Based on TIME-SPEC.md
+#
+# Recognition priority (from TIME-SPEC.md):
+# 1. Boolean (true, false) - handled elsewhere
+# 2. Nil (null, nil) - handled elsewhere
+# 3. Relative time: +/- followed by duration
+# 4. DateTime: Date T Time with optional offset
+# 5. Date: YYYY-MM-DD or YYYY-MM
+# 6. Time: HH:MM:SS or HH:MM
+# 7. Duration (ISO): P... pattern
+# 8. Duration (shorthand): Number + s|m|h|d|w|mo|y
+# 9. Number - handled elsewhere
+# 10. String - handled elsewhere
+
+---
+# ============================================================================
+# SHORTHAND DURATIONS (TIME-SPEC.md lines 131-167)
+# ============================================================================
+
+- id: duration_seconds
+  desc: "shorthand duration - seconds"
+  udon: "|el :ttl 30s\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "ttl"]
+    - [Duration, "30s"]
+    - ElementEnd
+
+- id: duration_minutes
+  desc: "shorthand duration - minutes"
+  udon: "|el :timeout 5m\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "timeout"]
+    - [Duration, "5m"]
+    - ElementEnd
+
+- id: duration_hours
+  desc: "shorthand duration - hours"
+  udon: "|el :session 2h\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "session"]
+    - [Duration, "2h"]
+    - ElementEnd
+
+- id: duration_days
+  desc: "shorthand duration - days"
+  udon: "|el :retention 90d\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "retention"]
+    - [Duration, "90d"]
+    - ElementEnd
+
+- id: duration_weeks
+  desc: "shorthand duration - weeks"
+  udon: "|el :sprint 2w\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "sprint"]
+    - [Duration, "2w"]
+    - ElementEnd
+
+- id: duration_months
+  desc: "shorthand duration - months (mo suffix)"
+  udon: "|el :billing 1mo\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "billing"]
+    - [Duration, "1mo"]
+    - ElementEnd
+
+- id: duration_years
+  desc: "shorthand duration - years"
+  udon: "|el :contract 2y\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "contract"]
+    - [Duration, "2y"]
+    - ElementEnd
+
+- id: duration_fractional_hours
+  desc: "shorthand duration - fractional hours (1.5h)"
+  udon: "|el :duration 1.5h\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "duration"]
+    - [Duration, "1.5h"]
+    - ElementEnd
+
+- id: duration_fractional_days
+  desc: "shorthand duration - fractional days (0.5d)"
+  udon: "|el :duration 0.5d\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "duration"]
+    - [Duration, "0.5d"]
+    - ElementEnd
+
+- id: duration_case_insensitive_upper
+  desc: "shorthand duration - uppercase suffix (30S)"
+  udon: "|el :ttl 30S\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "ttl"]
+    - [Duration, "30S"]
+    - ElementEnd
+
+- id: duration_case_insensitive_mixed
+  desc: "shorthand duration - mixed case months (1Mo)"
+  udon: "|el :cycle 1Mo\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "cycle"]
+    - [Duration, "1Mo"]
+    - ElementEnd
+
+# ============================================================================
+# ISO 8601 DURATIONS (TIME-SPEC.md lines 107-129)
+# ============================================================================
+
+- id: iso_duration_years
+  desc: "ISO duration - years only (P1Y)"
+  udon: "|el :lease P1Y\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "lease"]
+    - [Duration, "P1Y"]
+    - ElementEnd
+
+- id: iso_duration_months
+  desc: "ISO duration - months only (P2M)"
+  udon: "|el :period P2M\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "period"]
+    - [Duration, "P2M"]
+    - ElementEnd
+
+- id: iso_duration_days
+  desc: "ISO duration - days only (P15D)"
+  udon: "|el :rental P15D\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "rental"]
+    - [Duration, "P15D"]
+    - ElementEnd
+
+- id: iso_duration_weeks
+  desc: "ISO duration - weeks only (P2W)"
+  udon: "|el :sprint P2W\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "sprint"]
+    - [Duration, "P2W"]
+    - ElementEnd
+
+- id: iso_duration_date_combo
+  desc: "ISO duration - year, month, day combo (P2M15D)"
+  udon: "|el :rental P2M15D\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "rental"]
+    - [Duration, "P2M15D"]
+    - ElementEnd
+
+- id: iso_duration_time_hours
+  desc: "ISO duration - time only hours (PT1H)"
+  udon: "|el :meeting PT1H\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "meeting"]
+    - [Duration, "PT1H"]
+    - ElementEnd
+
+- id: iso_duration_time_minutes
+  desc: "ISO duration - time only minutes (PT30M)"
+  udon: "|el :break PT30M\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "break"]
+    - [Duration, "PT30M"]
+    - ElementEnd
+
+- id: iso_duration_time_seconds
+  desc: "ISO duration - time only seconds (PT30S)"
+  udon: "|el :timeout PT30S\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "timeout"]
+    - [Duration, "PT30S"]
+    - ElementEnd
+
+- id: iso_duration_time_combo
+  desc: "ISO duration - hours and minutes (PT1H30M)"
+  udon: "|el :meeting PT1H30M\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "meeting"]
+    - [Duration, "PT1H30M"]
+    - ElementEnd
+
+- id: iso_duration_full
+  desc: "ISO duration - full date and time (P1Y2M3DT4H5M6S)"
+  udon: "|el :span P1Y2M3DT4H5M6S\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "span"]
+    - [Duration, "P1Y2M3DT4H5M6S"]
+    - ElementEnd
+
+- id: iso_duration_fractional_hours
+  desc: "ISO duration - fractional hours (PT1.5H)"
+  udon: "|el :duration PT1.5H\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "duration"]
+    - [Duration, "PT1.5H"]
+    - ElementEnd
+
+- id: iso_duration_fractional_days
+  desc: "ISO duration - fractional days (P0.5D)"
+  udon: "|el :duration P0.5D\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "duration"]
+    - [Duration, "P0.5D"]
+    - ElementEnd
+
+- id: iso_duration_lowercase_p
+  desc: "ISO duration - lowercase p (p1y)"
+  udon: "|el :lease p1y\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "lease"]
+    - [Duration, "p1y"]
+    - ElementEnd
+
+# ============================================================================
+# DATES (TIME-SPEC.md lines 19-38)
+# ============================================================================
+
+- id: date_full
+  desc: "date - full ISO format (YYYY-MM-DD)"
+  udon: "|el :published 2025-01-03\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "published"]
+    - [Date, "2025-01-03"]
+    - ElementEnd
+
+- id: date_year_month
+  desc: "date - year-month only (YYYY-MM)"
+  udon: "|el :expires 2025-12\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "expires"]
+    - [Date, "2025-12"]
+    - ElementEnd
+
+# ============================================================================
+# TIMES (TIME-SPEC.md lines 42-67)
+# ============================================================================
+
+- id: time_hours_minutes
+  desc: "time - hours and minutes (HH:MM)"
+  udon: "|el :opens 09:00\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "opens"]
+    - [Time, "09:00"]
+    - ElementEnd
+
+- id: time_full
+  desc: "time - hours, minutes, seconds (HH:MM:SS)"
+  udon: "|el :logged 14:30:00\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "logged"]
+    - [Time, "14:30:00"]
+    - ElementEnd
+
+- id: time_with_millis
+  desc: "time - with milliseconds (HH:MM:SS.mmm)"
+  udon: "|el :timestamp 14:30:00.123\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "timestamp"]
+    - [Time, "14:30:00.123"]
+    - ElementEnd
+
+- id: time_with_nanos
+  desc: "time - with nanoseconds (HH:MM:SS.nnnnnnnnn)"
+  udon: "|el :precise 14:30:00.123456789\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "precise"]
+    - [Time, "14:30:00.123456789"]
+    - ElementEnd
+
+- id: time_midnight_end
+  desc: "time - end-of-day midnight (24:00:00)"
+  udon: "|el :closes 24:00:00\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "closes"]
+    - [Time, "24:00:00"]
+    - ElementEnd
+
+# ============================================================================
+# DATETIMES (TIME-SPEC.md lines 71-99)
+# ============================================================================
+
+- id: datetime_local
+  desc: "datetime - local (no timezone)"
+  udon: "|el :local 2025-01-03T14:30:00\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "local"]
+    - [DateTime, "2025-01-03T14:30:00"]
+    - ElementEnd
+
+- id: datetime_utc
+  desc: "datetime - UTC (Z suffix)"
+  udon: "|el :created 2025-01-03T14:30:00Z\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "created"]
+    - [DateTime, "2025-01-03T14:30:00Z"]
+    - ElementEnd
+
+- id: datetime_positive_offset
+  desc: "datetime - positive offset (+05:30)"
+  udon: "|el :india 2025-01-03T20:00:00+05:30\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "india"]
+    - [DateTime, "2025-01-03T20:00:00+05:30"]
+    - ElementEnd
+
+- id: datetime_negative_offset
+  desc: "datetime - negative offset (-08:00)"
+  udon: "|el :pacific 2025-01-03T06:30:00-08:00\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "pacific"]
+    - [DateTime, "2025-01-03T06:30:00-08:00"]
+    - ElementEnd
+
+- id: datetime_with_millis
+  desc: "datetime - with milliseconds"
+  udon: "|el :event 2025-01-03T14:30:00.123Z\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "event"]
+    - [DateTime, "2025-01-03T14:30:00.123Z"]
+    - ElementEnd
+
+# ============================================================================
+# RELATIVE TIMES (TIME-SPEC.md lines 171-209)
+# ============================================================================
+
+- id: relative_future_days
+  desc: "relative time - future days (+30d)"
+  udon: "|el :expires +30d\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "expires"]
+    - [RelativeTime, "+30d"]
+    - ElementEnd
+
+- id: relative_past_hours
+  desc: "relative time - past hours (-1h)"
+  udon: "|el :reminder -1h\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "reminder"]
+    - [RelativeTime, "-1h"]
+    - ElementEnd
+
+- id: relative_future_weeks
+  desc: "relative time - future weeks (+2w)"
+  udon: "|el :deadline +2w\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "deadline"]
+    - [RelativeTime, "+2w"]
+    - ElementEnd
+
+- id: relative_iso_future
+  desc: "relative time - ISO future (+P3M)"
+  udon: "|el :review +P3M\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "review"]
+    - [RelativeTime, "+P3M"]
+    - ElementEnd
+
+- id: relative_iso_past
+  desc: "relative time - ISO past (-P1Y2M3D)"
+  udon: "|el :created -P1Y2M3D\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "created"]
+    - [RelativeTime, "-P1Y2M3D"]
+    - ElementEnd
+
+- id: relative_future_minutes
+  desc: "relative time - future minutes (+5m)"
+  udon: "|el :snooze +5m\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "snooze"]
+    - [RelativeTime, "+5m"]
+    - ElementEnd
+
+- id: relative_future_months
+  desc: "relative time - future months (+3mo)"
+  udon: "|el :due +3mo\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "due"]
+    - [RelativeTime, "+3mo"]
+    - ElementEnd
+
+- id: relative_fractional
+  desc: "relative time - fractional hours (+1.5h)"
+  udon: "|el :eta +1.5h\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "eta"]
+    - [RelativeTime, "+1.5h"]
+    - ElementEnd
+
+- id: relative_iso_time_only
+  desc: "relative time - ISO time only (+PT30M)"
+  udon: "|el :break +PT30M\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "break"]
+    - [RelativeTime, "+PT30M"]
+    - ElementEnd
+
+- id: signed_integer_not_relative
+  desc: "signed integer without suffix is just Integer, not RelativeTime"
+  udon: "|el :offset +5\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "offset"]
+    - [Integer, "+5"]
+    - ElementEnd
+
+- id: signed_float_not_relative
+  desc: "signed float without suffix is just Float, not RelativeTime"
+  udon: "|el :adjustment -3.5\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "adjustment"]
+    - [Float, "-3.5"]
+    - ElementEnd
+
+# ============================================================================
+# EDGE CASES AND VALIDATION (TIME-SPEC.md Validation section)
+# ============================================================================
+
+- id: not_duration_word_starting_with_p
+  desc: "word starting with P is not a duration (Pizza)"
+  udon: "|el :food Pizza\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "food"]
+    - [BareValue, "Pizza"]
+    - ElementEnd
+
+- id: not_duration_p_alone
+  desc: "P alone is not a duration"
+  udon: "|el :letter P\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "letter"]
+    - [BareValue, "P"]
+    - ElementEnd
+
+- id: not_duration_pt_alone
+  desc: "PT alone is not a duration (no time components)"
+  udon: "|el :invalid PT\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "invalid"]
+    - [BareValue, "PT"]
+    - ElementEnd
+
+- id: integer_not_duration
+  desc: "plain integer without suffix is integer, not duration"
+  udon: "|el :count 30\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "count"]
+    - [Integer, "30"]
+    - ElementEnd
+
+- id: float_not_duration
+  desc: "plain float without suffix is float, not duration"
+  udon: "|el :value 1.5\n"
+  events:
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "value"]
+    - [Float, "1.5"]
+    - ElementEnd
+
+# Note: Tests for warnings (missing leading zeros, week mixing, fractional placement)
+# would need Warning event support in test infrastructure. Deferring for now.

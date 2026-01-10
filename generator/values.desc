@@ -22,7 +22,22 @@
 ;   Float      - with decimal point or exponent
 ;   Rational   - integer/integer + r (e.g., 1/3r, 22/7r)
 ;   Complex    - number +/- number + i, or number + i (e.g., 3+4i, 5i)
+;   Date       - YYYY-MM-DD or YYYY-MM (ISO 8601)
+;   Time       - HH:MM:SS or HH:MM with optional fractional seconds
+;   DateTime   - Date T Time with optional timezone offset
+;   Duration   - ISO P... or shorthand (30s, 5m, 1h, 1d, 1w, 1mo, 1y)
+;   RelativeTime - +/- followed by duration
 ;   BareValue  - unrecognized (string)
+
+; ============================================================================
+; Temporal Value Type Declarations (TIME-SPEC.md)
+; ============================================================================
+
+|type[Date]          CONTENT    ; YYYY-MM-DD or YYYY-MM
+|type[Time]          CONTENT    ; HH:MM:SS or HH:MM with optional .nnnnnnnnn
+|type[DateTime]      CONTENT    ; Date T Time with optional offset (Z, +HH:MM, -HH:MM)
+|type[Duration]      CONTENT    ; ISO P... or shorthand like 30s, 5m, 1h
+|type[RelativeTime]  CONTENT    ; +/- followed by duration
 
 ; ============================================================================
 ; Keyword Lookup (phf perfect hash)
@@ -59,6 +74,7 @@
     |c['0']                   | ->                               |>> :num_zero
     |c['123456789']           |                                  |>> :num_dec
     |c['+-']                  | ->                               |>> :num_sign
+    |c['pP']                  | ->                               |>> :iso_dur_start  ; check for ISO duration
     |LETTER                   | ->                               |>> :accumulate
     |default                  | ->                               |>>
 
@@ -95,11 +111,173 @@
     |c[';']                | TERM(-1) | KEYWORDS(bare_kw)     |return
     |default                  |                                  |>> :accumulate
 
-  ; === Numbers: after sign ===
+  ; === Numbers: after sign (+/-) ===
+  ; Could be: signed number (+5, -3.5), relative time (+30d, -1h), or relative ISO (+P3M)
   |state[:num_sign]
-    |c['0']                   | ->                               |>> :num_zero
-    |c['123456789']           |                                  |>> :num_dec
+    |c['pP']                  | ->                               |>> :rel_iso_dur_start  ; +P3M, -P1Y
+    |c['0']                   | ->                               |>> :rel_num_zero
+    |c['123456789']           |                                  |>> :rel_num_dec
     |default                  |                                  |>> :accumulate
+
+  ; === Relative time: signed decimal digits ===
+  ; Like :num_dec but emits RelativeTime on duration suffix, Integer otherwise
+  |state[:rel_num_dec]
+    |eof                      | Integer(USE_MARK)                |return
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['.']                   | ->                               |>> :rel_num_float_frac
+    |c['eE']                  | ->                               |>> :num_float_exp  ; exponent → regular number
+    |c['/']                   | ->                               |>> :num_rational_denom  ; rational → regular number
+    |c['i']                   | -> | Complex(USE_MARK)           |return  ; complex
+    |c['+-']                  | ->                               |>> :num_complex_sign  ; complex
+    ; Duration suffixes → emit RelativeTime
+    |c['sS']                  | -> | RelativeTime(USE_MARK)      |return  ; +30s
+    |c['mM']                  | ->                               |>> :rel_dur_m  ; +5m or +5mo
+    |c['hH']                  | -> | RelativeTime(USE_MARK)      |return  ; +2h
+    |c['dD']                  | -> | RelativeTime(USE_MARK)      |return  ; +30d
+    |c['wW']                  | -> | RelativeTime(USE_MARK)      |return  ; +2w
+    |c['yY']                  | -> | RelativeTime(USE_MARK)      |return  ; +1y
+    |c['\n']                  | Integer(USE_MARK)                |return
+    |c[' ']                   |                                  |>> :rel_num_dec_space
+    |c[:bracket]              | Integer(USE_MARK)                |return
+    |default                  |                                  |>> :string
+  |state[:rel_num_dec_space]
+    |if[space_term == 0]     | ->                               |>> :rel_num_dec_block
+    |default                  | Integer(USE_MARK)                |return
+  |state[:rel_num_dec_block]
+    |c[';']                   | Integer(USE_MARK)                |return
+    |default                  |                                  |>> :string
+
+  ; === Relative time: check m vs mo ===
+  |state[:rel_dur_m]
+    |eof                      | RelativeTime(USE_MARK)           |return
+    |c['oO']                  | -> | RelativeTime(USE_MARK)      |return  ; +5mo
+    |c['\n']                  | RelativeTime(USE_MARK)           |return
+    |c[' ']                   |                                  |>> :rel_dur_m_space
+    |c[:bracket]              | RelativeTime(USE_MARK)           |return
+    |default                  |                                  |>> :string
+  |state[:rel_dur_m_space]
+    |if[space_term == 0]     | ->                               |>> :rel_dur_m_block
+    |default                  | RelativeTime(USE_MARK)           |return
+  |state[:rel_dur_m_block]
+    |c[';']                   | RelativeTime(USE_MARK)           |return
+    |default                  |                                  |>> :string
+
+  ; === Relative time: signed zero ===
+  |state[:rel_num_zero]
+    |eof                      | Integer(USE_MARK)                |return
+    |c['xX']                  | ->                               |>> :num_hex  ; 0x → regular hex
+    |c['oO']                  | ->                               |>> :num_oct  ; 0o → regular octal
+    |c['bB']                  | ->                               |>> :num_bin  ; 0b → regular binary
+    |c['.']                   | ->                               |>> :rel_num_float_frac
+    |c['eE']                  | ->                               |>> :num_float_exp
+    |c[<0-9 '_'>]             | ->                               |>> :rel_num_dec
+    |c['\n']                  | Integer(USE_MARK)                |return
+    |c[' ']                   |                                  |>> :rel_num_zero_space
+    |c[:bracket]              | Integer(USE_MARK)                |return
+    |default                  |                                  |>> :string
+  |state[:rel_num_zero_space]
+    |if[space_term == 0]     | ->                               |>> :rel_num_zero_block
+    |default                  | Integer(USE_MARK)                |return
+  |state[:rel_num_zero_block]
+    |c[';']                   | Integer(USE_MARK)                |return
+    |default                  |                                  |>> :string
+
+  ; === Relative time: fractional (e.g., +1.5h, -0.5d) ===
+  |state[:rel_num_float_frac]
+    |eof                      | Float(USE_MARK)                  |return
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['eE']                  | ->                               |>> :num_float_exp  ; exponent → regular float
+    |c['i']                   | -> | Complex(USE_MARK)           |return
+    |c['+-']                  | ->                               |>> :num_complex_sign
+    ; Duration suffixes → emit RelativeTime
+    |c['sS']                  | -> | RelativeTime(USE_MARK)      |return
+    |c['mM']                  | ->                               |>> :rel_dur_m
+    |c['hH']                  | -> | RelativeTime(USE_MARK)      |return
+    |c['dD']                  | -> | RelativeTime(USE_MARK)      |return
+    |c['wW']                  | -> | RelativeTime(USE_MARK)      |return
+    |c['yY']                  | -> | RelativeTime(USE_MARK)      |return
+    |c['\n']                  | Float(USE_MARK)                  |return
+    |c[' ']                   |                                  |>> :rel_num_float_space
+    |c[:bracket]              | Float(USE_MARK)                  |return
+    |default                  |                                  |>> :string
+  |state[:rel_num_float_space]
+    |if[space_term == 0]     | ->                               |>> :rel_num_float_block
+    |default                  | Float(USE_MARK)                  |return
+  |state[:rel_num_float_block]
+    |c[';']                   | Float(USE_MARK)                  |return
+    |default                  |                                  |>> :string
+
+  ; === Relative ISO duration (+P..., -P...) ===
+  ; After +P or -P, follows same pattern as ISO duration but emits RelativeTime
+  |state[:rel_iso_dur_start]
+    |c[<0-9>]                 |                                  |>> :rel_iso_dur_date_num
+    |c['tT']                  | ->                               |>> :rel_iso_dur_time_start
+    |default                  |                                  |>> :accumulate  ; +P without components
+
+  |state[:rel_iso_dur_date_num]
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['.']                   | ->                               |>> :rel_iso_dur_date_frac
+    |c['yY']                  | ->                               |>> :rel_iso_dur_date_after
+    |c['mM']                  | ->                               |>> :rel_iso_dur_date_after
+    |c['dD']                  | ->                               |>> :rel_iso_dur_date_after
+    |c['wW']                  | ->                               |>> :rel_iso_dur_date_after
+    |default                  |                                  |>> :string
+
+  |state[:rel_iso_dur_date_frac]
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['yY']                  | ->                               |>> :rel_iso_dur_date_after
+    |c['mM']                  | ->                               |>> :rel_iso_dur_date_after
+    |c['dD']                  | ->                               |>> :rel_iso_dur_date_after
+    |c['wW']                  | ->                               |>> :rel_iso_dur_date_after
+    |default                  |                                  |>> :string
+
+  |state[:rel_iso_dur_date_after]
+    |eof                      | RelativeTime(USE_MARK)           |return
+    |c[<0-9>]                 |                                  |>> :rel_iso_dur_date_num
+    |c['tT']                  | ->                               |>> :rel_iso_dur_time_start
+    |c['\n']                  | RelativeTime(USE_MARK)           |return
+    |c[' ']                   |                                  |>> :rel_iso_dur_date_space
+    |c[:bracket]              | RelativeTime(USE_MARK)           |return
+    |default                  |                                  |>> :string
+  |state[:rel_iso_dur_date_space]
+    |if[space_term == 0]     | ->                               |>> :rel_iso_dur_date_block
+    |default                  | RelativeTime(USE_MARK)           |return
+  |state[:rel_iso_dur_date_block]
+    |c[';']                   | RelativeTime(USE_MARK)           |return
+    |default                  |                                  |>> :string
+
+  |state[:rel_iso_dur_time_start]
+    |c[<0-9>]                 |                                  |>> :rel_iso_dur_time_num
+    |default                  |                                  |>> :string
+
+  |state[:rel_iso_dur_time_num]
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['.']                   | ->                               |>> :rel_iso_dur_time_frac
+    |c['hH']                  | ->                               |>> :rel_iso_dur_time_after
+    |c['mM']                  | ->                               |>> :rel_iso_dur_time_after
+    |c['sS']                  | ->                               |>> :rel_iso_dur_time_after
+    |default                  |                                  |>> :string
+
+  |state[:rel_iso_dur_time_frac]
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['hH']                  | ->                               |>> :rel_iso_dur_time_after
+    |c['mM']                  | ->                               |>> :rel_iso_dur_time_after
+    |c['sS']                  | ->                               |>> :rel_iso_dur_time_after
+    |default                  |                                  |>> :string
+
+  |state[:rel_iso_dur_time_after]
+    |eof                      | RelativeTime(USE_MARK)           |return
+    |c[<0-9>]                 |                                  |>> :rel_iso_dur_time_num
+    |c['\n']                  | RelativeTime(USE_MARK)           |return
+    |c[' ']                   |                                  |>> :rel_iso_dur_time_space
+    |c[:bracket]              | RelativeTime(USE_MARK)           |return
+    |default                  |                                  |>> :string
+  |state[:rel_iso_dur_time_space]
+    |if[space_term == 0]     | ->                               |>> :rel_iso_dur_time_block
+    |default                  | RelativeTime(USE_MARK)           |return
+  |state[:rel_iso_dur_time_block]
+    |c[';']                   | RelativeTime(USE_MARK)           |return
+    |default                  |                                  |>> :string
 
   ; === Numbers: zero prefix (check for 0x, 0o, 0b) ===
   |state[:num_zero]
@@ -129,7 +307,19 @@
     |c['eE']                  | ->                               |>> :num_float_exp
     |c['/']                   | ->                               |>> :num_rational_denom
     |c['i']                   | -> | Complex(USE_MARK)           |return
-    |c['+-']                  | ->                               |>> :num_complex_sign
+    ; Date pattern: NNNN-MM-DD or NNNN-MM (check before complex +/-)
+    |c['-']                   | ->                               |>> :maybe_date_month
+    ; Time pattern: NN:MM:SS or NN:MM (check before complex +/-)
+    |c[':']                   | ->                               |>> :maybe_time_min
+    ; Complex sign (only + now, since - is used for dates)
+    |c['+']                   | ->                               |>> :num_complex_sign
+    ; Duration suffixes (case-insensitive per TIME-SPEC.md)
+    |c['sS']                  | -> | Duration(USE_MARK)          |return  ; seconds
+    |c['mM']                  | ->                               |>> :dur_m  ; minutes or months (check for 'o')
+    |c['hH']                  | -> | Duration(USE_MARK)          |return  ; hours
+    |c['dD']                  | -> | Duration(USE_MARK)          |return  ; days
+    |c['wW']                  | -> | Duration(USE_MARK)          |return  ; weeks
+    |c['yY']                  | -> | Duration(USE_MARK)          |return  ; years
     |c['\n']                  | Integer(USE_MARK)                |return
     |c[' ']                   |                                  |>> :num_dec_space
     |c[:bracket]              | Integer(USE_MARK)                |return
@@ -139,6 +329,306 @@
     |default                  | Integer(USE_MARK)                |return
   |state[:num_dec_block]
     |c[';']                | Integer(USE_MARK)                |return
+    |default                  |                                  |>> :string
+
+  ; === Date pattern: YYYY-MM-DD or YYYY-MM ===
+  ; After seeing digits + '-', expect month digits
+  |state[:maybe_date_month]
+    |c[<0-9>]                 | ->                               |>> :date_month_2
+    |default                  |                                  |>> :string  ; not a date
+  |state[:date_month_2]
+    |c[<0-9>]                 | ->                               |>> :date_after_month
+    |default                  |                                  |>> :string  ; need 2-digit month
+  |state[:date_after_month]
+    |eof                      | Date(USE_MARK)                   |return  ; YYYY-MM
+    |c['-']                   | ->                               |>> :date_day_1
+    |c['T']                   | ->                               |>> :datetime_time_start  ; YYYY-MM-DDThh:mm:ss
+    |c['\n']                  | Date(USE_MARK)                   |return  ; YYYY-MM
+    |c[' ']                   |                                  |>> :date_space
+    |c[:bracket]              | Date(USE_MARK)                   |return  ; YYYY-MM
+    |default                  |                                  |>> :string
+  |state[:date_space]
+    |if[space_term == 0]     | ->                               |>> :date_block
+    |default                  | Date(USE_MARK)                   |return
+  |state[:date_block]
+    |c[';']                   | Date(USE_MARK)                   |return
+    |default                  |                                  |>> :string
+  |state[:date_day_1]
+    |c[<0-9>]                 | ->                               |>> :date_day_2
+    |default                  |                                  |>> :string
+  |state[:date_day_2]
+    |c[<0-9>]                 | ->                               |>> :date_complete
+    |default                  |                                  |>> :string
+  |state[:date_complete]
+    |eof                      | Date(USE_MARK)                   |return  ; YYYY-MM-DD
+    |c['T']                   | ->                               |>> :datetime_time_start  ; transition to datetime
+    |c['\n']                  | Date(USE_MARK)                   |return
+    |c[' ']                   |                                  |>> :date_complete_space
+    |c[:bracket]              | Date(USE_MARK)                   |return
+    |default                  |                                  |>> :string
+  |state[:date_complete_space]
+    |if[space_term == 0]     | ->                               |>> :date_complete_block
+    |default                  | Date(USE_MARK)                   |return
+  |state[:date_complete_block]
+    |c[';']                   | Date(USE_MARK)                   |return
+    |default                  |                                  |>> :string
+
+  ; === Time pattern: HH:MM:SS or HH:MM ===
+  ; After seeing digits + ':', expect minute digits
+  |state[:maybe_time_min]
+    |c[<0-9>]                 | ->                               |>> :time_min_2
+    |default                  |                                  |>> :string  ; not a time
+  |state[:time_min_2]
+    |c[<0-9>]                 | ->                               |>> :time_after_min
+    |default                  |                                  |>> :string  ; need 2-digit minutes
+  |state[:time_after_min]
+    |eof                      | Time(USE_MARK)                   |return  ; HH:MM
+    |c[':']                   | ->                               |>> :time_sec_1
+    |c['\n']                  | Time(USE_MARK)                   |return  ; HH:MM
+    |c[' ']                   |                                  |>> :time_space
+    |c[:bracket]              | Time(USE_MARK)                   |return  ; HH:MM
+    |default                  |                                  |>> :string
+  |state[:time_space]
+    |if[space_term == 0]     | ->                               |>> :time_block
+    |default                  | Time(USE_MARK)                   |return
+  |state[:time_block]
+    |c[';']                   | Time(USE_MARK)                   |return
+    |default                  |                                  |>> :string
+  |state[:time_sec_1]
+    |c[<0-9>]                 | ->                               |>> :time_sec_2
+    |default                  |                                  |>> :string
+  |state[:time_sec_2]
+    |c[<0-9>]                 | ->                               |>> :time_complete
+    |default                  |                                  |>> :string
+  |state[:time_complete]
+    |eof                      | Time(USE_MARK)                   |return  ; HH:MM:SS
+    |c['.']                   | ->                               |>> :time_frac
+    |c['\n']                  | Time(USE_MARK)                   |return
+    |c[' ']                   |                                  |>> :time_complete_space
+    |c[:bracket]              | Time(USE_MARK)                   |return
+    |default                  |                                  |>> :string
+  |state[:time_complete_space]
+    |if[space_term == 0]     | ->                               |>> :time_complete_block
+    |default                  | Time(USE_MARK)                   |return
+  |state[:time_complete_block]
+    |c[';']                   | Time(USE_MARK)                   |return
+    |default                  |                                  |>> :string
+  |state[:time_frac]
+    |eof                      | Time(USE_MARK)                   |return
+    |c[<0-9>]                 | ->                               |>>  ; accumulate fractional digits
+    |c['\n']                  | Time(USE_MARK)                   |return
+    |c[' ']                   |                                  |>> :time_frac_space
+    |c[:bracket]              | Time(USE_MARK)                   |return
+    |default                  |                                  |>> :string
+  |state[:time_frac_space]
+    |if[space_term == 0]     | ->                               |>> :time_frac_block
+    |default                  | Time(USE_MARK)                   |return
+  |state[:time_frac_block]
+    |c[';']                   | Time(USE_MARK)                   |return
+    |default                  |                                  |>> :string
+
+  ; === DateTime: Date T Time with optional offset ===
+  ; After Date + 'T', parse time portion
+  |state[:datetime_time_start]
+    |c[<0-9>]                 | ->                               |>> :datetime_hour_2
+    |default                  |                                  |>> :string
+  |state[:datetime_hour_2]
+    |c[<0-9>]                 | ->                               |>> :datetime_after_hour
+    |default                  |                                  |>> :string
+  |state[:datetime_after_hour]
+    |c[':']                   | ->                               |>> :datetime_min_1
+    |default                  |                                  |>> :string
+  |state[:datetime_min_1]
+    |c[<0-9>]                 | ->                               |>> :datetime_min_2
+    |default                  |                                  |>> :string
+  |state[:datetime_min_2]
+    |c[<0-9>]                 | ->                               |>> :datetime_after_min
+    |default                  |                                  |>> :string
+  |state[:datetime_after_min]
+    |eof                      | DateTime(USE_MARK)               |return  ; YYYY-MM-DDTHH:MM
+    |c[':']                   | ->                               |>> :datetime_sec_1
+    |c['Z']                   | -> | DateTime(USE_MARK)          |return  ; UTC
+    |c['+-']                  | ->                               |>> :datetime_offset_hour_1
+    |c['\n']                  | DateTime(USE_MARK)               |return
+    |c[' ']                   |                                  |>> :datetime_min_space
+    |c[:bracket]              | DateTime(USE_MARK)               |return
+    |default                  |                                  |>> :string
+  |state[:datetime_min_space]
+    |if[space_term == 0]     | ->                               |>> :datetime_min_block
+    |default                  | DateTime(USE_MARK)               |return
+  |state[:datetime_min_block]
+    |c[';']                   | DateTime(USE_MARK)               |return
+    |default                  |                                  |>> :string
+  |state[:datetime_sec_1]
+    |c[<0-9>]                 | ->                               |>> :datetime_sec_2
+    |default                  |                                  |>> :string
+  |state[:datetime_sec_2]
+    |c[<0-9>]                 | ->                               |>> :datetime_after_sec
+    |default                  |                                  |>> :string
+  |state[:datetime_after_sec]
+    |eof                      | DateTime(USE_MARK)               |return  ; YYYY-MM-DDTHH:MM:SS
+    |c['.']                   | ->                               |>> :datetime_frac
+    |c['Z']                   | -> | DateTime(USE_MARK)          |return  ; UTC
+    |c['+-']                  | ->                               |>> :datetime_offset_hour_1
+    |c['\n']                  | DateTime(USE_MARK)               |return
+    |c[' ']                   |                                  |>> :datetime_sec_space
+    |c[:bracket]              | DateTime(USE_MARK)               |return
+    |default                  |                                  |>> :string
+  |state[:datetime_sec_space]
+    |if[space_term == 0]     | ->                               |>> :datetime_sec_block
+    |default                  | DateTime(USE_MARK)               |return
+  |state[:datetime_sec_block]
+    |c[';']                   | DateTime(USE_MARK)               |return
+    |default                  |                                  |>> :string
+  |state[:datetime_frac]
+    |c[<0-9>]                 | ->                               |>>  ; accumulate fractional
+    |c['Z']                   | -> | DateTime(USE_MARK)          |return  ; UTC
+    |c['+-']                  | ->                               |>> :datetime_offset_hour_1
+    |eof                      | DateTime(USE_MARK)               |return
+    |c['\n']                  | DateTime(USE_MARK)               |return
+    |c[' ']                   |                                  |>> :datetime_frac_space
+    |c[:bracket]              | DateTime(USE_MARK)               |return
+    |default                  |                                  |>> :string
+  |state[:datetime_frac_space]
+    |if[space_term == 0]     | ->                               |>> :datetime_frac_block
+    |default                  | DateTime(USE_MARK)               |return
+  |state[:datetime_frac_block]
+    |c[';']                   | DateTime(USE_MARK)               |return
+    |default                  |                                  |>> :string
+  |state[:datetime_offset_hour_1]
+    |c[<0-9>]                 | ->                               |>> :datetime_offset_hour_2
+    |default                  |                                  |>> :string
+  |state[:datetime_offset_hour_2]
+    |c[<0-9>]                 | ->                               |>> :datetime_offset_after_hour
+    |default                  |                                  |>> :string
+  |state[:datetime_offset_after_hour]
+    |c[':']                   | ->                               |>> :datetime_offset_min_1
+    |eof                      | DateTime(USE_MARK)               |return  ; +HH without :MM
+    |c['\n']                  | DateTime(USE_MARK)               |return
+    |c[' ']                   |                                  |>> :datetime_offset_hour_space
+    |c[:bracket]              | DateTime(USE_MARK)               |return
+    |default                  |                                  |>> :string
+  |state[:datetime_offset_hour_space]
+    |if[space_term == 0]     | ->                               |>> :datetime_offset_hour_block
+    |default                  | DateTime(USE_MARK)               |return
+  |state[:datetime_offset_hour_block]
+    |c[';']                   | DateTime(USE_MARK)               |return
+    |default                  |                                  |>> :string
+  |state[:datetime_offset_min_1]
+    |c[<0-9>]                 | ->                               |>> :datetime_offset_min_2
+    |default                  |                                  |>> :string
+  |state[:datetime_offset_min_2]
+    |c[<0-9>]                 | ->                               |>> :datetime_complete
+    |default                  |                                  |>> :string
+  |state[:datetime_complete]
+    |eof                      | DateTime(USE_MARK)               |return
+    |c['\n']                  | DateTime(USE_MARK)               |return
+    |c[' ']                   |                                  |>> :datetime_complete_space
+    |c[:bracket]              | DateTime(USE_MARK)               |return
+    |default                  |                                  |>> :string
+  |state[:datetime_complete_space]
+    |if[space_term == 0]     | ->                               |>> :datetime_complete_block
+    |default                  | DateTime(USE_MARK)               |return
+  |state[:datetime_complete_block]
+    |c[';']                   | DateTime(USE_MARK)               |return
+    |default                  |                                  |>> :string
+
+  ; === Duration: check m vs mo (minutes vs months) ===
+  ; After seeing 'm' or 'M', check if 'o' follows for months
+  |state[:dur_m]
+    |eof                      | Duration(USE_MARK)               |return  ; just 'm' = minutes
+    |c['oO']                  | -> | Duration(USE_MARK)          |return  ; 'mo' = months
+    |c['\n']                  | Duration(USE_MARK)               |return  ; minutes
+    |c[' ']                   |                                  |>> :dur_m_space
+    |c[:bracket]              | Duration(USE_MARK)               |return  ; minutes
+    |default                  |                                  |>> :string  ; not a valid duration
+  |state[:dur_m_space]
+    |if[space_term == 0]     | ->                               |>> :dur_m_block
+    |default                  | Duration(USE_MARK)               |return  ; minutes
+  |state[:dur_m_block]
+    |c[';']                   | Duration(USE_MARK)               |return  ; minutes
+    |default                  |                                  |>> :string
+
+  ; === ISO 8601 Duration (P...) ===
+  ; Format: P[nY][nM][nD] or P[nW] or PT[nH][nM][nS] or combinations
+  ; Examples: P1Y, P2M3D, PT1H30M, P1Y2M3DT4H5M6S, P1.5D
+
+  ; After 'P' - check for date component or 'T' for time-only
+  |state[:iso_dur_start]
+    |c[<0-9>]                 |                                  |>> :iso_dur_date_num
+    |c['tT']                  | ->                               |>> :iso_dur_time_start
+    |default                  |                                  |>> :accumulate  ; not a duration, treat as word
+
+  ; Accumulating number in date portion (Y/M/D/W)
+  |state[:iso_dur_date_num]
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['.']                   | ->                               |>> :iso_dur_date_frac
+    |c['yY']                  | ->                               |>> :iso_dur_date_after
+    |c['mM']                  | ->                               |>> :iso_dur_date_after
+    |c['dD']                  | ->                               |>> :iso_dur_date_after
+    |c['wW']                  | ->                               |>> :iso_dur_date_after
+    |default                  |                                  |>> :string  ; invalid
+
+  ; Fractional part of date component (e.g., P1.5D)
+  |state[:iso_dur_date_frac]
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['yY']                  | ->                               |>> :iso_dur_date_after
+    |c['mM']                  | ->                               |>> :iso_dur_date_after
+    |c['dD']                  | ->                               |>> :iso_dur_date_after
+    |c['wW']                  | ->                               |>> :iso_dur_date_after
+    |default                  |                                  |>> :string  ; invalid
+
+  ; After a date component - check for more, T, or terminator
+  |state[:iso_dur_date_after]
+    |eof                      | Duration(USE_MARK)               |return
+    |c[<0-9>]                 |                                  |>> :iso_dur_date_num  ; another component
+    |c['tT']                  | ->                               |>> :iso_dur_time_start  ; switch to time
+    |c['\n']                  | Duration(USE_MARK)               |return
+    |c[' ']                   |                                  |>> :iso_dur_date_space
+    |c[:bracket]              | Duration(USE_MARK)               |return
+    |default                  |                                  |>> :string  ; invalid continuation
+  |state[:iso_dur_date_space]
+    |if[space_term == 0]     | ->                               |>> :iso_dur_date_block
+    |default                  | Duration(USE_MARK)               |return
+  |state[:iso_dur_date_block]
+    |c[';']                   | Duration(USE_MARK)               |return
+    |default                  |                                  |>> :string
+
+  ; After 'T' - start time portion, need at least one component
+  |state[:iso_dur_time_start]
+    |c[<0-9>]                 |                                  |>> :iso_dur_time_num
+    |default                  |                                  |>> :string  ; T without time components
+
+  ; Accumulating number in time portion (H/M/S)
+  |state[:iso_dur_time_num]
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['.']                   | ->                               |>> :iso_dur_time_frac
+    |c['hH']                  | ->                               |>> :iso_dur_time_after
+    |c['mM']                  | ->                               |>> :iso_dur_time_after
+    |c['sS']                  | ->                               |>> :iso_dur_time_after
+    |default                  |                                  |>> :string  ; invalid
+
+  ; Fractional part of time component (e.g., PT1.5H)
+  |state[:iso_dur_time_frac]
+    |c[<0-9 '_'>]             | ->                               |>>
+    |c['hH']                  | ->                               |>> :iso_dur_time_after
+    |c['mM']                  | ->                               |>> :iso_dur_time_after
+    |c['sS']                  | ->                               |>> :iso_dur_time_after
+    |default                  |                                  |>> :string  ; invalid
+
+  ; After a time component - check for more or terminator
+  |state[:iso_dur_time_after]
+    |eof                      | Duration(USE_MARK)               |return
+    |c[<0-9>]                 |                                  |>> :iso_dur_time_num  ; another component
+    |c['\n']                  | Duration(USE_MARK)               |return
+    |c[' ']                   |                                  |>> :iso_dur_time_space
+    |c[:bracket]              | Duration(USE_MARK)               |return
+    |default                  |                                  |>> :string  ; invalid continuation
+  |state[:iso_dur_time_space]
+    |if[space_term == 0]     | ->                               |>> :iso_dur_time_block
+    |default                  | Duration(USE_MARK)               |return
+  |state[:iso_dur_time_block]
+    |c[';']                   | Duration(USE_MARK)               |return
     |default                  |                                  |>> :string
 
   ; === Numbers: hex (0xFF) ===
@@ -193,6 +683,13 @@
     |c['eE']                  | ->                               |>> :num_float_exp
     |c['i']                   | -> | Complex(USE_MARK)           |return
     |c['+-']                  | ->                               |>> :num_complex_sign
+    ; Duration suffixes for fractional durations like 1.5h (TIME-SPEC.md)
+    |c['sS']                  | -> | Duration(USE_MARK)          |return  ; seconds
+    |c['mM']                  | ->                               |>> :dur_m  ; minutes or months
+    |c['hH']                  | -> | Duration(USE_MARK)          |return  ; hours
+    |c['dD']                  | -> | Duration(USE_MARK)          |return  ; days
+    |c['wW']                  | -> | Duration(USE_MARK)          |return  ; weeks
+    |c['yY']                  | -> | Duration(USE_MARK)          |return  ; years
     |c['\n']                  | Float(USE_MARK)                  |return
     |c[' ']                   |                                  |>> :num_float_frac_space
     |c[:bracket]              | Float(USE_MARK)                  |return

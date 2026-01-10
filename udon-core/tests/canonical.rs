@@ -220,6 +220,11 @@ fn test_literal_escape() {
     run_fixture("literal_escape");
 }
 
+#[test]
+fn test_temporal() {
+    run_fixture("temporal");
+}
+
 // Integration test: run all fixtures
 #[test]
 #[ignore] // Run with --ignored for full suite
@@ -232,7 +237,7 @@ fn test_all_fixtures() {
         "element_suffix", "element_combined", "element_recognition", "text",
         "prose_dedentation", "indentation_hierarchy", "indentation_edge_cases",
         "comment_indentation", "comments_and_text", "suffix_positions",
-        "error_cases", "escape_prefix", "literal_escape",
+        "error_cases", "escape_prefix", "literal_escape", "temporal",
     ];
     for name in &all_fixtures {
         run_fixture(name);

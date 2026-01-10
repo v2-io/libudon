@@ -9,7 +9,7 @@
     - ElementStart
     - [Name, "el"]
     - [Error, "NoTabs"]
-    - [Error, "NoTabs"]
+    - ElementEnd
 
 - id: unclosed_double_quote_string
   desc: unclosed double quote string

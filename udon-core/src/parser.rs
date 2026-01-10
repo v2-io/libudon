@@ -39,6 +39,11 @@ pub enum Event<'a> {
     Rational { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
     Complex { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
     Warning { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
+    Date { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
+    Time { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
+    DateTime { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
+    Duration { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
+    RelativeTime { content: std::borrow::Cow<'a, [u8]>, span: Range<usize> },
     Error { code: ParseErrorCode, span: Range<usize> },
 }
 impl<'a> Event<'a> {
@@ -149,6 +154,26 @@ impl<'a> Event<'a> {
                 let s = std::str::from_utf8(content.as_ref()).unwrap_or("<invalid utf8>");
                 format!("Warning {:?} @ {}..{}", s, span.start, span.end)
             }
+            Event::Date { content, span } => {
+                let s = std::str::from_utf8(content.as_ref()).unwrap_or("<invalid utf8>");
+                format!("Date {:?} @ {}..{}", s, span.start, span.end)
+            }
+            Event::Time { content, span } => {
+                let s = std::str::from_utf8(content.as_ref()).unwrap_or("<invalid utf8>");
+                format!("Time {:?} @ {}..{}", s, span.start, span.end)
+            }
+            Event::DateTime { content, span } => {
+                let s = std::str::from_utf8(content.as_ref()).unwrap_or("<invalid utf8>");
+                format!("DateTime {:?} @ {}..{}", s, span.start, span.end)
+            }
+            Event::Duration { content, span } => {
+                let s = std::str::from_utf8(content.as_ref()).unwrap_or("<invalid utf8>");
+                format!("Duration {:?} @ {}..{}", s, span.start, span.end)
+            }
+            Event::RelativeTime { content, span } => {
+                let s = std::str::from_utf8(content.as_ref()).unwrap_or("<invalid utf8>");
+                format!("RelativeTime {:?} @ {}..{}", s, span.start, span.end)
+            }
             Event::Error { code, span } => {
                 format!("Error {:?} @ {}..{}", code, span.start, span.end)
             }
@@ -174,8 +199,8 @@ pub enum ParseErrorCode {
     UnclosedArray,
     UnclosedFreeform,
     UnclosedText,
-    UnclosedInterpolation,
     NoTabs,
+    UnclosedInterpolation,
 }
 
 /// Callback-based parser.
@@ -545,7 +570,9 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'\t') => {
                     on_event(Event::Error { code: ParseErrorCode::NoTabs, span: self.span() });
-                    return;
+                    self.scan_to1(b'\n');
+                    state = State::Line;
+                    continue;
                         }
                         _ => {
                     col = self.col() - 1;
@@ -1211,7 +1238,8 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'\t') => {
                     on_event(Event::Error { code: ParseErrorCode::NoTabs, span: self.span() });
-                    return;
+                    self.scan_to1(b'\n');
+                    continue;
                         }
                         _ => {
                     col = self.col() - 1;
@@ -2686,10 +2714,9 @@ impl<'a> Parser<'a> {
     {
         let start_span = self.span();
         on_event(Event::CommentStart { span: start_span.clone() });
-        let mut comment_col: i32 = 0;
+        let comment_col: i32 = self.col() - 1;
         let mut content_base: i32 = -1;
         let mut col: i32 = 0;
-                    comment_col = self.col() - 1;
         #[derive(Clone, Copy)]
         enum State { Check, FirstLine, Children, ChildrenWs, CheckContinuation, AtContentBase, ContContent, ContLine,  }
         let mut state = State::Check;
@@ -3379,7 +3406,8 @@ impl<'a> Parser<'a> {
                         }
                         Some(b'\t') => {
                     on_event(Event::Error { code: ParseErrorCode::NoTabs, span: self.span() });
-                    return;
+                    self.scan_to1(b'\n');
+                    continue;
                         }
                         _ => {
                     col = self.col() - 1;
@@ -3582,7 +3610,6 @@ impl<'a> Parser<'a> {
                     on_event(Event::Interpolation { content: self.term(), span: self.span_from_mark() });
                     on_event(Event::Error { code: ParseErrorCode::UnclosedInterpolation, span: self.span() });
                     return;
-                    return;
                         }
                         _ => unreachable!("scan_to only returns target chars"),
                     }
@@ -3590,7 +3617,6 @@ impl<'a> Parser<'a> {
                 State::Closing => {
                     if self.eof() {
                         on_event(Event::Interpolation { content: self.term(), span: self.span_from_mark() });
-                        on_event(Event::Error { code: ParseErrorCode::UnclosedInterpolation, span: self.span() });
                         return;
                     }
                     match self.peek() {
@@ -3788,7 +3814,7 @@ impl<'a> Parser<'a> {
     {
                     self.mark();
         #[derive(Clone, Copy)]
-        enum State { Main, MaybeRef, Reference, CheckSpace, BlockSpace, Accumulate, AccumSpace, AccumBlock, NumSign, NumZero, NumZeroSpace, NumZeroBlock, NumDec, NumDecSpace, NumDecBlock, NumHex, NumHexSpace, NumHexBlock, NumOct, NumOctSpace, NumOctBlock, NumBin, NumBinSpace, NumBinBlock, NumFloatFrac, NumFloatFracSpace, NumFloatFracBlock, NumFloatExp, NumFloatExpSpace, NumFloatExpBlock, NumFloatExpDigits, NumFloatExpDSpace, NumFloatExpDBlock, NumRationalDenom, NumRationalSpace, NumRationalBlock, NumComplexSign, NumComplexImag, NumComplexImagSpace, NumComplexImagBlock, NumComplexImagFrac, NumComplexImagFracSpace, NumComplexImagFracBlock, NumComplexImagExp, NumComplexImagExpSpace, NumComplexImagExpBlock, NumComplexImagExpD, NumComplexImagExpDSpace, NumComplexImagExpDBlock, String, StringSpace, StringBlock,  }
+        enum State { Main, MaybeRef, Reference, CheckSpace, BlockSpace, Accumulate, AccumSpace, AccumBlock, NumSign, RelNumDec, RelNumDecSpace, RelNumDecBlock, RelDurM, RelDurMSpace, RelDurMBlock, RelNumZero, RelNumZeroSpace, RelNumZeroBlock, RelNumFloatFrac, RelNumFloatSpace, RelNumFloatBlock, RelIsoDurStart, RelIsoDurDateNum, RelIsoDurDateFrac, RelIsoDurDateAfter, RelIsoDurDateSpace, RelIsoDurDateBlock, RelIsoDurTimeStart, RelIsoDurTimeNum, RelIsoDurTimeFrac, RelIsoDurTimeAfter, RelIsoDurTimeSpace, RelIsoDurTimeBlock, NumZero, NumZeroSpace, NumZeroBlock, NumDec, NumDecSpace, NumDecBlock, MaybeDateMonth, DateMonth2, DateAfterMonth, DateSpace, DateBlock, DateDay1, DateDay2, DateComplete, DateCompleteSpace, DateCompleteBlock, MaybeTimeMin, TimeMin2, TimeAfterMin, TimeSpace, TimeBlock, TimeSec1, TimeSec2, TimeComplete, TimeCompleteSpace, TimeCompleteBlock, TimeFrac, TimeFracSpace, TimeFracBlock, DatetimeTimeStart, DatetimeHour2, DatetimeAfterHour, DatetimeMin1, DatetimeMin2, DatetimeAfterMin, DatetimeMinSpace, DatetimeMinBlock, DatetimeSec1, DatetimeSec2, DatetimeAfterSec, DatetimeSecSpace, DatetimeSecBlock, DatetimeFrac, DatetimeFracSpace, DatetimeFracBlock, DatetimeOffsetHour1, DatetimeOffsetHour2, DatetimeOffsetAfterHour, DatetimeOffsetHourSpace, DatetimeOffsetHourBlock, DatetimeOffsetMin1, DatetimeOffsetMin2, DatetimeComplete, DatetimeCompleteSpace, DatetimeCompleteBlock, DurM, DurMSpace, DurMBlock, IsoDurStart, IsoDurDateNum, IsoDurDateFrac, IsoDurDateAfter, IsoDurDateSpace, IsoDurDateBlock, IsoDurTimeStart, IsoDurTimeNum, IsoDurTimeFrac, IsoDurTimeAfter, IsoDurTimeSpace, IsoDurTimeBlock, NumHex, NumHexSpace, NumHexBlock, NumOct, NumOctSpace, NumOctBlock, NumBin, NumBinSpace, NumBinBlock, NumFloatFrac, NumFloatFracSpace, NumFloatFracBlock, NumFloatExp, NumFloatExpSpace, NumFloatExpBlock, NumFloatExpDigits, NumFloatExpDSpace, NumFloatExpDBlock, NumRationalDenom, NumRationalSpace, NumRationalBlock, NumComplexSign, NumComplexImag, NumComplexImagSpace, NumComplexImagBlock, NumComplexImagFrac, NumComplexImagFracSpace, NumComplexImagFracBlock, NumComplexImagExp, NumComplexImagExpSpace, NumComplexImagExpBlock, NumComplexImagExpD, NumComplexImagExpDSpace, NumComplexImagExpDBlock, String, StringSpace, StringBlock,  }
         let mut state = State::Main;
         loop {
             match state {
@@ -3827,6 +3853,11 @@ impl<'a> Parser<'a> {
                         Some(b'+' | b'-') => {
                     self.advance();
                     state = State::NumSign;
+                    continue;
+                        }
+                        Some(b'p' | b'P') => {
+                    self.advance();
+                    state = State::IsoDurStart;
                     continue;
                         }
                         Some(b'a' | b'b' | b'c' | b'd' | b'e' | b'f' | b'g' | b'h' | b'i' | b'j' | b'k' | b'l' | b'm' | b'n' | b'o' | b'p' | b'q' | b'r' | b's' | b't' | b'u' | b'v' | b'w' | b'x' | b'y' | b'z' | b'A' | b'B' | b'C' | b'D' | b'E' | b'F' | b'G' | b'H' | b'I' | b'J' | b'K' | b'L' | b'M' | b'N' | b'O' | b'P' | b'Q' | b'R' | b'S' | b'T' | b'U' | b'V' | b'W' | b'X' | b'Y' | b'Z') => {
@@ -3976,17 +4007,683 @@ impl<'a> Parser<'a> {
                         return;
                     }
                     match self.peek() {
+                        Some(b'p' | b'P') => {
+                    self.advance();
+                    state = State::RelIsoDurStart;
+                    continue;
+                        }
                         Some(b'0') => {
                     self.advance();
-                    state = State::NumZero;
+                    state = State::RelNumZero;
                     continue;
                         }
                         Some(b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
-                    state = State::NumDec;
+                    state = State::RelNumDec;
                     continue;
                         }
                         _ => {
                     state = State::Accumulate;
+                    continue;
+                        }
+                    }
+                }
+                State::RelNumDec => {
+                    if self.eof() {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::RelNumFloatFrac;
+                    continue;
+                        }
+                        Some(b'e' | b'E') => {
+                    self.advance();
+                    state = State::NumFloatExp;
+                    continue;
+                        }
+                        Some(b'/') => {
+                    self.advance();
+                    state = State::NumRationalDenom;
+                    continue;
+                        }
+                        Some(b'i') => {
+                    self.advance();
+                    on_event(Event::Complex { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'+' | b'-') => {
+                    self.advance();
+                    state = State::NumComplexSign;
+                    continue;
+                        }
+                        Some(b's' | b'S') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::RelDurM;
+                    continue;
+                        }
+                        Some(b'h' | b'H') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'd' | b'D') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'w' | b'W') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'y' | b'Y') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::RelNumDecSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelNumDecSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::RelNumDecBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::RelNumDecBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelDurM => {
+                    if self.eof() {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'o' | b'O') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::RelDurMSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelDurMSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::RelDurMBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::RelDurMBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelNumZero => {
+                    if self.eof() {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'x' | b'X') => {
+                    self.advance();
+                    state = State::NumHex;
+                    continue;
+                        }
+                        Some(b'o' | b'O') => {
+                    self.advance();
+                    state = State::NumOct;
+                    continue;
+                        }
+                        Some(b'b' | b'B') => {
+                    self.advance();
+                    state = State::NumBin;
+                    continue;
+                        }
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::RelNumFloatFrac;
+                    continue;
+                        }
+                        Some(b'e' | b'E') => {
+                    self.advance();
+                    state = State::NumFloatExp;
+                    continue;
+                        }
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    state = State::RelNumDec;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::RelNumZeroSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelNumZeroSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::RelNumZeroBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::RelNumZeroBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelNumFloatFrac => {
+                    if self.eof() {
+                    on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'e' | b'E') => {
+                    self.advance();
+                    state = State::NumFloatExp;
+                    continue;
+                        }
+                        Some(b'i') => {
+                    self.advance();
+                    on_event(Event::Complex { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'+' | b'-') => {
+                    self.advance();
+                    state = State::NumComplexSign;
+                    continue;
+                        }
+                        Some(b's' | b'S') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::RelDurM;
+                    continue;
+                        }
+                        Some(b'h' | b'H') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'd' | b'D') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'w' | b'W') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'y' | b'Y') => {
+                    self.advance();
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::RelNumFloatSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelNumFloatSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::RelNumFloatBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::RelNumFloatBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelIsoDurStart => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::RelIsoDurDateNum;
+                    continue;
+                        }
+                        Some(b't' | b'T') => {
+                    self.advance();
+                    state = State::RelIsoDurTimeStart;
+                    continue;
+                        }
+                        _ => {
+                    state = State::Accumulate;
+                    continue;
+                        }
+                    }
+                }
+                State::RelIsoDurDateNum => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::RelIsoDurDateFrac;
+                    continue;
+                        }
+                        Some(b'y' | b'Y') => {
+                    self.advance();
+                    state = State::RelIsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::RelIsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'd' | b'D') => {
+                    self.advance();
+                    state = State::RelIsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'w' | b'W') => {
+                    self.advance();
+                    state = State::RelIsoDurDateAfter;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelIsoDurDateFrac => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'y' | b'Y') => {
+                    self.advance();
+                    state = State::RelIsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::RelIsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'd' | b'D') => {
+                    self.advance();
+                    state = State::RelIsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'w' | b'W') => {
+                    self.advance();
+                    state = State::RelIsoDurDateAfter;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelIsoDurDateAfter => {
+                    if self.eof() {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::RelIsoDurDateNum;
+                    continue;
+                        }
+                        Some(b't' | b'T') => {
+                    self.advance();
+                    state = State::RelIsoDurTimeStart;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::RelIsoDurDateSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelIsoDurDateSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::RelIsoDurDateBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::RelIsoDurDateBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelIsoDurTimeStart => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::RelIsoDurTimeNum;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelIsoDurTimeNum => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::RelIsoDurTimeFrac;
+                    continue;
+                        }
+                        Some(b'h' | b'H') => {
+                    self.advance();
+                    state = State::RelIsoDurTimeAfter;
+                    continue;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::RelIsoDurTimeAfter;
+                    continue;
+                        }
+                        Some(b's' | b'S') => {
+                    self.advance();
+                    state = State::RelIsoDurTimeAfter;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelIsoDurTimeFrac => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'h' | b'H') => {
+                    self.advance();
+                    state = State::RelIsoDurTimeAfter;
+                    continue;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::RelIsoDurTimeAfter;
+                    continue;
+                        }
+                        Some(b's' | b'S') => {
+                    self.advance();
+                    state = State::RelIsoDurTimeAfter;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelIsoDurTimeAfter => {
+                    if self.eof() {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::RelIsoDurTimeNum;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::RelIsoDurTimeSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::RelIsoDurTimeSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::RelIsoDurTimeBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::RelIsoDurTimeBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::RelativeTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
                     continue;
                         }
                     }
@@ -4106,10 +4803,50 @@ impl<'a> Parser<'a> {
                     on_event(Event::Complex { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
-                        Some(b'+' | b'-') => {
+                        Some(b'-') => {
+                    self.advance();
+                    state = State::MaybeDateMonth;
+                    continue;
+                        }
+                        Some(b':') => {
+                    self.advance();
+                    state = State::MaybeTimeMin;
+                    continue;
+                        }
+                        Some(b'+') => {
                     self.advance();
                     state = State::NumComplexSign;
                     continue;
+                        }
+                        Some(b's' | b'S') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::DurM;
+                    continue;
+                        }
+                        Some(b'h' | b'H') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'd' | b'D') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'w' | b'W') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'y' | b'Y') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
                         }
                         Some(b'\n') => {
                     on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
@@ -4152,6 +4889,1296 @@ impl<'a> Parser<'a> {
                     match self.peek() {
                         Some(b';') => {
                     on_event(Event::Integer { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::MaybeDateMonth => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DateMonth2;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DateMonth2 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DateAfterMonth;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DateAfterMonth => {
+                    if self.eof() {
+                    on_event(Event::Date { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'-') => {
+                    self.advance();
+                    state = State::DateDay1;
+                    continue;
+                        }
+                        Some(b'T') => {
+                    self.advance();
+                    state = State::DatetimeTimeStart;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Date { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::DateSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Date { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DateSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::DateBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Date { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::DateBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Date { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DateDay1 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DateDay2;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DateDay2 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DateComplete;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DateComplete => {
+                    if self.eof() {
+                    on_event(Event::Date { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'T') => {
+                    self.advance();
+                    state = State::DatetimeTimeStart;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Date { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::DateCompleteSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Date { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DateCompleteSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::DateCompleteBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Date { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::DateCompleteBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Date { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::MaybeTimeMin => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::TimeMin2;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::TimeMin2 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::TimeAfterMin;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::TimeAfterMin => {
+                    if self.eof() {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b':') => {
+                    self.advance();
+                    state = State::TimeSec1;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::TimeSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::TimeSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::TimeBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::TimeBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::TimeSec1 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::TimeSec2;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::TimeSec2 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::TimeComplete;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::TimeComplete => {
+                    if self.eof() {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::TimeFrac;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::TimeCompleteSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::TimeCompleteSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::TimeCompleteBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::TimeCompleteBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::TimeFrac => {
+                    if self.eof() {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::TimeFracSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::TimeFracSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::TimeFracBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::TimeFracBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Time { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeTimeStart => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DatetimeHour2;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeHour2 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DatetimeAfterHour;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeAfterHour => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b':') => {
+                    self.advance();
+                    state = State::DatetimeMin1;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeMin1 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DatetimeMin2;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeMin2 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DatetimeAfterMin;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeAfterMin => {
+                    if self.eof() {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b':') => {
+                    self.advance();
+                    state = State::DatetimeSec1;
+                    continue;
+                        }
+                        Some(b'Z') => {
+                    self.advance();
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'+' | b'-') => {
+                    self.advance();
+                    state = State::DatetimeOffsetHour1;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::DatetimeMinSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeMinSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::DatetimeMinBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::DatetimeMinBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeSec1 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DatetimeSec2;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeSec2 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DatetimeAfterSec;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeAfterSec => {
+                    if self.eof() {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::DatetimeFrac;
+                    continue;
+                        }
+                        Some(b'Z') => {
+                    self.advance();
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'+' | b'-') => {
+                    self.advance();
+                    state = State::DatetimeOffsetHour1;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::DatetimeSecSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeSecSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::DatetimeSecBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::DatetimeSecBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeFrac => {
+                    if self.eof() {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'Z') => {
+                    self.advance();
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'+' | b'-') => {
+                    self.advance();
+                    state = State::DatetimeOffsetHour1;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::DatetimeFracSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeFracSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::DatetimeFracBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::DatetimeFracBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeOffsetHour1 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DatetimeOffsetHour2;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeOffsetHour2 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DatetimeOffsetAfterHour;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeOffsetAfterHour => {
+                    if self.eof() {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b':') => {
+                    self.advance();
+                    state = State::DatetimeOffsetMin1;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::DatetimeOffsetHourSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeOffsetHourSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::DatetimeOffsetHourBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::DatetimeOffsetHourBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeOffsetMin1 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DatetimeOffsetMin2;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeOffsetMin2 => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    self.advance();
+                    state = State::DatetimeComplete;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeComplete => {
+                    if self.eof() {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'\n') => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::DatetimeCompleteSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DatetimeCompleteSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::DatetimeCompleteBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::DatetimeCompleteBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::DateTime { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DurM => {
+                    if self.eof() {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'o' | b'O') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::DurMSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::DurMSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::DurMBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::DurMBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::IsoDurStart => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::IsoDurDateNum;
+                    continue;
+                        }
+                        Some(b't' | b'T') => {
+                    self.advance();
+                    state = State::IsoDurTimeStart;
+                    continue;
+                        }
+                        _ => {
+                    state = State::Accumulate;
+                    continue;
+                        }
+                    }
+                }
+                State::IsoDurDateNum => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::IsoDurDateFrac;
+                    continue;
+                        }
+                        Some(b'y' | b'Y') => {
+                    self.advance();
+                    state = State::IsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::IsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'd' | b'D') => {
+                    self.advance();
+                    state = State::IsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'w' | b'W') => {
+                    self.advance();
+                    state = State::IsoDurDateAfter;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::IsoDurDateFrac => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'y' | b'Y') => {
+                    self.advance();
+                    state = State::IsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::IsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'd' | b'D') => {
+                    self.advance();
+                    state = State::IsoDurDateAfter;
+                    continue;
+                        }
+                        Some(b'w' | b'W') => {
+                    self.advance();
+                    state = State::IsoDurDateAfter;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::IsoDurDateAfter => {
+                    if self.eof() {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::IsoDurDateNum;
+                    continue;
+                        }
+                        Some(b't' | b'T') => {
+                    self.advance();
+                    state = State::IsoDurTimeStart;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::IsoDurDateSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::IsoDurDateSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::IsoDurDateBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::IsoDurDateBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::IsoDurTimeStart => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::IsoDurTimeNum;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::IsoDurTimeNum => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'.') => {
+                    self.advance();
+                    state = State::IsoDurTimeFrac;
+                    continue;
+                        }
+                        Some(b'h' | b'H') => {
+                    self.advance();
+                    state = State::IsoDurTimeAfter;
+                    continue;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::IsoDurTimeAfter;
+                    continue;
+                        }
+                        Some(b's' | b'S') => {
+                    self.advance();
+                    state = State::IsoDurTimeAfter;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::IsoDurTimeFrac => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9' | b'_') => {
+                    self.advance();
+                    continue;
+                        }
+                        Some(b'h' | b'H') => {
+                    self.advance();
+                    state = State::IsoDurTimeAfter;
+                    continue;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::IsoDurTimeAfter;
+                    continue;
+                        }
+                        Some(b's' | b'S') => {
+                    self.advance();
+                    state = State::IsoDurTimeAfter;
+                    continue;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::IsoDurTimeAfter => {
+                    if self.eof() {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                    }
+                    match self.peek() {
+                        Some(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => {
+                    state = State::IsoDurTimeNum;
+                    continue;
+                        }
+                        Some(b'\n') => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b' ') => {
+                    state = State::IsoDurTimeSpace;
+                    continue;
+                        }
+                        Some(b) if b == bracket => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        _ => {
+                    state = State::String;
+                    continue;
+                        }
+                    }
+                }
+                State::IsoDurTimeSpace => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        _ if space_term == 0 => {
+                    self.advance();
+                    state = State::IsoDurTimeBlock;
+                    continue;
+                        }
+                        _ => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                    }
+                }
+                State::IsoDurTimeBlock => {
+                    if self.eof() {
+                        return;
+                    }
+                    match self.peek() {
+                        Some(b';') => {
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
                     return;
                         }
                         _ => {
@@ -4361,6 +6388,36 @@ impl<'a> Parser<'a> {
                     self.advance();
                     state = State::NumComplexSign;
                     continue;
+                        }
+                        Some(b's' | b'S') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'm' | b'M') => {
+                    self.advance();
+                    state = State::DurM;
+                    continue;
+                        }
+                        Some(b'h' | b'H') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'd' | b'D') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'w' | b'W') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
+                        }
+                        Some(b'y' | b'Y') => {
+                    self.advance();
+                    on_event(Event::Duration { content: self.term(), span: self.span_from_mark() });
+                    return;
                         }
                         Some(b'\n') => {
                     on_event(Event::Float { content: self.term(), span: self.span_from_mark() });
@@ -4996,6 +7053,11 @@ pub enum StreamEvent {
     Rational { content: Vec<u8>, span: Range<usize> },
     Complex { content: Vec<u8>, span: Range<usize> },
     Warning { content: Vec<u8>, span: Range<usize> },
+    Date { content: Vec<u8>, span: Range<usize> },
+    Time { content: Vec<u8>, span: Range<usize> },
+    DateTime { content: Vec<u8>, span: Range<usize> },
+    Duration { content: Vec<u8>, span: Range<usize> },
+    RelativeTime { content: Vec<u8>, span: Range<usize> },
     Error { code: ParseErrorCode, span: Range<usize> },
 }
 impl StreamEvent {
@@ -5136,6 +7198,36 @@ impl StreamEvent {
             }
             Event::Warning { content, span } => {
                 StreamEvent::Warning {
+                    content: content.into_owned(),
+                    span: (span.start + offset)..(span.end + offset),
+                }
+            }
+            Event::Date { content, span } => {
+                StreamEvent::Date {
+                    content: content.into_owned(),
+                    span: (span.start + offset)..(span.end + offset),
+                }
+            }
+            Event::Time { content, span } => {
+                StreamEvent::Time {
+                    content: content.into_owned(),
+                    span: (span.start + offset)..(span.end + offset),
+                }
+            }
+            Event::DateTime { content, span } => {
+                StreamEvent::DateTime {
+                    content: content.into_owned(),
+                    span: (span.start + offset)..(span.end + offset),
+                }
+            }
+            Event::Duration { content, span } => {
+                StreamEvent::Duration {
+                    content: content.into_owned(),
+                    span: (span.start + offset)..(span.end + offset),
+                }
+            }
+            Event::RelativeTime { content, span } => {
+                StreamEvent::RelativeTime {
                     content: content.into_owned(),
                     span: (span.start + offset)..(span.end + offset),
                 }

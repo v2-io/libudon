@@ -36,6 +36,11 @@ fn format_event(event: &udon_core::Event) -> String {
         Rational { content, .. } => format!("[Rational, {:?}]", String::from_utf8_lossy(content)),
         Complex { content, .. } => format!("[Complex, {:?}]", String::from_utf8_lossy(content)),
         Warning { content, .. } => format!("[Warning, {:?}]", String::from_utf8_lossy(content)),
+        Date { content, .. } => format!("[Date, {:?}]", String::from_utf8_lossy(content)),
+        Time { content, .. } => format!("[Time, {:?}]", String::from_utf8_lossy(content)),
+        DateTime { content, .. } => format!("[DateTime, {:?}]", String::from_utf8_lossy(content)),
+        Duration { content, .. } => format!("[Duration, {:?}]", String::from_utf8_lossy(content)),
+        RelativeTime { content, .. } => format!("[RelativeTime, {:?}]", String::from_utf8_lossy(content)),
         Error { code, .. } => format!("[Error, \"{:?}\"]", code),
     }
 }
