@@ -42,6 +42,7 @@ fn format_event(event: &udon_core::Event) -> String {
         Duration { content, .. } => format!("[Duration, {:?}]", String::from_utf8_lossy(content)),
         RelativeTime { content, .. } => format!("[RelativeTime, {:?}]", String::from_utf8_lossy(content)),
         Error { code, .. } => format!("[Error, \"{:?}\"]", code),
+        BlankLine { .. } => "BlankLine".to_string(),
     }
 }
 

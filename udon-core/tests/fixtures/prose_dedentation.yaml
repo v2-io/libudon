@@ -170,7 +170,7 @@
 
 - id: blank_lines_passed_through
   desc: blank lines passed through
-  # Note: blank lines don't appear as separate events, text lines continue
+  # Blank lines emit BlankLine event
   udon: |-
     |element
       first paragraph
@@ -180,6 +180,7 @@
     - ElementStart
     - [Name, "element"]
     - [Text, "first paragraph"]
+    - BlankLine
     - [Text, "second paragraph"]
     - ElementEnd
 

@@ -651,8 +651,8 @@ impl<'a> TreeBuilder<'a> {
                 }
             }
 
-            // ---- Ignored ----
-            Error { .. } | Warning { .. } => {}
+            // ---- Ignored (for now - tree builder doesn't preserve blank lines) ----
+            Error { .. } | Warning { .. } | BlankLine { .. } => {}
         }
     }
 

@@ -51,6 +51,7 @@
 |type[Rational]      CONTENT    ; emits Rational event (1/3r)
 |type[Complex]       CONTENT    ; emits Complex event (3+4i, 5i)
 |type[Warning]       CONTENT    ; emits Warning event (parser warnings)
+|type[BlankLine]     CONTENT    ; emits BlankLine for blank/whitespace-only lines
 
 |type[INT]           INTERNAL   ; no emit - internal integer
 |type[BOOL]          INTERNAL   ; no emit - internal boolean
@@ -197,7 +198,7 @@
   |state[:post_identity]
     |c['\n']                  | ->                               |>> :children
     |c[' \t']                 | ->                               |>> :pre_content
-    |default                  | /sameline_text(:elem_col, <>)     |>> :children
+    |default                  | /sameline_text(:elem_col, <>)    |>> :after_content
 
   |state[:pre_content]
     |c['\n']                  | ->                               |>> :children
@@ -206,12 +207,12 @@
     |c['|']                   | ->                               |>> :check_sameline_pipe
     |c[';']                   | ->                               |>> :check_sameline_semi
     |c['!']                   | ->                               |>> :check_sameline_bang
-    |default                  | /sameline_text(:elem_col, <>)     |>> :children
+    |default                  | /sameline_text(:elem_col, <>)    |>> :after_content
 
   |state[:check_sameline_pipe]
     |c['{']                   | -> | /embedded                   |>> :post_child
     |c[<XLBL_START SQ '[' '.?!*+'>]  |                               |>> :check_sameline_elem_col
-    |default                  | /sameline_text(:elem_col, '|')   |>> :children
+    |default                  | /sameline_text(:elem_col, '|')   |>> :after_content
 
   ; Check if new element's column requires closing current element first (sibling detection)
   ; Per SPEC: "pop while new_column <= stack_top.base_column"
@@ -221,23 +222,23 @@
 
   |state[:check_sameline_semi]
     |c['{']                   | -> | /brace_comment              |>> :post_sameline_inline
-    |default                  | /line_comment_content            |>> :children
+    |default                  | /line_comment_content            |>> :after_content
 
   |state[:check_sameline_bang]
     |c['{']                   | -> | /sameline_directive           |>> :post_sameline_inline
-    |default                  | /sameline_text(:elem_col, '!')   |>> :children
+    |default                  | /sameline_text(:elem_col, '!')   |>> :after_content
 
   ; After inline directive on sameline - don't skip spaces, they're content now
   |state[:post_sameline_inline]
     |c['\n']                  | ->                               |>> :children
     |eof                      |                                  |return
-    |default                  | /sameline_text(:elem_col, <>)    |>> :children
+    |default                  | /sameline_text(:elem_col, <>)    |>> :after_content
 
   |state[:post_child]
     |c['\n']                  | ->                               |>> :children
     |c[' \t']                 | ->                               |>>
     |c['|']                   |                                  |>> :check_post_pipe_col
-    |default                  | /sameline_text(:elem_col, <>)     |>> :children
+    |default                  | /sameline_text(:elem_col, <>)    |>> :after_content
 
   ; Check if '|' is at a sibling/dedent column - if so, let :children handle it
   ; This avoids consuming the '|' before knowing if it belongs to a sibling
@@ -246,92 +247,114 @@
     |default             | ->                                    |>> :check_sameline_pipe
 
   ; === Children Loop ===
-  ; content_base tracks first prose line's column for dedentation/warnings
-  ; For prose lines beyond content_base, extra spaces are preserved in output
+  ; content_base tracks first child content's column for consistency warnings
+  ; For content beyond content_base column, extra spaces are preserved in output
   |state[:children]
-    |c['\n']                  | ->                               |>>
+    |c['\n']                  | -> | BlankLine                   |>> :after_newline
     |c[' ']                   | -> | col = 1                     |>> :children_ws
     |c['\t']                  | /error(NoTabs) | ->['\n']       |>>
     |default                  | col = COL - 1                    |>> :check_child
 
-  ; Count spaces, but stop at content_base if set (to preserve extra for prose)
+  ; After consuming newline, check if next line is blank/whitespace-only
+  |state[:after_newline]
+    |eof                      |                                  |return
+    |c['\n']                  | -> | BlankLine                   |>>  ; blank line (empty)
+    |c[' ']                   | -> | col = 1                     |>> :children_ws
+    |c['\t']                  | /error(NoTabs) | ->['\n']       |>> :children
+    |default                  | col = COL - 1                    |>> :check_child
+
+  ; Count spaces, but stop at content_base if set (to preserve extra spaces as content)
+  ; If line ends up whitespace-only, emit BlankLine
   |state[:children_ws]
     ; If content_base is set and we've reached it, stop counting
     |if[content_base >= 0 && col >= content_base]               |>> :at_content_base
     |c[' ']                   | -> | col += 1                    |>>
+    |c['\n']                  | -> | BlankLine                   |>> :after_newline  ; whitespace-only
     |default                  |                                  |>> :check_child
 
   ; At content_base - check what follows
   ; We've reached content_base column, now dispatch on character type
   |state[:at_content_base]
     |if[col <= :elem_col]                                        |return  ; dedent
+    |c['\n']                  | -> | BlankLine                   |>> :after_newline  ; whitespace-only to content_base
     |c['|']                   | ->                               |>> :child_pipe
-    |c[':']                   | -> | /block_attr                 |>> :children
-    |c['!']                   | -> | /block_directive(col)       |>> :children
-    |c[';']                   | -> | /line_comment               |>> :children
+    |c[':']                   | -> | /block_attr                 |>> :after_content
+    |c['!']                   | -> | /block_directive(col)       |>> :after_content
+    |c[';']                   | -> | /line_comment               |>> :after_content
     |c['@']                   | ->                               |>> :child_check_at
     |c['`']                   | ->                               |>> :child_check_freeform
     |c[<SQ>]                  | ->                               |>> :child_apos
-    ; For prose (default includes space), extra spaces beyond content_base are content
-    |default                  | /prose(col, :elem_col, <>)       |>> :children
+    ; For default content (includes space), extra spaces beyond content_base are preserved
+    |default                  | /prose(col, :elem_col, <>)       |>> :after_content
 
   |state[:check_child]
     |if[col <= :elem_col]                                        |return  ; dedent
-    |                                                            |>> :child_dispatch
+    ; After child return, content_base may be set - route to :at_content_base if matched
+    |if[content_base >= 0 && col >= content_base]               |>> :at_content_base
+    |default                                                     |>> :child_dispatch
 
-  ; First prose line (content_base not yet set) or lines with less indent
+  ; First child content (content_base not yet set) or lines with less indent than content_base
+  ; content_base tracks the first child's column for consistency warnings
   |state[:child_dispatch]
+    ; Set content_base if first child, or warn if col < content_base (inconsistent)
+    |if[content_base < 0]     | content_base = col               |>> :child_dispatch_do
+    |if[col < content_base]   | Warning(Inconsistent indentation) | content_base = col |>> :child_dispatch_do
+    |default                  |                                  |>> :child_dispatch_do
+
+  |state[:child_dispatch_do]
     |c['|']                   | ->                               |>> :child_pipe
-    |c[':']                   | -> | /block_attr                 |>> :children
-    |c['!']                   | -> | /block_directive(col)       |>> :children
-    |c[';']                   | -> | /line_comment               |>> :children
+    |c[':']                   | -> | /block_attr                 |>> :after_content
+    |c['!']                   | -> | /block_directive(col)       |>> :after_content
+    |c[';']                   | -> | /line_comment               |>> :after_content
     |c['@']                   | ->                               |>> :child_check_at
     |c['`']                   | ->                               |>> :child_check_freeform
     |c[<SQ>]                  | ->                               |>> :child_apos
-    |default                  |                                  |>> :prose_check_base
+    |default                  |                                  |>> :do_prose
 
   ; Block-level reference in element: @[id]
   |state[:child_check_at]
-    |c['[']                   | -> | /block_reference            |>> :children
-    |default                  | /prose(col, :elem_col, '@')      |>> :children
-
-  ; Check content_base for prose lines
-  ; - If not set: this is first prose line, set it
-  ; - If col < content_base: inconsistent indent warning, update content_base
-  ; - If col >= content_base: handled in :at_content_base (shouldn't reach here)
-  |state[:prose_check_base]
-    |if[content_base < 0]     | content_base = col               |>> :do_prose
-    ; col < content_base (since >= would have gone to :at_content_base)
-    |default                  | Warning(Inconsistent indentation) | content_base = col |>> :do_prose
+    |c['[']                   | -> | /block_reference            |>> :after_content
+    |default                  | /prose(col, :elem_col, '@')      |>> :after_content
 
   |state[:do_prose]
-    | /prose(col, :elem_col, <>)                                 |>> :children
+    | /prose(col, :elem_col, <>)                                 |>> :after_content
 
+  ; Prose handlers go to :after_content to consume trailing \n
   |state[:child_check_freeform]
     |c['`']                   | ->                               |>> :child_check_freeform2
-    |default                  | /prose(col, :elem_col, '`')      |>> :children
+    |default                  | /prose(col, :elem_col, '`')      |>> :after_content
 
   |state[:child_check_freeform2]
-    |c['`']                   | -> | /freeform                   |>> :children
-    |default                  | /prose_backticks(col, :elem_col) |>> :children
+    |c['`']                   | -> | /freeform                   |>> :after_content
+    |default                  | /prose_backticks(col, :elem_col) |>> :after_content
 
   ; Block-level escape inside element children (same as document-level)
   |state[:child_apos]
-    |c['|']                   | -> | /prose(col, :elem_col, '|') |>> :children
-    |c[';']                   | -> | /prose(col, :elem_col, ';') |>> :children
-    |c[':']                   | -> | /prose(col, :elem_col, ':') |>> :children
-    |c['!']                   | -> | /prose(col, :elem_col, '!') |>> :children
-    |c[<SQ>]                  | -> | /prose(col, :elem_col, <SQ>)|>> :children
-    |default                  | /prose(col, :elem_col, <SQ>)     |>> :children
+    |c['|']                   | -> | /prose(col, :elem_col, '|') |>> :after_content
+    |c[';']                   | -> | /prose(col, :elem_col, ';') |>> :after_content
+    |c[':']                   | -> | /prose(col, :elem_col, ':') |>> :after_content
+    |c['!']                   | -> | /prose(col, :elem_col, '!') |>> :after_content
+    |c[<SQ>]                  | -> | /prose(col, :elem_col, <SQ>)|>> :after_content
+    |default                  | /prose(col, :elem_col, <SQ>)     |>> :after_content
 
   |state[:child_pipe]
     |c['{']                   | -> | /embedded                   |>> :after_child
     |c[<XLBL_START SQ '[' '.?!*+'>] | /element(col, :elem_col)         |>> :after_child
-    |default                  | /prose(col, :elem_col, '|')      |>> :children
+    |default                  | /prose(col, :elem_col, '|')      |>> :after_content
 
   ; After child element/embedded returns - always re-check column for potential dedent
   |state[:after_child]
     |                                                            |>> :children
+
+  ; After line content (prose, attr, comment, etc.) - consume trailing newline
+  ; This ensures :children only sees \n when at true line-start (blank line)
+  ; If content returned early (e.g., line_comment on dedent), re-dispatch mid-line
+  |state[:after_content]
+    |c['\n']                  | ->                               |>> :after_newline
+    |eof                      |                                  |return
+    |c[' ']                   | -> | col = 1                     |>> :children_ws
+    |c['\t']                  | /error(NoTabs) | ->['\n']       |>>
+    |default                  | col = COL - 1                    |>> :check_child
 
 
 ; ============================================================================

@@ -24,22 +24,23 @@
     - ElementEnd
     - ElementEnd
 
-- id: mixed_indent_levels_valid
-  desc: Mixed indent levels valid (variable width siblings)
+- id: mixed_indent_levels_warns
+  desc: Mixed indent levels warn (variable width siblings - poor form per SPEC 571-577)
   udon: |-
     |parent
       |child1
      |child2
   events:
     # |parent at column 0
-    # |child1 at column 2 - child of parent
-    # |child2 at column 1 - pop child1 (col 2 >= 1), parent col 0 < 1, so child of parent
-    # Both child1 and child2 are children of parent (siblings of each other)
+    # |child1 at column 2 - child of parent, sets content_base = 2
+    # |child2 at column 1 - still child of parent BUT warns (col 1 < content_base 2)
+    # SPEC 571-577: "mixing them is confusing" = warn
     - ElementStart
     - [Name, "parent"]
     - ElementStart
     - [Name, "child1"]
     - ElementEnd
+    - [Warning, "Inconsistent indentation"]
     - ElementStart
     - [Name, "child2"]
     - ElementEnd
@@ -114,4 +115,389 @@
     - ElementEnd
     - ElementStart
     - [Name, "z"]
+    - ElementEnd
+
+# Regression tests for content_base preservation after child element returns
+# Bug: After child element closed due to dedent, parent's content_base was not
+# being used correctly - prose at the same column as previous prose would
+# incorrectly trigger an "inconsistent indentation" warning.
+
+- id: prose_after_child_element_at_same_column
+  desc: Prose after child element at same column as prior prose (no warning)
+  udon: |-
+    |p
+      first prose
+      |em child
+      second prose
+  events:
+    # |p at column 0
+    # "first prose" at column 2 - sets content_base = 2
+    # |em at column 2 - child element
+    # "second prose" at column 2 - matches content_base, NO warning
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "first prose"]
+    - ElementStart
+    - [Name, "em"]
+    - [Text, "child"]
+    - ElementEnd
+    - [Text, "second prose"]
+    - ElementEnd
+
+- id: prose_after_child_element_less_indent_warns
+  desc: Prose after child element with less indent than content_base (warns)
+  udon: |-
+    |p
+      first prose
+      |em child
+     second prose
+  events:
+    # |p at column 0
+    # "first prose" at column 2 - sets content_base = 2
+    # |em at column 2 - child element
+    # "second prose" at column 1 - less than content_base, WARNING
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "first prose"]
+    - ElementStart
+    - [Name, "em"]
+    - [Text, "child"]
+    - ElementEnd
+    - [Warning, "Inconsistent indentation"]
+    - [Text, "second prose"]
+    - ElementEnd
+
+- id: sameline_content_then_child_then_prose
+  desc: Sameline content then child then prose (no warning)
+  udon: |-
+    |p sameline
+       |em child
+       after child
+  events:
+    # |p with sameline content - content_base not set for block children
+    # |em at column 3 - child element
+    # "after child" at column 3 - sets content_base = 3, no warning
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "sameline"]
+    - ElementStart
+    - [Name, "em"]
+    - [Text, "child"]
+    - ElementEnd
+    - [Text, "after child"]
+    - ElementEnd
+
+- id: sameline_content_then_child_then_inconsistent_prose
+  desc: Sameline content then child then prose at different columns (warns on decrease)
+  udon: |-
+    |p sameline
+       |em child
+       first
+      second
+  events:
+    # |p with sameline content
+    # |em at column 3 - child element
+    # "first" at column 3 - sets content_base = 3
+    # "second" at column 2 - less than content_base, WARNING
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "sameline"]
+    - ElementStart
+    - [Name, "em"]
+    - [Text, "child"]
+    - ElementEnd
+    - [Text, "first"]
+    - [Warning, "Inconsistent indentation"]
+    - [Text, "second"]
+    - ElementEnd
+
+# =============================================================================
+# content_base applies to ALL child content (elements, attributes, etc.)
+# SPEC lines 820-960: content_base tracks first child content's column
+# =============================================================================
+
+- id: decreasing_element_indent_warns
+  desc: Elements at decreasing indent levels trigger warnings
+  udon: |-
+    |alpha
+        |a
+       |b
+      |c
+     |d
+  events:
+    # |alpha at col 0
+    # |a at col 4 - first child, sets content_base = 4
+    # |b at col 3 < 4, WARNING, content_base = 3
+    # |c at col 2 < 3, WARNING, content_base = 2
+    # |d at col 1 < 2, WARNING, content_base = 1
+    - ElementStart
+    - [Name, "alpha"]
+    - ElementStart
+    - [Name, "a"]
+    - ElementEnd
+    - [Warning, "Inconsistent indentation"]
+    - ElementStart
+    - [Name, "b"]
+    - ElementEnd
+    - [Warning, "Inconsistent indentation"]
+    - ElementStart
+    - [Name, "c"]
+    - ElementEnd
+    - [Warning, "Inconsistent indentation"]
+    - ElementStart
+    - [Name, "d"]
+    - ElementEnd
+    - ElementEnd
+
+- id: element_then_prose_inconsistent_warns
+  desc: Element sets content_base, prose at less indent warns
+  udon: |-
+    |p
+        |em child
+      prose here
+  events:
+    # |em at col 4 sets content_base = 4
+    # prose at col 2 < 4, WARNING
+    - ElementStart
+    - [Name, "p"]
+    - ElementStart
+    - [Name, "em"]
+    - [Text, "child"]
+    - ElementEnd
+    - [Warning, "Inconsistent indentation"]
+    - [Text, "prose here"]
+    - ElementEnd
+
+- id: attribute_sets_content_base
+  desc: Block attribute sets content_base, subsequent less indent warns
+  udon: |-
+    |el
+        :attr value
+      prose
+  events:
+    # :attr at col 4 sets content_base = 4
+    # prose at col 2 < 4, WARNING
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "attr"]
+    - [BareValue, "value"]
+    - [Warning, "Inconsistent indentation"]
+    - [Text, "prose"]
+    - ElementEnd
+
+- id: comment_sets_content_base
+  desc: Block comment sets content_base, subsequent less indent warns
+  udon: |-
+    |el
+        ; a comment
+      prose
+  events:
+    # ; comment at col 4 sets content_base = 4
+    # prose at col 2 < 4, WARNING
+    - ElementStart
+    - [Name, "el"]
+    - CommentStart
+    - [Text, " a comment"]
+    - CommentEnd
+    - [Warning, "Inconsistent indentation"]
+    - [Text, "prose"]
+    - ElementEnd
+
+- id: mixed_content_types_consistent
+  desc: Elements, attributes, prose at same column - no warnings
+  udon: |-
+    |el
+      :attr value
+      |child
+      prose text
+      ; comment
+      more prose
+  events:
+    # All at col 2, no warnings
+    - ElementStart
+    - [Name, "el"]
+    - [Attr, "attr"]
+    - [BareValue, "value"]
+    - ElementStart
+    - [Name, "child"]
+    - ElementEnd
+    - [Text, "prose text"]
+    - CommentStart
+    - [Text, " comment"]
+    - CommentEnd
+    - [Text, "more prose"]
+    - ElementEnd
+
+# =============================================================================
+# Whitespace-only lines should NOT affect content_base
+# SPEC line 1664: "Blank lines passed through"
+# A line with only spaces should be equivalent to a blank line
+# =============================================================================
+
+- id: blank_line_preserved_in_prose
+  desc: Blank line in prose preserved as BlankLine event
+  udon: |-
+    |p
+      first
+
+      second
+  events:
+    # Blank line between first and second - preserved as BlankLine
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "first"]
+    - BlankLine
+    - [Text, "second"]
+    - ElementEnd
+
+- id: blank_line_between_elements
+  desc: Blank line between child elements - emits BlankLine
+  udon: |-
+    |p
+      |a
+
+      |b
+  events:
+    # Blank line is encountered while inside |a (before dedent closes it)
+    # So BlankLine is a child of |a, emitted before |a's ElementEnd
+    - ElementStart
+    - [Name, "p"]
+    - ElementStart
+    - [Name, "a"]
+    - BlankLine
+    - ElementEnd
+    - ElementStart
+    - [Name, "b"]
+    - ElementEnd
+    - ElementEnd
+
+# NOTE: Whitespace-only lines (lines with spaces but no content):
+# - Treated identically to blank lines (emit BlankLine)
+# - Do NOT trigger indentation warnings
+# - Do NOT affect content_base
+# - Cannot be tested via YAML fixtures (YAML strips trailing whitespace)
+# - Must be tested programmatically in a separate test
+
+# =============================================================================
+# Complex interleaving of elements and prose
+# =============================================================================
+
+- id: deep_nesting_with_prose_at_each_level
+  desc: Prose at multiple nesting levels, each consistent
+  udon: |-
+    |div
+      div text
+      |p
+        p text
+        |em
+          em text
+        after em
+      after p
+    after div
+  events:
+    - ElementStart
+    - [Name, "div"]
+    - [Text, "div text"]
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "p text"]
+    - ElementStart
+    - [Name, "em"]
+    - [Text, "em text"]
+    - ElementEnd
+    - [Text, "after em"]
+    - ElementEnd
+    - [Text, "after p"]
+    - ElementEnd
+    - [Text, "after div"]
+
+- id: multiple_children_then_prose
+  desc: Multiple child elements then prose at same column
+  udon: |-
+    |p
+      |a first
+      |b second
+      |c third
+      prose after all
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - ElementStart
+    - [Name, "a"]
+    - [Text, "first"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "b"]
+    - [Text, "second"]
+    - ElementEnd
+    - ElementStart
+    - [Name, "c"]
+    - [Text, "third"]
+    - ElementEnd
+    - [Text, "prose after all"]
+    - ElementEnd
+
+- id: prose_element_prose_element_prose
+  desc: Alternating prose and elements at same column
+  udon: |-
+    |p
+      prose 1
+      |em em1
+      prose 2
+      |strong strong1
+      prose 3
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "prose 1"]
+    - ElementStart
+    - [Name, "em"]
+    - [Text, "em1"]
+    - ElementEnd
+    - [Text, "prose 2"]
+    - ElementStart
+    - [Name, "strong"]
+    - [Text, "strong1"]
+    - ElementEnd
+    - [Text, "prose 3"]
+    - ElementEnd
+
+# =============================================================================
+# Escaped prefixes after child elements
+# =============================================================================
+
+- id: escaped_pipe_after_child
+  desc: Escaped pipe after child element is prose
+  udon: |-
+    |p
+      first
+      |em child
+      '|not element
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "first"]
+    - ElementStart
+    - [Name, "em"]
+    - [Text, "child"]
+    - ElementEnd
+    - [Text, "|not element"]
+    - ElementEnd
+
+- id: escaped_colon_after_child
+  desc: Escaped colon after child element is prose
+  udon: |-
+    |p
+      first
+      |em child
+      ':not attr
+  events:
+    - ElementStart
+    - [Name, "p"]
+    - [Text, "first"]
+    - ElementStart
+    - [Name, "em"]
+    - [Text, "child"]
+    - ElementEnd
+    - [Text, ":not attr"]
     - ElementEnd

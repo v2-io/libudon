@@ -60,6 +60,7 @@ fn format_event(event: &Event) -> String {
         Event::Duration { content, .. } => format!("Duration {:?}", String::from_utf8_lossy(content)),
         Event::RelativeTime { content, .. } => format!("RelativeTime {:?}", String::from_utf8_lossy(content)),
         Event::Error { code, .. } => format!("Error {:?}", code),
+        Event::BlankLine { .. } => "BlankLine".to_string(),
     }
 }
 
@@ -101,6 +102,7 @@ fn format_stream_event(event: &StreamEvent) -> String {
         StreamEvent::Duration { content, .. } => format!("Duration {:?}", String::from_utf8_lossy(content)),
         StreamEvent::RelativeTime { content, .. } => format!("RelativeTime {:?}", String::from_utf8_lossy(content)),
         StreamEvent::Error { code, .. } => format!("Error {:?}", code),
+        StreamEvent::BlankLine { .. } => "BlankLine".to_string(),
     }
 }
 
